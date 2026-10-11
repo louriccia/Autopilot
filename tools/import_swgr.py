@@ -1288,6 +1288,38 @@ def main():
         })
     rivals_out.sort(key=lambda x: (x["champion"], x["name"].lower()))
 
+    # --- status effects ---
+    # The effects a vehicle can be under, with the game's glossary text (ST_Keyword <Key>_Desc) and keyword icon.
+    # Whether it stacks comes from its tune set (TNS_Condition_*, the datamine's status_effects.csv). Which effects
+    # help and which hurt isn't in the data (Status Scrubber clears "negative" ones), so that's STATUS_EFFECTS.
+    # (key in ST_Keyword, icon, tune set, positive)
+    STATUS_EFFECTS = [
+        ("Shielded", "Shielded", "Shield", True), ("Surging", "Surge", None, True), ("Cooled", "Cooled", "Cooled", True),
+        ("Overcharged", "Overcharged", None, True),
+        ("Burning", "Burning", "Burning", False), ("Frozen", "Frozen", "Frozen", False),
+        ("Choked", "Choked", "Choked", False), ("Corroded", "Corroded", "Corroded", False),
+        ("Concussed", "Concussed", "Concussed", False), ("Disrupted", "Disrupted", "Distrupted", False),
+        ("Malfunction", "SystemMalfunction", None, False), ("CritMalfunction", None, None, False),
+    ]
+    st_keyword = loc.get("ST_Keyword", {})
+    tune = {r["asset"].replace("TNS_Condition_", ""): r for r in rows(out / "gameplay" / "status_effects.csv")}
+    statuses_out = []
+    for key, icon_name, tune_key, positive in STATUS_EFFECTS:
+        name = st_keyword.get(key)
+        if not name:
+            continue
+        src = ui_icons / "Keywords" / f"T_UI_Keyword_{icon_name}_Icn.png" if icon_name else None
+        t = tune.get(tune_key) if tune_key else None
+        statuses_out.append({
+            "id": slug(name),
+            "name": name,
+            "positive": positive,
+            "description": rich_text(action_text(st_keyword.get(f"{key}_Desc", ""))),
+            "stacks": (t["stacking"] == "True") if t else None,
+            "emoji": emojis.add(f"kw_{icon_name}", src) if src and src.exists() else None,
+            "icon": save_art(src, f"status/{slug(name)}.webp", max_size=128) if src and src.exists() else None,
+        })
+
     # --- mysteries ---
     # Mystery Encounters (Narrative/MysteryInteractions/MYST_*): a character's offer, the player's choices, and each
     # choice's outcomes (weighted when there's more than one). An outcome can set up a follow-up ("bookend") that
@@ -1425,7 +1457,7 @@ def main():
                        ("abilities", {"families": ability_families, "abilities": abilities_out}),
                        ("vehicles", {"classes": vehicle_classes_out, "vehicles": vehicles_out, "kitPointsEmoji": kit_points}),
                        ("favors", favors_out), ("rivals", rivals_out),
-                       ("mysteries", mysteries_out)]:
+                       ("mysteries", mysteries_out), ("statuses", statuses_out)]:
         (DATA_OUT / f"{name}.json").write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     missing = [f"{e['name']} ({k})" for e in arcade for k in ("tile",) if not e[k]]
@@ -1433,7 +1465,7 @@ def main():
     print(f"{len(emojis.by_name)} emoji icons in assets/emoji")
     missing += [f"{t['name']} (map)" for t in tracks if not t["map"]]
     missing += [f"{p['name']} (image)" for p in planets if not p["image"]]
-    print(f"{len(planets)} planets, {len(tracks)} tracks, {len(arcade)} arcade events, {len(scenarios_out)} scenarios, {len(styles_out)} racer styles, {len(parts_out)} parts, {len(abilities_out)} abilities, {len(vehicles_out)} vehicles, {len(favors_out)} favors, {len(rivals_out)} rivals, {len(mysteries_out)} mysteries")
+    print(f"{len(planets)} planets, {len(tracks)} tracks, {len(arcade)} arcade events, {len(scenarios_out)} scenarios, {len(styles_out)} racer styles, {len(parts_out)} parts, {len(abilities_out)} abilities, {len(vehicles_out)} vehicles, {len(favors_out)} favors, {len(rivals_out)} rivals, {len(mysteries_out)} mysteries, {len(statuses_out)} status effects")
     if missing:
         print("missing art:", ", ".join(missing))
 

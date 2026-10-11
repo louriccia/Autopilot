@@ -1048,4 +1048,64 @@ function mysteryInfo(mysteryId) {
     return page(container, files, [mysterySelect(m.id), ...(related.length ? [select('goto', 'Related', related)] : [])])
 }
 
-module.exports = { mysteryInfo, mysteriesOverview, rivalInfo, rivalsOverview, favorInfo, favorsOverview, vehicleInfo, vehicleClassInfo, vehiclesOverview, abilityInfo, abilitiesOverview, arcadeOverview, arcadeCategory, arcadeEvent, trackInfo, planetInfo, scenarioInfo, styleInfo, partInfo, parseKeywordMask }
+// --- status effects ---
+
+// Long mention lists stop at a line break with a note, leaving room for the header
+const trimText = t => t.length > 3000 ? `${t.slice(0, t.lastIndexOf('\n', 3000))}\n-# …and more` : t
+
+function statusSelect(current) {
+    return select('status', 'Pick a status effect', data.statuses.map(s => ({
+        label: s.name, value: s.id, emoji: emoji.named(s.emoji), description: s.description.slice(0, 100),
+    })), current)
+}
+
+function statusesOverview() {
+    const container = new ContainerBuilder().setAccentColor(DEFAULT_COLOR)
+    const line = s => `${emoji.named(s.emoji)} **${s.name}**: ${s.description}`
+    header(container, [crumbs('Status effects'), '# Status effects'])
+    container.addSeparatorComponents(separator())
+    container.addTextDisplayComponents(text(['### Positive', ...data.statuses.filter(s => s.positive).map(line),
+        '### Negative', ...data.statuses.filter(s => !s.positive).map(line)].join('\n')))
+    return page(container, new Files(), [statusSelect()])
+}
+
+function statusInfo(statusId) {
+    const s = data.status(statusId)
+    const files = new Files()
+    const container = new ContainerBuilder().setAccentColor(DEFAULT_COLOR)
+    // Mentions: anything whose text names the effect ("Surging", "System Malfunction")
+    const mentions = t => new RegExp(`\\b${s.name}\\b`).test(t ?? '')
+    const abilities = data.abilities.filter(a => mentions(a.description))
+    const traits = data.styles.flatMap(st => st.ranks.flatMap(r => r.traits.filter(t => mentions(t.description)).map(t => ({ st, r, t }))))
+    const favors = data.favors.filter(f => f.ranks.some(r => mentions(r.description)))
+    const keyword = data.partKeywords.find(k => k.name == s.name)
+    const parts = keyword ? data.partsWithKeywords([keyword.id]) : []
+
+    header(container, [
+        crumbs('Status effects', s.positive ? 'Positive' : 'Negative'),
+        `# ${s.name}`,
+        `*${s.description}*`,
+        [s.stacks != null && (s.stacks ? 'Stacks' : "Doesn't stack"), !s.positive && 'Cleared by Status Scrubber'].filter(Boolean).map(x => `-# ${x}`).join('\n'),
+    ], files.add(s.icon))
+
+    const sections = [
+        abilities.length && ['### Abilities', `-# ${abilities.map(a => `${emoji.named(a.emoji)} ${a.name}`).join(' / ')}`],
+        traits.length && ['### Racer style traits', ...traits.map(({ st, r, t }) => `-# ${emoji.named(st.emoji)} **${st.name}** ${ROMAN[r.rank]}: ${t.name}`)],
+        favors.length && ['### Favors', `-# ${favors.map(f => `${emoji.named(f.emoji)} ${f.name}`).join(' / ')}`],
+        parts.length && ['### Parts', `-# ${parts.length} parts mention it; open the parts finder below`],
+    ].filter(Boolean)
+    if (sections.length) {
+        container.addSeparatorComponents(separator())
+        container.addTextDisplayComponents(text(trimText(sections.flat().join('\n'))))
+    }
+
+    const related = [
+        keyword && parts.length && { label: `Parts with ${s.name}`, value: `keyword:${keyword.id}`, description: `${parts.length} parts`, emoji: emoji.named(s.emoji) },
+        ...abilities.map(a => ({ label: a.name, value: `ability:${a.id}`, description: 'Ability', emoji: emoji.named(a.emoji) })),
+        ...[...new Set(traits.map(x => x.st))].map(st => ({ label: st.name, value: `style:${st.id}`, description: 'Racer style', emoji: emoji.named(st.emoji) })),
+        ...favors.map(f => ({ label: f.name, value: `favor:${f.id}`, description: 'Favor', emoji: emoji.named(f.emoji) })),
+    ].filter(Boolean).slice(0, 25)
+    return page(container, files, [statusSelect(s.id), ...(related.length ? [select('goto', 'Parts, abilities, styles and favors with it', related)] : [])])
+}
+
+module.exports = { statusInfo, statusesOverview, mysteryInfo, mysteriesOverview, rivalInfo, rivalsOverview, favorInfo, favorsOverview, vehicleInfo, vehicleClassInfo, vehiclesOverview, abilityInfo, abilitiesOverview, arcadeOverview, arcadeCategory, arcadeEvent, trackInfo, planetInfo, scenarioInfo, styleInfo, partInfo, parseKeywordMask }

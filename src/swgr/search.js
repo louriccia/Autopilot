@@ -61,6 +61,13 @@ const KINDS = [
         page: id => pages.partInfo(null, [Number(id)]),
     },
     {
+        kind: 'status',
+        items: () => data.statuses,
+        label: s => `${s.name} — Status effect · ${s.positive ? 'Positive' : 'Negative'}`,
+        keywords: s => [s.description, 'status effect'],
+        page: pages.statusInfo,
+    },
+    {
         kind: 'mystery',
         items: () => data.mysteries,
         label: m => `${m.title} — Mystery · ${m.character}`,
