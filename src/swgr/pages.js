@@ -980,4 +980,72 @@ function rivalInfo(rivalId) {
     return page(container, files, [rivalSelect(r.id), ...(related.length ? [select('goto', 'Their favor, scenario, vehicles and tracks', related)] : [])])
 }
 
-module.exports = { rivalInfo, rivalsOverview, favorInfo, favorsOverview, vehicleInfo, vehicleClassInfo, vehiclesOverview, abilityInfo, abilitiesOverview, arcadeOverview, arcadeCategory, arcadeEvent, trackInfo, planetInfo, scenarioInfo, styleInfo, partInfo, parseKeywordMask }
+// --- mysteries ---
+
+function mysterySelect(current) {
+    return select('mystery', 'Pick a mystery encounter', data.mysteries.map(m => ({
+        label: m.title, value: m.id, description: `${m.character} / ${m.parts[0].brief.replace(/\{emoji:\w+\}\s*|\*\*/g, '')}`.slice(0, 100),
+    })), current)
+}
+
+function mysteriesOverview() {
+    const container = new ContainerBuilder().setAccentColor(DEFAULT_COLOR)
+    header(container, [crumbs('Mysteries'), '# Mystery Encounters',
+        `${data.mysteries.length} encounters that can turn up on the campaign map. Titles are ours; the game doesn't name them.`])
+    container.addSeparatorComponents(separator())
+    container.addTextDisplayComponents(text(data.mysteries.map(m => `**${m.title}** / ${m.character}${m.favors.length ? ` / ${emoji.named('kw_Favor')}` : ''}`).join('\n')))
+    return page(container, new Files(), [mysterySelect()])
+}
+
+// One outcome as a line: "30% → Spent 5,000, then 2 days later Fola Kanjen: 20,000 received"
+// An outcome's own text, naming the favor when it unlocks one
+const outcomeText = o => [o.text && emojify(o.text), o.favor && `(**${data.favor(o.favor).name}**)`].filter(Boolean).join(' ')
+function outcomeLine(o) {
+    const later = o.followUp && (o.followUp.outcomes.length
+        ? o.followUp.outcomes.map(f => `${f.chance != null ? `${f.chance}%: ` : ''}${outcomeText(f)}`).join(' or ')
+        : 'nothing comes back')
+    const when = o.followUp && `${o.followUp.days ? `${o.followUp.days} days later` : 'later'}, ${o.followUp.character}: ${later}`
+    return `-# ${o.chance != null ? `**${o.chance}%** ` : ''}→ ${[outcomeText(o), when].filter(Boolean).join(', then ')}`
+}
+
+function mysteryInfo(mysteryId) {
+    const m = data.mystery(mysteryId)
+    const files = new Files()
+    const container = new ContainerBuilder().setAccentColor(DEFAULT_COLOR)
+    const conditions = p => [...p.requires, p.lastPlanet && `Offered up to planet ${p.lastPlanet}`].filter(Boolean)
+    const first = m.parts[0]
+    header(container, [
+        crumbs('Mysteries', m.character),
+        `# ${m.title}`,
+        `*${emojify(first.brief)}*`,
+        conditions(first).length && `-# ${conditions(first).join(' / ')}`,
+    ], files.add(m.image))
+
+    // Parts of a sequence each have their own offer; versions (one per act) share it
+    const versions = m.parts.every(p => p.brief == first.brief)
+    m.parts.forEach((p, i) => {
+        const lines = []
+        if (m.parts.length > 1) {
+            const same = p.brief == first.brief
+            lines.push(`### ${p.label ?? `${versions ? 'Version' : 'Part'} ${i + 1}`}`)
+            if (i && !same) lines.push(`*${emojify(p.brief)}*`)
+            if (i && conditions(p).length) lines.push(`-# ${conditions(p).join(' / ')}`)
+        }
+        for (const c of p.choices) {
+            lines.push(`**${c.text}**${c.fallback ? ' *(default)*' : ''}`)
+            if (c.info) lines.push(`-# ${emojify(c.info)}`)
+            lines.push(...c.outcomes.map(outcomeLine))
+        }
+        container.addSeparatorComponents(separator())
+        container.addTextDisplayComponents(text(lines.join('\n')))
+    })
+
+    const rival = data.rivals.find(r => m.character.startsWith(r.name.split(' & ')[0]) || m.character == r.name)
+    const related = [
+        ...m.favors.map(data.favor).map(f => ({ label: f.name, value: `favor:${f.id}`, description: 'Favor it unlocks', emoji: emoji.named(f.emoji) })),
+        rival && { label: rival.name, value: `rival:${rival.id}`, description: 'Rival' },
+    ].filter(Boolean)
+    return page(container, files, [mysterySelect(m.id), ...(related.length ? [select('goto', 'Related', related)] : [])])
+}
+
+module.exports = { mysteryInfo, mysteriesOverview, rivalInfo, rivalsOverview, favorInfo, favorsOverview, vehicleInfo, vehicleClassInfo, vehiclesOverview, abilityInfo, abilitiesOverview, arcadeOverview, arcadeCategory, arcadeEvent, trackInfo, planetInfo, scenarioInfo, styleInfo, partInfo, parseKeywordMask }

@@ -1288,12 +1288,144 @@ def main():
         })
     rivals_out.sort(key=lambda x: (x["champion"], x["name"].lower()))
 
+    # --- mysteries ---
+    # Mystery Encounters (Narrative/MysteryInteractions/MYST_*): a character's offer, the player's choices, and each
+    # choice's outcomes (weighted when there's more than one). An outcome can set up a follow-up ("bookend") that
+    # plays later, and favor sequences chain offers (106A > B > C). The game has no titles for them, so cards use
+    # MYSTERY_TITLES (ours), one card per number: sequence parts and act variants are parts of the same card.
+    MYSTERY_TITLES = {
+        "005": "A Little Help", "009": "Old Rivals' Parts", "013": "A Scratch", "014": "The Bully", "049": "Cheap Parts",
+        "101": "Eliminator Threat", "102": "Steal a Part", "103": "Prototype Part", "104": "Scratch My Back",
+        "105": "New Supplier", "106": "Biddy's Bets", "107": "Podium Promise", "108": "Smuggler's Spoils",
+        "109": "Mystery Cargo", "110": "Quick Fix", "111": "Scrap Dealer Discount", "112": "Refit",
+        "113": "Credits for Victory", "115": "The Snitch", "136": "Katja's Challenge", "145": "Suspect Gift",
+        "152": "Mercenary Services", "157": "The Gamble",
+    }
+    HOLO_OF = {"Promoter": "darius_pax", "Mentor": "sebulba_paddock", "Antagonist": "kestar_bool", "Mercenary": "malis_vazosk",
+               "QuietStrength": "nik_skandaro", "Mechanic": "hibi", "InnerHonour": "soren_zaks", "Rager": "biddy_blas",
+               "Thrall": "sen_fira", "Ghost": "goli", "Protege": "ary_quill", "Star": "lyren_shok",
+               "ElegantProfessional": "katja_mox", "Nomad": "fola_kanjen"}
+    myst_dir = game / "Narrative" / "MysteryInteractions"
+    myst_rows = list(rows(out / "mysteries.csv"))
+    names_by_persona = {r["Codename"]: r["Name"] for r in rows(out / "characters.csv")}
+    favor_by_tag = {r["Requires"]: slug(r["Name"]) for r in favor_rows if r["Rank"] == "1"}
+    met = {f"Unlock.VO.Cam.{p}Introduced": n for p, n in names_by_persona.items()}
+    met["Unlock.VO.Cam.GhostTranslatorIntroduced"] = met["Unlock.VO.Cam.Ghost"] = "Goli & 02-R0"
+
+    def requirement(tag):
+        if tag in met:
+            return f"After meeting {met[tag]}"
+        m = re.match(r"Unlock\.Cam\.Tour(\d)Done$", tag)
+        if m:
+            return f"After Tour {m.group(1)}"
+        m = re.match(r"RunUnlock\.Mystery\.Planet\.(\w+)$", tag)
+        if m:
+            return f"From the {({'Two': '2nd', 'Three': '3rd', 'Four': '4th'}).get(m.group(1), m.group(1))} planet of a tour"
+        return {"Unlock.Cam.Map.BlackMarket": "Once the Scrap Dealer is unlocked",
+                "Unlock.Cam.FirstRunDone": "After your first tour"}.get(tag)  # sequence / token tags: implied
+
+    def myst_text(s):
+        s = re.sub(r"<H\d>", "<H1>", (s or "").replace("\r\n", "\n").strip())
+        # an icon given twice (<widget id="Ramjet"/><img id="RamjetMyst"/>, in either order) shows once
+        s = re.sub(r'(<(?:widget|img) id="(\w+?)(?:Myst)?"\s*/>)\s*<(?:widget|img) id="\2(?:Myst)?"\s*/>', r"\1", s)
+        # and icons that end up the same (a Faulty Part's fault marker has none, leaving Part twice) show once too
+        return re.sub(r"(\{emoji:\w+\} )\1+", r"\1", rich_text(s, favor_icon, bold=True)).replace("\n", ", ")
+
+    def myst_objects(name):
+        return load_json(myst_dir / f"{name}.json")
+
+    def ref(objs, r):
+        return (objs[int(r["ObjectPath"].rsplit(".", 1)[1])].get("Properties") or {}) if r else {}
+
+    def outcomes_of(objs, choice):
+        outs = [ref(objs, o) for o in choice.get("Outcomes", [])]
+        total = sum(o.get("WeightedChance", 0) for o in outs) if len(outs) > 1 else 0
+        result = []
+        for o in outs:
+            follow = None
+            if o.get("ResultBookend"):
+                bname = o["ResultBookend"]["AssetPathName"].rsplit(".", 1)[1]
+                bobjs = myst_objects(bname)
+                bprops = bobjs[0].get("Properties") or {}
+                bchoice = ref(bobjs, bprops.get("MandatoryChoice"))
+                persona = (bprops.get("Character") or {}).get("AssetPathName", "").split("BP_NPC_")[-1].split(".")[0]
+                persona = re.sub(r"^Vendor_|_C$", "", persona)
+                follow = {"character": names_by_persona.get(persona, persona),
+                          "days": o.get("DaysToWaitBeforeUnlockingBookend"),
+                          # no text: nothing comes back (e.g. a lost bet)
+                          "outcomes": [x for x in outcomes_of(bobjs, bchoice) if x["text"] or x["favor"] or x["followUp"]]}
+            text = myst_text((o.get("Outcome") or {}).get("LocalizedString"))
+            if not text and not follow:
+                continue
+            result.append({
+                "text": text or None,
+                "chance": round(100 * o.get("WeightedChance", 0) / total) if total else None,
+                "favor": next((favor_by_tag[t] for t in o.get("ResultUnlockTags", []) if t in favor_by_tag), None),
+                "followUp": follow,
+            })
+        return result
+
+    mysteries_out, seen = {}, set()
+    for r in myst_rows:
+        enc = r["Encounter"]
+        if r["Type"] != "Offer" or enc in seen:
+            continue
+        seen.add(enc)
+        objs = myst_objects(f"MYST_{enc}")
+        props = objs[0].get("Properties") or {}
+        number = re.match(r"\d+", enc).group(0)
+        persona = re.sub(r"^Vendor_|_C$", "", (props.get("Character") or {}).get("AssetPathName", "").split("BP_NPC_")[-1].split(".")[0])
+        choices = []
+        for c in props.get("Choices", []):
+            cp = ref(objs, c)
+            choices.append({
+                "text": myst_text((cp.get("Choice") or {}).get("LocalizedString")),
+                "info": myst_text((cp.get("ExtraInformation") or {}).get("LocalizedString")) or None,
+                "fallback": bool(cp.get("bIsFallbackChoice")),
+                "outcomes": outcomes_of(objs, cp),
+            })
+        act = re.search(r"_Act(\d)$", enc)
+        part = {
+            "enc": enc,
+            "label": f"Act {act.group(1)}" if act else None,  # the same offer, one version per act
+            "brief": myst_text((props.get("ChoiceOverview") or {}).get("LocalizedString")),
+            "lastPlanet": int(r["Offered until planet"]) if r["Offered until planet"] else None,
+            "requires": [x for x in map(requirement, [t.strip() for t in r["Requires"].split(";") if t.strip()]) if x],
+            "choices": choices,
+        }
+        if number not in mysteries_out:
+            mid = slug(MYSTERY_TITLES.get(number, enc))
+            who = HOLO_OF.get(persona)
+            icon = None
+            if not who:  # Ori & Per have no hologram; their favor's patch stands in
+                icon = next((f["icon"] for f in favors_out if f["key"] == persona), None)
+            mysteries_out[number] = {
+                "id": mid,
+                "number": number,
+                "title": MYSTERY_TITLES.get(number, enc),
+                "character": r["Character"],
+                "image": save_flipbook_gif(args.datamine, f"holo_{who}", f"mysteries/{who}.gif", height=240) if who else icon,
+                "parts": [],
+            }
+        mysteries_out[number]["parts"].append(part)
+    mysteries_out = sorted(mysteries_out.values(), key=lambda m: m["number"])
+    for m in mysteries_out:
+        m["parts"].sort(key=lambda p: p["enc"].replace("_", " "))  # 113 before 113B
+        for p in m["parts"]:
+            del p["enc"]
+        def walk(outs):
+            for o in outs:
+                yield o
+                yield from walk((o["followUp"] or {}).get("outcomes", []))
+        m["favors"] = sorted({o["favor"] for p in m["parts"] for c in p["choices"] for o in walk(c["outcomes"]) if o["favor"]})
+
     for name, data in [("planets", planets), ("tracks", tracks),
                        ("arcade", {"categories": categories, "vehicleClasses": vehicle_classes, "events": arcade}),
                        ("scenarios", scenarios_out), ("styles", styles_out), ("parts", {"keywords": keywords_out, "parts": parts_out}),
                        ("abilities", {"families": ability_families, "abilities": abilities_out}),
                        ("vehicles", {"classes": vehicle_classes_out, "vehicles": vehicles_out, "kitPointsEmoji": kit_points}),
-                       ("favors", favors_out), ("rivals", rivals_out)]:
+                       ("favors", favors_out), ("rivals", rivals_out),
+                       ("mysteries", mysteries_out)]:
         (DATA_OUT / f"{name}.json").write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     missing = [f"{e['name']} ({k})" for e in arcade for k in ("tile",) if not e[k]]
@@ -1301,7 +1433,7 @@ def main():
     print(f"{len(emojis.by_name)} emoji icons in assets/emoji")
     missing += [f"{t['name']} (map)" for t in tracks if not t["map"]]
     missing += [f"{p['name']} (image)" for p in planets if not p["image"]]
-    print(f"{len(planets)} planets, {len(tracks)} tracks, {len(arcade)} arcade events, {len(scenarios_out)} scenarios, {len(styles_out)} racer styles, {len(parts_out)} parts, {len(abilities_out)} abilities, {len(vehicles_out)} vehicles, {len(favors_out)} favors, {len(rivals_out)} rivals")
+    print(f"{len(planets)} planets, {len(tracks)} tracks, {len(arcade)} arcade events, {len(scenarios_out)} scenarios, {len(styles_out)} racer styles, {len(parts_out)} parts, {len(abilities_out)} abilities, {len(vehicles_out)} vehicles, {len(favors_out)} favors, {len(rivals_out)} rivals, {len(mysteries_out)} mysteries")
     if missing:
         print("missing art:", ", ".join(missing))
 

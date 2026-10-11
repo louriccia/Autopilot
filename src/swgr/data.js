@@ -8,6 +8,7 @@ const { families: abilityFamilies, abilities } = require('../data/swgr/abilities
 const { classes, vehicles } = require('../data/swgr/vehicles.json')
 const favors = require('../data/swgr/favors.json')
 const rivals = require('../data/swgr/rivals.json')
+const mysteries = require('../data/swgr/mysteries.json')
 const styles = require('../data/swgr/styles.json')
 const { keywords: partKeywords, parts } = require('../data/swgr/parts.json')
 // Hand-maintained (not generated): staff times from the community leaderboard sheet, by arcade event id
@@ -23,6 +24,7 @@ const abilityById = byId(abilities)
 const vehicleById = byId(vehicles)
 const favorById = byId(favors)
 const rivalById = byId(rivals)
+const mysteryById = byId(mysteries)
 const classById = byId(classes)
 const abilityByName = Object.fromEntries(abilities.map(a => [a.name, a]))
 const styleById = byId(styles)
@@ -59,6 +61,7 @@ module.exports = {
     vehicles,
     favors,
     rivals,
+    mysteries,
     parts,
     vehicleClass: name => vehicleClasses[name],
     planet: id => planetById[id],
@@ -70,6 +73,7 @@ module.exports = {
     vehicle: id => vehicleById[id],
     favor: id => favorById[id],
     rival: id => rivalById[id],
+    mystery: id => mysteryById[id],
     vehicleByName: name => vehicles.find(v => v.name == name),
     vehicleClassById: id => classById[id],
     vehiclesInClass: name => vehicles.filter(v => v.class == name),

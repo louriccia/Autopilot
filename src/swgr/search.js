@@ -61,6 +61,13 @@ const KINDS = [
         page: id => pages.partInfo(null, [Number(id)]),
     },
     {
+        kind: 'mystery',
+        items: () => data.mysteries,
+        label: m => `${m.title} — Mystery · ${m.character}`,
+        keywords: m => [m.character, ...m.parts.map(p => p.brief.replace(/\{emoji:\w+\}\s*|\*\*/g, '')), 'mystery encounter'],
+        page: pages.mysteryInfo,
+    },
+    {
         kind: 'rival',
         items: () => data.rivals,
         label: r => `${r.name} — ${r.champion ? 'Champion' : 'Rival'}`,
@@ -121,7 +128,7 @@ function search(query, limit = 25) {
     const results = []
     for (const k of KINDS) {
         for (const item of k.items()) {
-            const s = q ? score(item.name, k.keywords(item), q) : 1
+            const s = q ? score(item.name ?? item.title, k.keywords(item), q) : 1  // mysteries have titles
             if (s) results.push({ s, name: k.label(item).slice(0, 100), value: `${k.kind}:${item.id}` })
         }
     }

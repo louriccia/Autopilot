@@ -4,7 +4,7 @@ A Discord bot for the Star Wars: Galactic Racer server. Its command and interact
 
 ## Commands
 
-* **/search &lt;query&gt;** - find anything (arcade events and categories, tracks, planets, scenarios, racer styles, parts, part keywords, abilities, vehicles, vehicle classes, favors, rivals) and open its page
+* **/search &lt;query&gt;** - find anything (arcade events and categories, tracks, planets, scenarios, racer styles, parts, part keywords, abilities, vehicles, vehicle classes, favors, rivals, mysteries) and open its page
 * **/arcade [event] [category]** - arcade events: medal times and rivals, track, vehicle, build, parts and unlocks
 * **/track &lt;name&gt;** - track map, format, laps and the arcade events run on it
 * **/planet &lt;name&gt;** - planet description, conditions and tracks
@@ -15,6 +15,7 @@ A Discord bot for the Star Wars: Galactic Racer server. Its command and interact
 * **/vehicle [name]** - a vehicle's manufacturer, Kit Points cost, unlock, parts, rivals who race it and arcade events; with no name, browse the classes and their traits
 * **/favor [name]** - a favor's effect at each rank, who offers it and how each rank unlocks; with no name, list them all
 * **/rival [name]** - a rival's bio, vehicles, Head-to-Head races and the favor and livery for beating them; with no name, list them all
+* **/mystery [name]** - a Mystery Encounter's offer, when it can appear, every choice and its outcomes with their odds and follow-ups; with no name, list them all
 * **/help** - list of Autopilot's commands
 * **/ping** - check that Autopilot is online and its response time
 
