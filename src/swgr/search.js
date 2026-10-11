@@ -61,6 +61,20 @@ const KINDS = [
         page: id => pages.partInfo(null, [Number(id)]),
     },
     {
+        kind: 'palette',
+        items: () => data.palettes,
+        label: p => `${p.name} — Livery palette · ${p.group}`,
+        keywords: p => [p.group, p.unlock, 'livery', 'palette', 'colour', 'color'].filter(Boolean),
+        page: pages.paletteInfo,
+    },
+    {
+        kind: 'pattern',
+        items: () => data.patterns,
+        label: p => `${p.name} — Livery pattern · ${p.class}`,
+        keywords: p => [p.class, p.group, p.unlock, 'livery', 'pattern'].filter(Boolean),
+        page: pages.patternInfo,
+    },
+    {
         kind: 'tale',
         items: () => data.tales,
         label: t => `${t.name} — Tales of Podracing ${t.number}`,

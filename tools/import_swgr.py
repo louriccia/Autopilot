@@ -18,7 +18,7 @@ import math
 import re
 from pathlib import Path
 
-from PIL import Image, ImageChops, ImageDraw, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA_OUT = ROOT / "src" / "data" / "swgr"
@@ -1241,15 +1241,25 @@ def main():
     liveries = json.loads((out / "liveries" / "liveries.json").read_text(encoding="utf-8"))
     track_by_name = {t["name"]: t["id"] for t in tracks}
 
+    ui_common = ui_icons.parent / "Common"
+
     def palette_emoji(key, colors):
-        """A livery palette as three rounded swatches, body colour first, like the garage's colour picker."""
-        size, pad = 128, 6
-        im = Image.new("RGBA", (size, size))
+        """A livery palette the way the garage shows it: the body colour over most of the tile, a diagonal stripe of
+        the second colour and the accent in the top-right corner, with a thin light border on the UI's rounded tile. The garage draws these at
+        runtime, so this is a likeness built from its pieces, not a copy of a texture."""
+        size = 128
+        im = Image.new("RGBA", (size, size), colors[0])
         draw = ImageDraw.Draw(im)
-        w = (size - 2 * pad) // 3
-        for i, c in enumerate(colors[:3]):
-            draw.rounded_rectangle((pad + i * w + 2, pad + 14, pad + (i + 1) * w - 2, size - pad - 14), radius=10, fill=c)
-        return emojis.add_image(f"pal_{key}"[:32], im)
+        for c, k in ((colors[1], 0.9), (colors[2], 0.55)):  # top-right corner triangles, legs k of the side
+            o = (1 - k) * size
+            draw.polygon([(o, 0), (size, 0), (size, size - o)], fill=c)
+        im = Image.blend(im, Image.new("RGBA", (size, size), (128, 128, 128, 255)), 0.08)  # the tile's dusty flatness
+        mask = Image.open(ui_common / "T_UI_FE_TileButton_140_Fill_Cmn.png").convert("RGBA").getchannel("A").resize((size, size), Image.LANCZOS)
+        border = Image.new("RGBA", (size, size), (225, 225, 225, 255))
+        border.putalpha(ImageChops.subtract(mask, mask.filter(ImageFilter.MinFilter(5))).point(lambda v: v * 0.8))
+        im.alpha_composite(border)
+        im.putalpha(mask)
+        return emojis.add_image(re.sub(r"[^A-Za-z0-9_]", "", f"pal_{key}")[:32], im)
 
     def head_to_head(spec):
         # "The War Fields (Loop, reverse) Sunset 2 laps x1"
@@ -1411,6 +1421,71 @@ def main():
     tales_out.sort(key=lambda t: t["number"])
     for i, t in enumerate(tales_out):  # numbered 1..12 as played (the asset numbers skip 12)
         t["number"] = i + 1
+
+    # --- liveries ---
+    # A speeder's livery is a palette (3 colours: body first), a pattern (per vehicle class; the datamine renders each
+    # top-down in its own palette) and a patina (paint / rust / steel wear). Podracers can't be customised, so their
+    # patterns are left out. The manufacturer-themed palettes and patterns have no player-facing names ("Ace01"
+    # internally), so they're named after the manufacturer whose theme they are (LIVERY_MAKERS, from VehicleText).
+    LIVERY_MAKERS = {k.split("_", 1)[1]: v for k, v in vtext.items() if k.startswith("Manufacturer_")}
+
+    def livery_name(raw):
+        m = re.match(r"(Ace|Assassin|Enforcer|Raider|Robotic|Vintage)0?(\d+)A?$", raw)
+        return f"{LIVERY_MAKERS[m.group(1)]} {m.group(2)}" if m and m.group(1) in LIVERY_MAKERS else raw
+
+    def livery_group(unlock, unlocked_by, default):
+        if default or unlock == "Start the Campaign.":
+            return "Starter"
+        if "Rival race" in unlock or "championship" in unlock:
+            return "Rivals"
+        if "Podracer Challenge" in unlock or "Tales of Podracing" in unlock:
+            return "Podracing"
+        if unlocked_by.startswith("PvpUnlock.Rank"):
+            return "Multiplayer"
+        if "Edition" in unlock or "Preorder" in unlocked_by or "Entl" in unlocked_by:
+            return "Editions"
+        return "Shop"
+
+    def livery_unlock(v):
+        rank = re.match(r"PvpUnlock\.Rank\.(\d+)", v.get("unlocked_by") or "")
+        text = (v.get("unlock") or "").replace("{PvpRank}", rank.group(1) if rank else "?")
+        if not text and "Preorder" in (v.get("unlocked_by") or "") + (v.get("asset") or ""):
+            text = "Pre-order STAR WARS: Galactic Racer™."
+        return text or None
+
+    palettes_out = []
+    for key, v in liveries["palettes"].items():
+        short = key.replace("Customisation.Livery.", "")
+        pid = slug(livery_name(v["name"]))
+        palettes_out.append({
+            "id": pid, "name": livery_name(v["name"]), "colors": v["colors"], "kitPoints": v.get("cost"),
+            "unlock": livery_unlock(v), "group": livery_group(v.get("unlock") or "", v.get("unlocked_by") or "", v.get("default_unlocked")),
+            "emoji": palette_emoji(re.sub(r"A$", "", short), v["colors"]),
+        })
+    patterns_out = []
+    for r in rows(out / "liveries" / "patterns.csv"):
+        if r["class"] == "Plane" or r["name"] == "None":
+            continue
+        cls_name = {"Bike": "Speeder Bike", "Car": "Landspeeder", "Skimmer": "Skim Speeder"}[r["class"]]
+        short = r["tag"].replace("Livery.", "")
+        render = out / "liveries" / "patterns" / f"{r['class']}_{short}.png"
+        pid = f"{slug(cls_name)}-{slug(livery_name(r['name']))}"
+        image = None
+        if render.exists():  # the render carries a caption strip under the square
+            im = Image.open(render).convert("RGB")
+            im = im.crop((0, 0, im.width, im.width))
+            dest = ART_OUT / "liveries" / f"{pid}.webp"
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            im.resize((256, 256), Image.LANCZOS).save(dest, "WEBP", quality=88)
+            image = dest.relative_to(ROOT).as_posix()
+        patterns_out.append({
+            "id": pid, "name": livery_name(r["name"]), "class": cls_name, "kitPoints": num(r["cost"]) if r["cost"] else None,
+            "unlock": livery_unlock({"unlock": r["unlock"], "unlocked_by": r["unlocked_by"], "asset": r["asset"]}),
+            "group": livery_group(r["unlock"], r["unlocked_by"], r["default_unlocked"] == "True"),
+            "image": image,
+        })
+    patinas_out = [{"id": slug(v["name"]), "name": v["name"], "kitPoints": v.get("cost"), "unlock": livery_unlock(v)}
+                   for v in (liveries["patinas"].values() if isinstance(liveries["patinas"], dict) else liveries["patinas"])]
 
     # --- status effects ---
     # The effects a vehicle can be under, with the game's glossary text (ST_Keyword <Key>_Desc) and keyword icon.
@@ -1582,7 +1657,8 @@ def main():
                        ("vehicles", {"classes": vehicle_classes_out, "vehicles": vehicles_out, "kitPointsEmoji": kit_points}),
                        ("favors", favors_out), ("rivals", rivals_out),
                        ("mysteries", mysteries_out), ("statuses", statuses_out),
-                       ("sponsors", sponsors_out), ("tales", tales_out)]:
+                       ("sponsors", sponsors_out), ("tales", tales_out),
+                       ("liveries", {"palettes": palettes_out, "patterns": patterns_out, "patinas": patinas_out})]:
         (DATA_OUT / f"{name}.json").write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     missing = [f"{e['name']} ({k})" for e in arcade for k in ("tile",) if not e[k]]
@@ -1590,7 +1666,7 @@ def main():
     print(f"{len(emojis.by_name)} emoji icons in assets/emoji")
     missing += [f"{t['name']} (map)" for t in tracks if not t["map"]]
     missing += [f"{p['name']} (image)" for p in planets if not p["image"]]
-    print(f"{len(planets)} planets, {len(tracks)} tracks, {len(arcade)} arcade events, {len(scenarios_out)} scenarios, {len(styles_out)} racer styles, {len(parts_out)} parts, {len(abilities_out)} abilities, {len(vehicles_out)} vehicles, {len(favors_out)} favors, {len(rivals_out)} rivals, {len(mysteries_out)} mysteries, {len(statuses_out)} status effects, {len(sponsors_out)} sponsors, {len(tales_out)} tales")
+    print(f"{len(planets)} planets, {len(tracks)} tracks, {len(arcade)} arcade events, {len(scenarios_out)} scenarios, {len(styles_out)} racer styles, {len(parts_out)} parts, {len(abilities_out)} abilities, {len(vehicles_out)} vehicles, {len(favors_out)} favors, {len(rivals_out)} rivals, {len(mysteries_out)} mysteries, {len(statuses_out)} status effects, {len(sponsors_out)} sponsors, {len(tales_out)} tales, {len(palettes_out)} palettes, {len(patterns_out)} patterns")
     if missing:
         print("missing art:", ", ".join(missing))
 

@@ -12,6 +12,7 @@ const mysteries = require('../data/swgr/mysteries.json')
 const statuses = require('../data/swgr/statuses.json')
 const sponsors = require('../data/swgr/sponsors.json')
 const tales = require('../data/swgr/tales.json')
+const { palettes, patterns, patinas } = require('../data/swgr/liveries.json')
 const styles = require('../data/swgr/styles.json')
 const { keywords: partKeywords, parts } = require('../data/swgr/parts.json')
 // Hand-maintained (not generated): staff times from the community leaderboard sheet, by arcade event id
@@ -31,6 +32,8 @@ const mysteryById = byId(mysteries)
 const statusById = byId(statuses)
 const sponsorById = byId(sponsors)
 const taleById = byId(tales)
+const paletteById = byId(palettes)
+const patternById = byId(patterns)
 const classById = byId(classes)
 const abilityByName = Object.fromEntries(abilities.map(a => [a.name, a]))
 const styleById = byId(styles)
@@ -71,6 +74,9 @@ module.exports = {
     statuses,
     sponsors,
     tales,
+    palettes,
+    patterns,
+    patinas,
     parts,
     vehicleClass: name => vehicleClasses[name],
     planet: id => planetById[id],
@@ -86,6 +92,10 @@ module.exports = {
     status: id => statusById[id],
     sponsor: id => sponsorById[id],
     tale: id => taleById[id],
+    palette: id => paletteById[id],
+    pattern: id => patternById[id],
+    palettesIn: group => palettes.filter(p => p.group == group),
+    patternsFor: className => patterns.filter(p => p.class == className),
     vehicleByName: name => vehicles.find(v => v.name == name),
     vehicleClassById: id => classById[id],
     vehiclesInClass: name => vehicles.filter(v => v.class == name),

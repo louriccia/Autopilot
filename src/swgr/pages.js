@@ -1222,4 +1222,93 @@ function taleInfo(taleId) {
     return page(container, files, [taleSelect(t.id), ...(steps.length ? [buttons(...steps)] : []), select('goto', 'Its rewards, track and podracers', related)])
 }
 
-module.exports = { taleInfo, talesOverview, backerInfo, backersOverview, statusInfo, statusesOverview, mysteryInfo, mysteriesOverview, rivalInfo, rivalsOverview, favorInfo, favorsOverview, vehicleInfo, vehicleClassInfo, vehiclesOverview, abilityInfo, abilitiesOverview, arcadeOverview, arcadeCategory, arcadeEvent, trackInfo, planetInfo, scenarioInfo, styleInfo, partInfo, parseKeywordMask }
+// --- liveries ---
+// A livery is a palette (3 colours), a pattern (per vehicle class) and a finish (patina). Menus go
+// kind > group > item: livery_pgroup (palette groups), livery_palette, livery_pclass (pattern classes), livery_pattern.
+
+const LIVERY_GROUPS = ['Starter', 'Shop', 'Rivals', 'Podracing', 'Editions', 'Multiplayer']
+const kitCost = n => n ? `${emoji.named('KitPoints')} ${n}` : null
+const liveryLine = x => [x.kitPoints && kitCost(x.kitPoints), x.unlock].filter(Boolean).join(' / ') || 'Free'
+
+function paletteGroupSelect(current) {
+    return select('livery_pgroup', 'Browse palettes', LIVERY_GROUPS.filter(g => data.palettesIn(g).length).map(g => ({
+        label: `${g} palettes`, value: g, description: `${data.palettesIn(g).length} palettes`, emoji: emoji.named(data.palettesIn(g)[0].emoji),
+    })), current)
+}
+function paletteSelect(group, current) {
+    return select('livery_palette', `Pick a ${group.toLowerCase()} palette`, data.palettesIn(group).map(p => ({
+        label: p.name, value: p.id, emoji: emoji.named(p.emoji), description: liveryLine(p).replace(/<a?:\w+:\d+>\s*/g, '').slice(0, 100),
+    })), current)
+}
+function patternClassSelect(current) {
+    return select('livery_pclass', 'Browse patterns', data.classes.filter(c => data.patternsFor(c.name).length).map(c => ({
+        label: `${c.name} patterns`, value: c.id, description: `${data.patternsFor(c.name).length} patterns`, emoji: emoji.vehicle[c.name],
+    })), current)
+}
+function patternSelect(className, current) {
+    return select('livery_pattern', `Pick a ${className.toLowerCase()} pattern`, data.patternsFor(className).map(p => ({
+        label: p.name, value: p.id, description: liveryLine(p).replace(/<a?:\w+:\d+>\s*/g, '').slice(0, 100),
+    })), current)
+}
+
+function liveriesOverview() {
+    const container = new ContainerBuilder().setAccentColor(DEFAULT_COLOR)
+    header(container, [crumbs('Liveries'), '# Liveries', 'A livery is a colour palette, a pattern for your vehicle class, and a finish.'])
+    container.addSeparatorComponents(separator())
+    container.addTextDisplayComponents(text([
+        '### Palettes', ...LIVERY_GROUPS.filter(g => data.palettesIn(g).length).map(g =>
+            `${data.palettesIn(g).slice(0, 6).map(p => emoji.named(p.emoji)).join('')} **${g}** / ${data.palettesIn(g).length}`),
+        '### Patterns', ...data.classes.filter(c => data.patternsFor(c.name).length).map(c => `${emoji.vehicle[c.name]} **${c.name}** / ${data.patternsFor(c.name).length}`),
+        '### Finishes', ...data.patinas.map(p => `**${p.name}** / ${liveryLine(p)}`),
+    ].join('\n')))
+    return page(container, new Files(), [paletteGroupSelect(), patternClassSelect()])
+}
+
+function paletteGroupInfo(group) {
+    const container = new ContainerBuilder().setAccentColor(DEFAULT_COLOR)
+    header(container, [crumbs('Liveries', 'Palettes'), `# ${group} palettes`])
+    container.addSeparatorComponents(separator())
+    container.addTextDisplayComponents(text(data.palettesIn(group).map(p => `${emoji.named(p.emoji)} **${p.name}** / ${liveryLine(p)}`).join('\n')))
+    return page(container, new Files(), [paletteGroupSelect(group), paletteSelect(group)])
+}
+
+function paletteInfo(paletteId) {
+    const p = data.palette(paletteId)
+    const files = new Files()
+    const container = new ContainerBuilder().setAccentColor(DEFAULT_COLOR)
+    header(container, [
+        crumbs('Liveries', 'Palettes', p.group),
+        `# ${p.name}`,
+        `-# ${p.colors.map((c, i) => `${i ? '' : 'Body '}\`${c}\``).join(' / ')}`,
+        kitCost(p.kitPoints),
+        unlockLine(p.unlock),
+    ], files.add(`assets/emoji/${p.emoji}.png`))
+    return page(container, files, [paletteGroupSelect(p.group), paletteSelect(p.group, p.id)])
+}
+
+function patternClassInfo(classId) {
+    const c = data.vehicleClassById(classId)
+    const container = new ContainerBuilder().setAccentColor(DEFAULT_COLOR)
+    header(container, [crumbs('Liveries', 'Patterns'), `# ${emoji.vehicle[c.name]} ${c.name} patterns`])
+    container.addSeparatorComponents(separator())
+    container.addTextDisplayComponents(text(data.patternsFor(c.name).map(p => `**${p.name}** / ${liveryLine(p)}`).join('\n')))
+    return page(container, new Files(), [patternClassSelect(c.id), patternSelect(c.name)])
+}
+
+function patternInfo(patternId) {
+    const p = data.pattern(patternId)
+    const c = data.classes.find(x => x.name == p.class)
+    const files = new Files()
+    const container = new ContainerBuilder().setAccentColor(DEFAULT_COLOR)
+    header(container, [
+        crumbs('Liveries', 'Patterns', p.class),
+        `# ${p.name}`,
+        `${emoji.vehicle[p.class]} ${p.class}${p.kitPoints ? ` / ${kitCost(p.kitPoints)}` : ''}`,
+        unlockLine(p.unlock),
+        '-# Seen from above, nose to the right, in its own palette',
+    ])
+    gallery(container, files.add(p.image))
+    return page(container, files, [patternClassSelect(c.id), patternSelect(p.class, p.id)])
+}
+
+module.exports = { liveriesOverview, paletteGroupInfo, paletteInfo, patternClassInfo, patternInfo, taleInfo, talesOverview, backerInfo, backersOverview, statusInfo, statusesOverview, mysteryInfo, mysteriesOverview, rivalInfo, rivalsOverview, favorInfo, favorsOverview, vehicleInfo, vehicleClassInfo, vehiclesOverview, abilityInfo, abilitiesOverview, arcadeOverview, arcadeCategory, arcadeEvent, trackInfo, planetInfo, scenarioInfo, styleInfo, partInfo, parseKeywordMask }
