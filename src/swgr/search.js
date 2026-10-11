@@ -61,6 +61,13 @@ const KINDS = [
         page: id => pages.partInfo(null, [Number(id)]),
     },
     {
+        kind: 'backer',
+        items: () => data.sponsors,
+        label: s => `${s.name} — Backer · ${s.person}`,
+        keywords: s => [s.person, s.penalty, ...s.contracts.map(c => c.objective), 'backer', 'sponsor'],
+        page: pages.backerInfo,
+    },
+    {
         kind: 'status',
         items: () => data.statuses,
         label: s => `${s.name} — Status effect · ${s.positive ? 'Positive' : 'Negative'}`,

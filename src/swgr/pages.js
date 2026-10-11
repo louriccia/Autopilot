@@ -918,7 +918,9 @@ function favorInfo(favorId) {
         ]).filter(Boolean).join('\n')))
     }
     const rival = data.rivals.find(r => r.favor == f.id)
-    return page(container, files, [favorSelect(f.id), ...(rival ? [buttons([`rival_${rival.id}`, `About ${rival.name}`])] : [])])
+    const backer = data.sponsors.find(s => s.favor == f.id)
+    const about = rival ? [`rival_${rival.id}`, `About ${rival.name}`] : backer ? [`backer_${backer.id}`, `About ${backer.name}`] : null
+    return page(container, files, [favorSelect(f.id), ...(about ? [buttons(about)] : [])])
 }
 
 // --- rivals ---
@@ -1108,4 +1110,56 @@ function statusInfo(statusId) {
     return page(container, files, [statusSelect(s.id), ...(related.length ? [select('goto', 'Parts, abilities, styles and favors with it', related)] : [])])
 }
 
-module.exports = { statusInfo, statusesOverview, mysteryInfo, mysteriesOverview, rivalInfo, rivalsOverview, favorInfo, favorsOverview, vehicleInfo, vehicleClassInfo, vehiclesOverview, abilityInfo, abilitiesOverview, arcadeOverview, arcadeCategory, arcadeEvent, trackInfo, planetInfo, scenarioInfo, styleInfo, partInfo, parseKeywordMask }
+// --- backers (sponsors) ---
+// The game calls sponsors "backers" everywhere the player sees them, so the cards do too.
+
+function backerSelect(current) {
+    return select('backer', 'Pick a backer', data.sponsors.map(s => ({
+        label: s.name, value: s.id, emoji: s.favor ? emoji.named(data.favor(s.favor).emoji) : undefined,
+        description: `${s.person} / Penalty: ${s.penalty}`.slice(0, 100),
+    })), current)
+}
+
+const unitText = (n, units) => units == 's' ? `${n}s` : `${n} ${units.toLowerCase()}`
+// "Abilities" -> "ability", "Special Corners" -> "special corner", "s" -> "second"
+const perUnit = units => units == 's' ? 'second' : units.toLowerCase().replace(/ies$/, 'y').replace(/s$/, '')
+
+function backersOverview() {
+    const container = new ContainerBuilder().setAccentColor(DEFAULT_COLOR)
+    header(container, [crumbs('Backers'), '# Backers',
+        'Pick a backer for a tour, then one of their contracts: every time you do its action, you earn credits.'])
+    container.addSeparatorComponents(separator())
+    container.addTextDisplayComponents(text(data.sponsors.map(s =>
+        `${s.favor ? emoji.named(data.favor(s.favor).emoji) : ''} **${s.name}** / ${s.person}\n-# Penalty: ${s.penalty}`).join('\n')))
+    return page(container, new Files(), [backerSelect()])
+}
+
+function backerInfo(sponsorId) {
+    const s = data.sponsor(sponsorId)
+    const files = new Files()
+    const container = new ContainerBuilder().setAccentColor(DEFAULT_COLOR)
+    header(container, [
+        crumbs('Backers'),
+        `# ${s.name}`,
+        `**${s.person}**`,
+        s.bio && `*${s.bio}*`,
+        s.startingCredits && `Start the tour with ${emoji.credits} ${s.startingCredits.toLocaleString('en-US')}`,
+    ], files.add(s.holo))
+
+    container.addSeparatorComponents(separator())
+    container.addTextDisplayComponents(text(['### Contracts', '-# Pick one; each action pays out, and the target rises planet by planet',
+        ...s.contracts.map(c => [
+            `**${c.objective.replace(/\.$/, '')}**`,
+            `-# ${emoji.credits} ${c.credits} per ${perUnit(c.units)} / target ${c.targets[0]} → ${unitText(c.targets.at(-1), c.units)}`,
+        ].join('\n'))].join('\n')))
+
+    const favor = s.favor && data.favor(s.favor)
+    container.addSeparatorComponents(separator())
+    container.addTextDisplayComponents(text([
+        '### Penalty', `-# ${s.penalty}`,
+        ...(favor ? ['### Favor', `${emoji.named(favor.emoji)} **${favor.name}**: ${emojify(favor.ranks[0].rich)}`, unlockLine(favor.ranks[0].unlock)] : []),
+    ].filter(Boolean).join('\n')))
+    return page(container, files, [backerSelect(s.id), ...(favor ? [buttons([`favor_${favor.id}`, favor.name, emoji.named(favor.emoji)])] : [])])
+}
+
+module.exports = { backerInfo, backersOverview, statusInfo, statusesOverview, mysteryInfo, mysteriesOverview, rivalInfo, rivalsOverview, favorInfo, favorsOverview, vehicleInfo, vehicleClassInfo, vehiclesOverview, abilityInfo, abilitiesOverview, arcadeOverview, arcadeCategory, arcadeEvent, trackInfo, planetInfo, scenarioInfo, styleInfo, partInfo, parseKeywordMask }

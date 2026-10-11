@@ -1288,6 +1288,41 @@ def main():
         })
     rivals_out.sort(key=lambda x: (x["champion"], x["name"].lower()))
 
+    # --- sponsors ---
+    # The three campaign backers (CAM_Sponsor01-03): who they are, starting credits, the six contracts to pick from
+    # (an action, its target rising planet by planet, and the credits each action earns), the penalty they impose
+    # and the favor they unlock. Each backer's person comes from their favor ("Q-33N (Broker backer)").
+    economy = {r[1]: r[2] for r in csv.reader(open(out / "economy.csv", encoding="utf-8-sig")) if len(r) > 2 and r[0] == "ECO_Campaign"}
+    penalties = {r["asset"]: r["description"] for r in rows(out / "gameplay" / "favours.csv") if r["category"] == "Sponsor"}
+    contract_rows = [r for r in rows(out / "gameplay" / "sponsor_contracts.csv") if r["mode"] == "Campaign"]
+    sponsors_out = []
+    for r in rows(out / "gameplay" / "sponsors.csv"):
+        if r["mode"] != "Campaign":
+            continue
+        favor = next((f for f in favors_out if f"Favour_{f['key']}_1" == r["reward_favour"]), None)
+        person = favor["character"].split(" (")[0] if favor else None
+        who = {"Q-33N": "q33n", "Vranki the Blue": "vranki", "Sidon Ithano": "sidon_ithano"}.get(person)
+        sid = slug(r["name"])
+        contracts = []
+        for c in contract_rows:
+            if c["sponsor"] != r["name"]:
+                continue
+            targets = ([num(c["initial_target"])] if c["initial_target"] else []) + \
+                      [num(t.split("=")[1]) for t in c["planet_targets"].split(", ") if "=" in t]
+            contracts.append({"objective": c["objective"], "units": c["units"], "targets": targets,
+                              "credits": num(economy[c["credits_per_action"]]) if c["credits_per_action"] in economy else None})
+        sponsors_out.append({
+            "id": sid,
+            "name": r["name"],
+            "person": person,
+            "bio": re.sub(r"\s+", " ", bios.get(person, {}).get("Bio", "")).strip() or None,
+            "holo": save_flipbook_gif(args.datamine, f"holo_{who}", f"sponsors/{sid}.gif", height=240) if who else None,
+            "startingCredits": num(economy[r["starting_credits"]]) if r["starting_credits"] in economy else None,
+            "contracts": contracts,
+            "penalty": penalties.get(r["penalty_favour"]),
+            "favor": favor["id"] if favor else None,
+        })
+
     # --- status effects ---
     # The effects a vehicle can be under, with the game's glossary text (ST_Keyword <Key>_Desc) and keyword icon.
     # Whether it stacks comes from its tune set (TNS_Condition_*, the datamine's status_effects.csv). Which effects
@@ -1457,7 +1492,8 @@ def main():
                        ("abilities", {"families": ability_families, "abilities": abilities_out}),
                        ("vehicles", {"classes": vehicle_classes_out, "vehicles": vehicles_out, "kitPointsEmoji": kit_points}),
                        ("favors", favors_out), ("rivals", rivals_out),
-                       ("mysteries", mysteries_out), ("statuses", statuses_out)]:
+                       ("mysteries", mysteries_out), ("statuses", statuses_out),
+                       ("sponsors", sponsors_out)]:
         (DATA_OUT / f"{name}.json").write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     missing = [f"{e['name']} ({k})" for e in arcade for k in ("tile",) if not e[k]]
@@ -1465,7 +1501,7 @@ def main():
     print(f"{len(emojis.by_name)} emoji icons in assets/emoji")
     missing += [f"{t['name']} (map)" for t in tracks if not t["map"]]
     missing += [f"{p['name']} (image)" for p in planets if not p["image"]]
-    print(f"{len(planets)} planets, {len(tracks)} tracks, {len(arcade)} arcade events, {len(scenarios_out)} scenarios, {len(styles_out)} racer styles, {len(parts_out)} parts, {len(abilities_out)} abilities, {len(vehicles_out)} vehicles, {len(favors_out)} favors, {len(rivals_out)} rivals, {len(mysteries_out)} mysteries, {len(statuses_out)} status effects")
+    print(f"{len(planets)} planets, {len(tracks)} tracks, {len(arcade)} arcade events, {len(scenarios_out)} scenarios, {len(styles_out)} racer styles, {len(parts_out)} parts, {len(abilities_out)} abilities, {len(vehicles_out)} vehicles, {len(favors_out)} favors, {len(rivals_out)} rivals, {len(mysteries_out)} mysteries, {len(statuses_out)} status effects, {len(sponsors_out)} sponsors")
     if missing:
         print("missing art:", ", ".join(missing))
 
