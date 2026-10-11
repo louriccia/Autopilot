@@ -4,8 +4,31 @@ A Discord bot for the Star Wars: Galactic Racer server. Its command and interact
 
 ## Commands
 
+* **/search &lt;query&gt;** - find anything (arcade events and categories, tracks, planets, scenarios, racer styles, parts, part keywords) and open its page
+* **/arcade [event] [category]** - arcade events: medal times and rivals, track, vehicle, build, parts and unlocks
+* **/track &lt;name&gt;** - track map, format, laps and the arcade events run on it
+* **/planet &lt;name&gt;** - planet description, conditions and tracks
+* **/scenario &lt;name&gt;** - a scenario's racer style, starting build, day-by-day schedule and track pools
+* **/style &lt;name&gt;** - a racer style's starting abilities, traits per level and how each level unlocks
+* **/part [name]** - a part's effect, rarity, cost, tiers, unlock and the arcade events / scenarios that use it; with no name, find parts by keyword
 * **/help** - list of Autopilot's commands
 * **/ping** - check that Autopilot is online and its response time
+
+The reference pages link to each other through select menus and buttons. Whoever ran the command navigates in place; anyone else who clicks gets a private copy.
+
+## Game data
+
+`src/data/swgr/*.json` and `assets/` are generated from the `swgr-datamine` outputs (expected next to this repo) by:
+
+```
+python tools/import_swgr.py
+```
+
+Re-run it when the datamine is refreshed (needs Pillow and the texture export on `E:\SWGR_Export`), then upload any new stat/part/ability icons as application emojis:
+
+```
+node src/scripts/upload-emojis.js
+```
 
 ## Setup
 

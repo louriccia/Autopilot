@@ -1,0 +1,105 @@
+// Everything /search can find. Each kind lists its items, how they read in the autocomplete list, and the
+// page that opens them. When a new reference page is added (vehicles, parts, characters...), add its kind here.
+const data = require('./data.js')
+const pages = require('./pages.js')
+
+const KINDS = [
+    {
+        kind: 'event',
+        items: () => data.events,
+        label: e => `${e.name} — Arcade ${data.category(e.category).name} · ${data.track(e.track).name}`,
+        keywords: e => [data.track(e.track).name, data.planet(e.planet).name, e.vehicle, e.vehicleClass, data.category(e.category).name],
+        page: pages.arcadeEvent,
+    },
+    {
+        kind: 'category',
+        items: () => data.categories,
+        label: c => `${c.name} — Arcade category · ${data.eventsInCategory(c.id).length} events`,
+        keywords: () => ['arcade'],
+        page: pages.arcadeCategory,
+    },
+    {
+        kind: 'track',
+        items: () => data.tracks,
+        label: t => `${t.name} — Track · ${data.planet(t.planet).name}`,
+        keywords: t => [data.planet(t.planet).name, t.format, t.vehicles],
+        page: pages.trackInfo,
+    },
+    {
+        kind: 'planet',
+        items: () => data.planets,
+        label: p => `${p.name} — Planet`,
+        keywords: p => [p.tagline],
+        page: pages.planetInfo,
+    },
+    {
+        kind: 'scenario',
+        items: () => data.scenarios,
+        label: sc => `${sc.name} — Scenario · ${sc.tier} · ${data.planet(sc.planet).name}`,
+        keywords: sc => [sc.style.name, sc.vehicleClass, data.planet(sc.planet).name, sc.tier, 'scenario'],
+        page: pages.scenarioInfo,
+    },
+    {
+        kind: 'style',
+        items: () => data.styles,
+        label: s => `${s.name} — Racer style`,
+        keywords: s => [s.description, ...s.ranks.flatMap(r => r.traits.map(t => t.name)), 'racer style'],
+        page: pages.styleInfo,
+    },
+    {
+        kind: 'part',
+        items: () => data.parts,
+        label: p => `${p.name} — Part · ${p.category} · ${p.rarity}`,
+        keywords: p => [p.category, p.rarity, p.description],
+        page: pages.partInfo,
+    },
+    {
+        kind: 'keyword',
+        items: () => data.partKeywords,
+        label: k => `${k.name} — Parts keyword · ${k.count} parts`,
+        keywords: () => ['parts', 'keyword'],
+        page: id => pages.partInfo(null, [Number(id)]),
+    },
+    {
+        kind: 'arcade',
+        items: () => [{ id: 'all', name: 'Arcade' }],
+        label: () => `Arcade — all ${data.events.length} events`,
+        keywords: () => ['events', 'medals'],
+        page: () => pages.arcadeOverview(),
+    },
+]
+const byKind = Object.fromEntries(KINDS.map(k => [k.kind, k]))
+
+// Exact name > name starts with the query > a word in the name starts with it > name contains it > another field does.
+function score(name, keywords, q) {
+    const n = name.toLowerCase()
+    if (n == q) return 5
+    if (n.startsWith(q)) return 4
+    if (n.split(/[\s'-]+/).some(w => w.startsWith(q))) return 3
+    if (n.includes(q)) return 2
+    if (keywords.some(k => k?.toLowerCase().includes(q))) return 1
+    return 0
+}
+
+function search(query, limit = 25) {
+    const q = query.trim().toLowerCase()
+    const results = []
+    for (const k of KINDS) {
+        for (const item of k.items()) {
+            const s = q ? score(item.name, k.keywords(item), q) : 1
+            if (s) results.push({ s, name: k.label(item).slice(0, 100), value: `${k.kind}:${item.id}` })
+        }
+    }
+    // Stable sort keeps KINDS order (events first) among equal scores.
+    return results.sort((a, b) => b.s - a.s).slice(0, limit).map(({ name, value }) => ({ name, value }))
+}
+
+// A picked autocomplete value opens its page; free text opens the best match.
+function open(value) {
+    const [kind, id] = value.split(':')
+    if (byKind[kind] && byKind[kind].items().some(item => item.id == id)) return byKind[kind].page(id)
+    const best = search(value, 1)[0]
+    return best ? open(best.value) : null
+}
+
+module.exports = { search, open }
