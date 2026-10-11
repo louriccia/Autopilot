@@ -1,0 +1,19 @@
+{
+  "name": "autopilot",
+  "version": "0.1.0",
+  "description": "Discord bot for the Star Wars: Galactic Racer server",
+  "engines": {
+    "node": ">=18.17"
+  },
+  "main": "src/bot.js",
+  "scripts": {
+    "start": "node src/bot.js",
+    "deploy": "node src/scripts/deploy-commands.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "discord.js": "^14.26.3",
+    "dotenv": "^16.4.5"
+  }
+}
