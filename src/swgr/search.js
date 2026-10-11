@@ -61,6 +61,13 @@ const KINDS = [
         page: id => pages.partInfo(null, [Number(id)]),
     },
     {
+        kind: 'rival',
+        items: () => data.rivals,
+        label: r => `${r.name} — ${r.champion ? 'Champion' : 'Rival'}`,
+        keywords: r => [r.bio, r.persona, 'rival', ...r.vehicles.map(id => data.vehicle(id).name)].filter(Boolean),
+        page: pages.rivalInfo,
+    },
+    {
         kind: 'favor',
         items: () => data.favors,
         label: f => `${f.name} — Favor · ${f.character}`,

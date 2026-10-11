@@ -1233,12 +1233,67 @@ def main():
     vehicle_order = list(CLASS_KEY)
     vehicles_out.sort(key=lambda v: (vehicle_order.index(v["class"]), v["name"].lower()))
 
+    # --- rivals ---
+    # The 11 campaign rivals (CAM_Rivalry_<persona>) plus Kestar Bool, the champion. Each has a bio, an animated
+    # hologram (the datamine's holo_<who> flipbook), a pool of Head-to-Head races, a favor and a livery palette for
+    # beating them, the vehicles they race and the scenario named after them.
+    bios = {r["Name"]: r for r in rows(out / "characters.csv")}
+    liveries = json.loads((out / "liveries" / "liveries.json").read_text(encoding="utf-8"))
+    track_by_name = {t["name"]: t["id"] for t in tracks}
+
+    def palette_emoji(key, colors):
+        """A livery palette as three rounded swatches, body colour first, like the garage's colour picker."""
+        size, pad = 128, 6
+        im = Image.new("RGBA", (size, size))
+        draw = ImageDraw.Draw(im)
+        w = (size - 2 * pad) // 3
+        for i, c in enumerate(colors[:3]):
+            draw.rounded_rectangle((pad + i * w + 2, pad + 14, pad + (i + 1) * w - 2, size - pad - 14), radius=10, fill=c)
+        return emojis.add_image(f"pal_{key}"[:32], im)
+
+    def head_to_head(spec):
+        # "The War Fields (Loop, reverse) Sunset 2 laps x1"
+        m = re.match(r"(.+?) \(([^)]*)\) (\S+) (\d+) laps", spec.strip())
+        if not m:
+            return None
+        name, kind, condition, n = m.groups()
+        return {"track": track_by_name.get(name), "name": name, "reverse": "reverse" in kind,
+                "condition": condition.replace(".", " "), "laps": int(n)}
+
+    rival_rows = list(rows(out / "gameplay" / "rivalries.csv"))
+    rival_rows.append({"asset": "CAM_Rivalry_Antagonist", "rival": "Kestar Bool", "unlocked_by": "", "head_to_head_tracks": ""})
+    rivals_out = []
+    for r in rival_rows:
+        name = r["rival"]
+        persona = r["asset"].replace("CAM_Rivalry_", "")
+        who = "goli" if name.startswith("Goli") else slug(name).replace("-", "_")
+        rid = slug(name)
+        pal = liveries["palettes"].get(f"Customisation.Livery.{persona}")
+        favor = next((f for f in favors_out if f["key"] == persona), None)
+        scenario = next((sc for sc in scenarios_out if sc["name"] == name), None)
+        rivals_out.append({
+            "id": rid,
+            "name": name,
+            "persona": persona,
+            "champion": persona == "Antagonist",
+            "bio": re.sub(r"\s+", " ", bios.get(name, {}).get("Bio", "")).strip() or None,
+            "holo": save_flipbook_gif(args.datamine, f"holo_{who}", f"rivals/{rid}.gif", height=240),
+            "afterTour2": "Unlock.Cam.Tour2Done" in r["unlocked_by"],
+            "headToHead": [h for h in map(head_to_head, r["head_to_head_tracks"].split("|")) if h] if r["head_to_head_tracks"] else [],
+            "favor": favor["id"] if favor else None,
+            "livery": {"name": pal["name"], "colors": pal["colors"], "unlock": pal.get("unlock") or None,
+                       "emoji": palette_emoji(persona, pal["colors"])} if pal else None,
+            "vehicles": [v["id"] for v in vehicles_out if name in v["racers"]],
+            "scenario": scenario["id"] if scenario else None,
+        })
+    rivals_out.sort(key=lambda x: (x["champion"], x["name"].lower()))
+
     for name, data in [("planets", planets), ("tracks", tracks),
                        ("arcade", {"categories": categories, "vehicleClasses": vehicle_classes, "events": arcade}),
                        ("scenarios", scenarios_out), ("styles", styles_out), ("parts", {"keywords": keywords_out, "parts": parts_out}),
                        ("abilities", {"families": ability_families, "abilities": abilities_out}),
                        ("vehicles", {"classes": vehicle_classes_out, "vehicles": vehicles_out, "kitPointsEmoji": kit_points}),
-                       ("favors", favors_out)]:
+                       ("favors", favors_out), ("rivals", rivals_out)]:
         (DATA_OUT / f"{name}.json").write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     missing = [f"{e['name']} ({k})" for e in arcade for k in ("tile",) if not e[k]]
@@ -1246,7 +1301,7 @@ def main():
     print(f"{len(emojis.by_name)} emoji icons in assets/emoji")
     missing += [f"{t['name']} (map)" for t in tracks if not t["map"]]
     missing += [f"{p['name']} (image)" for p in planets if not p["image"]]
-    print(f"{len(planets)} planets, {len(tracks)} tracks, {len(arcade)} arcade events, {len(scenarios_out)} scenarios, {len(styles_out)} racer styles, {len(parts_out)} parts, {len(abilities_out)} abilities, {len(vehicles_out)} vehicles, {len(favors_out)} favors")
+    print(f"{len(planets)} planets, {len(tracks)} tracks, {len(arcade)} arcade events, {len(scenarios_out)} scenarios, {len(styles_out)} racer styles, {len(parts_out)} parts, {len(abilities_out)} abilities, {len(vehicles_out)} vehicles, {len(favors_out)} favors, {len(rivals_out)} rivals")
     if missing:
         print("missing art:", ", ".join(missing))
 

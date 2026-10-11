@@ -872,9 +872,11 @@ function vehicleInfo(vehicleId) {
     }
 
     const rows = [vehicleClassSelect(c.id), vehicleSelect(v.class, v.id)]
-    if (events.length) rows.push(select('goto', 'Arcade events with it', events.map(e => ({
-        label: e.name, value: `event:${e.id}`, description: data.track(e.track).name, emoji: emoji.vehicle[e.vehicleClass],
-    }))))
+    const related = [
+        ...racers.map(name => data.rivals.find(r => r.name == name)).filter(Boolean).map(r => ({ label: r.name, value: `rival:${r.id}`, description: 'Rival' })),
+        ...events.map(e => ({ label: e.name, value: `event:${e.id}`, description: `Arcade / ${data.track(e.track).name}`, emoji: emoji.vehicle[e.vehicleClass] })),
+    ]
+    if (related.length) rows.push(select('goto', 'Rivals and arcade events with it', related))
     return page(container, files, rows)
 }
 
@@ -915,7 +917,67 @@ function favorInfo(favorId) {
             unlockLine(r.unlock),
         ]).filter(Boolean).join('\n')))
     }
-    return page(container, files, [favorSelect(f.id)])
+    const rival = data.rivals.find(r => r.favor == f.id)
+    return page(container, files, [favorSelect(f.id), ...(rival ? [buttons([`rival_${rival.id}`, `About ${rival.name}`])] : [])])
 }
 
-module.exports = { favorInfo, favorsOverview, vehicleInfo, vehicleClassInfo, vehiclesOverview, abilityInfo, abilitiesOverview, arcadeOverview, arcadeCategory, arcadeEvent, trackInfo, planetInfo, scenarioInfo, styleInfo, partInfo, parseKeywordMask }
+// --- rivals ---
+
+function rivalSelect(current) {
+    return select('rival', 'Pick a rival', data.rivals.map(r => ({
+        label: r.name, value: r.id, emoji: r.favor ? emoji.named(data.favor(r.favor).emoji) : emoji.named(r.livery?.emoji),
+        description: r.champion ? 'Galactic League Champion' : `Favor: ${r.favor ? data.favor(r.favor).name : 'none'}`,
+    })), current)
+}
+
+function rivalsOverview() {
+    const container = new ContainerBuilder().setAccentColor(DEFAULT_COLOR)
+    header(container, [crumbs('Rivals'), '# Rivals',
+        `${data.rivals.filter(r => !r.champion).length} rivals to challenge to Head-to-Head races over the campaign, and the champion, Kestar Bool.`])
+    container.addSeparatorComponents(separator())
+    container.addTextDisplayComponents(text(data.rivals.map(r =>
+        `${emoji.named(r.livery?.emoji)} **${r.name}** / ${r.vehicles.map(id => data.vehicle(id)).map(v => `${emoji.vehicle[v.class]} ${v.name}`).join(', ')}`).join('\n')))
+    return page(container, new Files(), [rivalSelect()])
+}
+
+function rivalInfo(rivalId) {
+    const r = data.rival(rivalId)
+    const files = new Files()
+    const container = new ContainerBuilder().setAccentColor(DEFAULT_COLOR)
+    const vehicles = r.vehicles.map(data.vehicle)
+    header(container, [
+        crumbs('Rivals', ...(r.champion ? ['Champion'] : [])),
+        `# ${r.name}`,
+        r.bio && `*${r.bio}*`,
+        vehicles.map(v => `${emoji.vehicle[v.class]} ${v.name}`).join(' / '),
+        r.afterTour2 && '-# Only appears once Tour 2 is done',
+    ], files.add(r.holo))
+
+    if (r.headToHead.length) {
+        container.addSeparatorComponents(separator())
+        container.addTextDisplayComponents(text(['### Head-to-Head', '-# Raced on one of these, 2 laps:',
+            ...r.headToHead.map(h => {
+                const t = h.track && data.track(h.track)
+                return `-# ${t ? emoji.planet[t.planet] : ''} **${h.name}**${h.reverse ? ` ${emoji.named('reverse')}` : ''} / ${h.condition}`
+            })].join('\n')))
+    }
+
+    const favor = r.favor && data.favor(r.favor)
+    if (favor || r.livery) {
+        container.addSeparatorComponents(separator())
+        container.addTextDisplayComponents(text(['### Unlocks',
+            ...(favor ? [`${emoji.named(favor.emoji)} **${favor.name}** favor: ${emojify(favor.ranks[0].rich)}`, unlockLine(favor.ranks[0].unlock)] : []),
+            ...(r.livery ? [`${emoji.named(r.livery.emoji)} **${r.livery.name}** livery palette`, unlockLine(r.livery.unlock)] : []),
+        ].filter(Boolean).join('\n')))
+    }
+
+    const related = [
+        favor && { label: favor.name, value: `favor:${favor.id}`, description: 'Favor', emoji: emoji.named(favor.emoji) },
+        r.scenario && { label: data.scenario(r.scenario).name, value: `scenario:${r.scenario}`, description: `Scenario / ${data.scenario(r.scenario).tier}`, emoji: emoji.vehicle[data.scenario(r.scenario).vehicleClass] },
+        ...vehicles.map(v => ({ label: v.name, value: `vehicle:${v.id}`, description: `Vehicle / ${v.class}`, emoji: emoji.vehicle[v.class] })),
+        ...[...new Set(r.headToHead.map(h => h.track).filter(Boolean))].map(id => data.track(id)).map(t => ({ label: t.name, value: `track:${t.id}`, description: 'Head-to-Head track', emoji: emoji.planet[t.planet] })),
+    ].filter(Boolean)
+    return page(container, files, [rivalSelect(r.id), ...(related.length ? [select('goto', 'Their favor, scenario, vehicles and tracks', related)] : [])])
+}
+
+module.exports = { rivalInfo, rivalsOverview, favorInfo, favorsOverview, vehicleInfo, vehicleClassInfo, vehiclesOverview, abilityInfo, abilitiesOverview, arcadeOverview, arcadeCategory, arcadeEvent, trackInfo, planetInfo, scenarioInfo, styleInfo, partInfo, parseKeywordMask }
