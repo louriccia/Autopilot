@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, MessageFlags } = require('discord.js');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -17,6 +17,6 @@ module.exports = {
             .setColor('3B88C3')
             .setDescription(lines.join('\n'))
 
-        await interaction.reply({ embeds: [helpEmbed], ephemeral: true })
+        await interaction.reply({ embeds: [helpEmbed], flags: MessageFlags.Ephemeral })
     }
 }

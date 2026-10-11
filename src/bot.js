@@ -7,7 +7,7 @@ const { log_channel } = require('./data/discord/channel.js')
 const { errorMessage } = require('./data/flavor/error.js')
 
 const fs = require('fs');
-const { Client, Events, GatewayIntentBits, Collection } = require('discord.js')
+const { Client, Events, GatewayIntentBits, Collection, MessageFlags } = require('discord.js')
 const client = new Client({
     intents: [GatewayIntentBits.Guilds],
 });
@@ -86,7 +86,7 @@ client.on(Events.InteractionCreate, async interaction => {
         } catch (error) {
             reportError(`Command: ${interaction.commandName}`, error);
             try {
-                const msg = { content: "`Error: Command failed to execute `\n" + errorMessage[Math.floor(Math.random() * errorMessage.length)], ephemeral: true };
+                const msg = { content: "`Error: Command failed to execute `\n" + errorMessage[Math.floor(Math.random() * errorMessage.length)], flags: MessageFlags.Ephemeral };
                 if (interaction.replied || interaction.deferred) {
                     await interaction.followUp(msg);
                 } else {

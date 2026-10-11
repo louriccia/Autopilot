@@ -29,4 +29,5 @@ src/
 - **Guild switching**: `testing` (from `TESTING` in .env, or automatically when `USERNAME == 'louri'`) makes the bot answer only in `TEST_GUILD_ID`; live, it answers everywhere except there.
 - **Errors**: `reportError()` in bot.js posts stack traces to `LOG_CHANNEL_ID` when live.
 - **Intents**: only `Guilds`. Add more (and enable privileged ones in the Developer Portal) when a feature needs them.
+- **Private replies**: use `flags: MessageFlags.Ephemeral`; the `ephemeral: true` option is deprecated in discord.js.
 - After adding or changing a command's `data`, re-run `npm run deploy -- --guild` (test) or `--global` (live).
