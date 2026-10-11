@@ -61,6 +61,13 @@ const KINDS = [
         page: id => pages.partInfo(null, [Number(id)]),
     },
     {
+        kind: 'tale',
+        items: () => data.tales,
+        label: t => `${t.name} — Tales of Podracing ${t.number}`,
+        keywords: t => [...t.objectives, 'tales of podracing', 'racing memory', 'sebulba', t.track && data.track(t.track).name].filter(Boolean),
+        page: pages.taleInfo,
+    },
+    {
         kind: 'backer',
         items: () => data.sponsors,
         label: s => `${s.name} — Backer · ${s.person}`,

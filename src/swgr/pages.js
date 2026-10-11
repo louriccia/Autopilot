@@ -1162,4 +1162,64 @@ function backerInfo(sponsorId) {
     return page(container, files, [backerSelect(s.id), ...(favor ? [buttons([`favor_${favor.id}`, favor.name, emoji.named(favor.emoji)])] : [])])
 }
 
-module.exports = { backerInfo, backersOverview, statusInfo, statusesOverview, mysteryInfo, mysteriesOverview, rivalInfo, rivalsOverview, favorInfo, favorsOverview, vehicleInfo, vehicleClassInfo, vehiclesOverview, abilityInfo, abilitiesOverview, arcadeOverview, arcadeCategory, arcadeEvent, trackInfo, planetInfo, scenarioInfo, styleInfo, partInfo, parseKeywordMask }
+// --- Tales of Podracing ---
+
+function taleSelect(current) {
+    return select('tale', 'Pick a tale', data.tales.map(t => ({
+        label: `${t.number}. ${t.name}`, value: t.id, emoji: emoji.named(t.emoji),
+        description: `${t.track ? data.track(t.track).name : ''} / ${t.objectives.filter(o => !/^Finish in/.test(o)).join(' ') || 'Win the race'}`.slice(0, 100),
+    })), current)
+}
+
+function talesOverview() {
+    const container = new ContainerBuilder().setAccentColor(DEFAULT_COLOR)
+    header(container, [crumbs('Tales of Podracing'), '# Tales of Podracing',
+        `Sebulba's old races, replayed as him in his ${data.vehicle('plug-f-mammoth').name}. Win one to unlock the next.`])
+    container.addSeparatorComponents(separator())
+    container.addTextDisplayComponents(text(data.tales.map(t =>
+        `${emoji.named(t.emoji)} **${t.number}. ${t.name}** / ${t.planet ? emoji.planet[t.planet] : ''} ${t.track ? data.track(t.track).name : ''}`).join('\n')))
+    return page(container, new Files(), [taleSelect()])
+}
+
+function taleInfo(taleId) {
+    const t = data.tale(taleId)
+    const files = new Files()
+    const container = new ContainerBuilder().setAccentColor(DEFAULT_COLOR)
+    const track = t.track && data.track(t.track)
+    const pod = t.pod && data.vehicle(t.pod)
+    const abilities = t.abilities.map(data.ability).filter(Boolean)
+    header(container, [
+        crumbs('Tales of Podracing', `Tale ${t.number} of ${data.tales.length}`),
+        `# ${t.name}`,
+        [track && `${emoji.planet[t.planet]} **${track.name}**`, t.reverse && emoji.named('reverse'), t.condition].filter(Boolean).join(' / '),
+        `${emoji.vehicle.Podracer} Sebulba${pod ? ` in the ${pod.name}` : ''}${abilities.length ? ` / ${abilities.map(a => `${emoji.named(a.emoji)} ${a.name}`).join(', ')}` : ''}`,
+    ], files.add(t.icon))
+
+    const won = t.rewards.filter(r => r.kind == 'ability').map(r => data.ability(r.id)).filter(Boolean)
+    const unlocked = t.rewards.filter(r => r.kind == 'unlock').map(r => data.ability(r.id)).filter(Boolean)
+    const favors = t.rewards.filter(r => r.kind == 'favor').map(r => data.favor(r.id))
+    const cosmetics = t.rewards.filter(r => r.kind == 'palette' || r.kind == 'livery')
+    container.addSeparatorComponents(separator())
+    container.addTextDisplayComponents(text([
+        '### To win', ...t.objectives.map(o => `-# ${o}`),
+        '### On the grid', `-# ${t.opponents.map(o => o.vehicle ? `${o.name} (${data.vehicle(o.vehicle).name})` : o.name).join(' / ')}`,
+        ...(t.rewards.length ? ['### Rewards',
+            ...won.map(a => `${emoji.named(a.emoji)} **${a.name}**`),
+            unlocked.length && `-# Unlocks ${unlocked.map(a => `${emoji.named(a.emoji)} ${a.name}`).join(', ')} in the campaign`,
+            ...favors.map(f => `${emoji.named(f.emoji)} **${f.name}** favor: ${emojify(f.ranks[0].rich)}`),
+            ...cosmetics.map(c => `**${c.name}** ${c.kind == 'palette' ? 'livery palette' : 'livery'}`),
+        ] : []),
+    ].filter(Boolean).join('\n')))
+
+    const i = data.tales.indexOf(t)
+    const steps = [i > 0 && [`tale_${data.tales[i - 1].id}`, `← ${data.tales[i - 1].name}`], i < data.tales.length - 1 && [`tale_${data.tales[i + 1].id}`, `${data.tales[i + 1].name} →`]].filter(Boolean)
+    const related = [
+        ...[...won, ...unlocked].map(a => ({ label: a.name, value: `ability:${a.id}`, description: 'Ability', emoji: emoji.named(a.emoji) })),
+        ...favors.map(f => ({ label: f.name, value: `favor:${f.id}`, description: 'Favor', emoji: emoji.named(f.emoji) })),
+        track && { label: track.name, value: `track:${track.id}`, description: 'Track', emoji: emoji.planet[t.planet] },
+        ...[pod, ...t.opponents.map(o => o.vehicle && data.vehicle(o.vehicle))].filter(Boolean).map(v => ({ label: v.name, value: `vehicle:${v.id}`, description: v.pilot ? `${v.pilot}'s podracer` : 'Podracer', emoji: emoji.vehicle.Podracer })),
+    ].filter(Boolean).slice(0, 25)
+    return page(container, files, [taleSelect(t.id), ...(steps.length ? [buttons(...steps)] : []), select('goto', 'Its rewards, track and podracers', related)])
+}
+
+module.exports = { taleInfo, talesOverview, backerInfo, backersOverview, statusInfo, statusesOverview, mysteryInfo, mysteriesOverview, rivalInfo, rivalsOverview, favorInfo, favorsOverview, vehicleInfo, vehicleClassInfo, vehiclesOverview, abilityInfo, abilitiesOverview, arcadeOverview, arcadeCategory, arcadeEvent, trackInfo, planetInfo, scenarioInfo, styleInfo, partInfo, parseKeywordMask }

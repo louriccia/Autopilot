@@ -1323,6 +1323,95 @@ def main():
             "favor": favor["id"] if favor else None,
         })
 
+    # --- Tales of Podracing ---
+    # The racing memories (RMEM_*): Sebulba's old races, replayed in order (Unlock.Cam.PlaneMemory.NN). Each is a
+    # podrace (PlaneMemoryRaceEventDef) with named opponents, Sebulba's build, extra win conditions on top of
+    # finishing first, and rewards: abilities to use in the campaign, favors, liveries.
+    events_dir = game / "Gameplay" / "Events"
+    ability_by_asset = {r["asset"]: slug(r["name"]) for r in rows(out / "gameplay" / "abilities.csv") if r["ai_version"] != "True"}
+    ability_by_unlock = {}  # one tag can unlock several abilities (Impact Surge and Impact Surge II)
+    for r in rows(out / "gameplay" / "abilities.csv"):
+        if r["ai_version"] != "True" and r["unlocked_by"]:
+            ability_by_unlock.setdefault(r["unlocked_by"], []).append(slug(r["name"]))
+    build_abilities = {r["asset"]: [slug(a.strip()) for a in r["abilities"].split(",") if a.strip()]
+                       for r in rows(out / "gameplay" / "vehicle_builds.csv")}
+    persona_names = {r["Codename"]: r["Name"] for r in rows(out / "characters.csv")}
+    persona_names.update({"Swede": "Sebulba", "Nesodon": "Sebulba"})
+    pod_by_persona = {r["persona"]: r["kits"].split("+")[0] for r in rows(out / "racer_vehicles.csv") if r["class"] == "Plane"}
+    livery_items = [v for sec in ("palettes", "patterns") for v in liveries[sec].values()] + list(liveries.get("presets") or [])
+    MENTOR_FAVORS = {"Unlock.Cam.FavourConversation.MentorA": "Mentor_A", "Unlock.Cam.FavourConversation.MentorB": "Mentor_B"}
+
+    def condition_text(path):
+        props = next((o.get("Properties") or {} for o in game_json(path) if (o.get("Properties") or {}).get("WinConditionSummary")), {})
+        text = props.get("WinConditionSummary", "")
+        text = text.get("LocalizedString", "") if isinstance(text, dict) else text
+        target = props.get("Target")
+        target = f"{target:g}" if isinstance(target, float) else str(target or 1)
+        text = re.sub(r"\{0\}\{0\}\|ordinal\([^)]*\)", {"1": "1st", "2": "2nd", "3": "3rd"}.get(target, target + "th"), text)
+        return text.replace("{0}", target).strip()
+
+    def reward_of(tag):
+        if tag in ability_by_unlock:
+            return [{"kind": "unlock", "id": a} for a in ability_by_unlock[tag]]
+        if tag in MENTOR_FAVORS:
+            f = next((f for f in favors_out if f["key"] == MENTOR_FAVORS[tag]), None)
+            return [{"kind": "favor", "id": f["id"]}] if f else []
+        if tag.startswith("Unlock.Cosmetic."):
+            item = next((v for v in livery_items if isinstance(v, dict) and tag in (v.get("unlocked_by"), v.get("purchased_by"))), None)
+            what = "palette" if ".Palette." in tag else "livery"
+            return [{"kind": what, "name": item.get("name") if item else tag.split(".")[-2] if tag.endswith("Skimmer") else tag.split(".")[-1]}]
+        return []  # the next tale / internal tags
+
+    tales_out = []
+    for r in rows(out / "gameplay" / "racing_memories.csv"):
+        rm = load_json(next(events_dir.glob(f"**/{r['asset']}.json")))
+        rprops = rm[0].get("Properties") or {}
+        ev = load_json(next(events_dir.glob(f"**/{r['race_event']}.json")))
+        eprops = ev[0].get("Properties") or {}
+        mode = next((o.get("Properties") or {} for o in ev if o.get("Type") == "TeamRaceConfig"), {})
+        number = int(re.search(r"(\d+)$", r["race_event"]).group(1))
+        track_def = ((eprops.get("TrackDef") or {}).get("ObjectName") or "'").split("'")[1]
+        rt = route_of.get(track_def.lower(), {})
+        player_build = ((mode.get("CustomVehicle") or {}).get("VehicleBuildDef") or {}).get("AssetPathName", "").rsplit(".", 1)[-1]
+        player_pod = re.search(r"/PRE_Plane_(\w+)\.", ((mode.get("CustomVehicle") or {}).get("CustomisationPresetClass") or {}).get("AssetPathName", "/PRE_Plane_?."))
+        player_pod = player_pod.group(1) if player_pod else None
+        opponents = []
+        for o in eprops.get("CustomOpponents", []):
+            persona = o["Driver"]["AssetPathName"].rsplit("DA_PlaneRacer_", 1)[-1].split(".")[0]
+            pod = pod_by_persona.get(persona)
+            opponents.append({"name": persona_names.get(persona, persona),
+                              "vehicle": next((v["id"] for v in vehicles_out if v["codename"] == pod), None)})
+        # the ability won outright, then what winning unlocks for the campaign
+        rewards = [{"kind": "ability", "id": ability_by_asset[re.search(r"(BP_Ability_\w+?)_C'", x["AbilityClass"]["ObjectName"]).group(1)]}
+                   for x in rprops.get("RewardsWhenWon", []) if x.get("AbilityClass")]
+        for tag in r["unlocks_when_won"].split(", "):
+            for rw in reward_of(tag.strip()):
+                if rw not in rewards and not (rw["kind"] == "unlock" and {"kind": "ability", "id": rw["id"]} in rewards):
+                    rewards.append(rw)
+        icon = texture(args.textures, (rprops.get("MemoryIcon") or {}).get("AssetPathName"))
+        name = (eprops.get("PlayerFacingName") or {}).get("LocalizedString") or r["asset"]
+        tid = slug(name)
+        tales_out.append({
+            "id": tid,
+            "number": number,
+            "name": name,
+            "planet": planet_id.get(rt.get("Planet")),
+            "track": track_id.get(rt.get("TrackName")),
+            "reverse": "_REV_" in r["race_event"],
+            "condition": re.sub(r"^TrackCondition\.|\.MEM$", "", (eprops.get("TrackConditionTag") or {}).get("TagName", "")).replace(".", " ") or None,
+            "pod": next((v["id"] for v in vehicles_out if v["codename"] == player_pod), None),
+            "abilities": build_abilities.get(player_build, []),
+            "opponents": opponents,
+            "field": sum(e.get("NumEntrants", 0) for e in (eprops.get("GridMakeup") or {}).get("Entries", [])) or None,
+            "objectives": [condition_text(c["AssetPathName"].split(".")[0]) for c in rprops.get("RaceWinCriteria", [])],
+            "rewards": rewards,
+            "icon": save_art(icon, f"tales/{tid}.webp", max_size=256) if icon else None,
+            "emoji": emojis.add(f"tale_{number:02d}", icon) if icon else None,
+        })
+    tales_out.sort(key=lambda t: t["number"])
+    for i, t in enumerate(tales_out):  # numbered 1..12 as played (the asset numbers skip 12)
+        t["number"] = i + 1
+
     # --- status effects ---
     # The effects a vehicle can be under, with the game's glossary text (ST_Keyword <Key>_Desc) and keyword icon.
     # Whether it stacks comes from its tune set (TNS_Condition_*, the datamine's status_effects.csv). Which effects
@@ -1493,7 +1582,7 @@ def main():
                        ("vehicles", {"classes": vehicle_classes_out, "vehicles": vehicles_out, "kitPointsEmoji": kit_points}),
                        ("favors", favors_out), ("rivals", rivals_out),
                        ("mysteries", mysteries_out), ("statuses", statuses_out),
-                       ("sponsors", sponsors_out)]:
+                       ("sponsors", sponsors_out), ("tales", tales_out)]:
         (DATA_OUT / f"{name}.json").write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     missing = [f"{e['name']} ({k})" for e in arcade for k in ("tile",) if not e[k]]
@@ -1501,7 +1590,7 @@ def main():
     print(f"{len(emojis.by_name)} emoji icons in assets/emoji")
     missing += [f"{t['name']} (map)" for t in tracks if not t["map"]]
     missing += [f"{p['name']} (image)" for p in planets if not p["image"]]
-    print(f"{len(planets)} planets, {len(tracks)} tracks, {len(arcade)} arcade events, {len(scenarios_out)} scenarios, {len(styles_out)} racer styles, {len(parts_out)} parts, {len(abilities_out)} abilities, {len(vehicles_out)} vehicles, {len(favors_out)} favors, {len(rivals_out)} rivals, {len(mysteries_out)} mysteries, {len(statuses_out)} status effects, {len(sponsors_out)} sponsors")
+    print(f"{len(planets)} planets, {len(tracks)} tracks, {len(arcade)} arcade events, {len(scenarios_out)} scenarios, {len(styles_out)} racer styles, {len(parts_out)} parts, {len(abilities_out)} abilities, {len(vehicles_out)} vehicles, {len(favors_out)} favors, {len(rivals_out)} rivals, {len(mysteries_out)} mysteries, {len(statuses_out)} status effects, {len(sponsors_out)} sponsors, {len(tales_out)} tales")
     if missing:
         print("missing art:", ", ".join(missing))
 

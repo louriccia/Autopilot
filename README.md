@@ -4,7 +4,7 @@ A Discord bot for the Star Wars: Galactic Racer server. Its command and interact
 
 ## Commands
 
-* **/search &lt;query&gt;** - find anything (arcade events and categories, tracks, planets, scenarios, racer styles, parts, part keywords, abilities, vehicles, vehicle classes, favors, rivals, mysteries, status effects, backers) and open its page
+* **/search &lt;query&gt;** - find anything (arcade events and categories, tracks, planets, scenarios, racer styles, parts, part keywords, abilities, vehicles, vehicle classes, favors, rivals, mysteries, status effects, backers, Tales of Podracing) and open its page
 * **/arcade [event] [category]** - arcade events: medal times and rivals, track, vehicle, build, parts and unlocks
 * **/track &lt;name&gt;** - track map, format, laps and the arcade events run on it
 * **/planet &lt;name&gt;** - planet description, conditions and tracks
@@ -18,6 +18,7 @@ A Discord bot for the Star Wars: Galactic Racer server. Its command and interact
 * **/mystery [name]** - a Mystery Encounter's offer, when it can appear, every choice and its outcomes with their odds and follow-ups; with no name, list them all
 * **/status [name]** - a status effect's definition, whether it stacks, and the abilities, racer style traits, favors and parts that use it; with no name, list them all
 * **/backer [name]** - a backer (sponsor): who they are, starting credits, their six contracts with pay and targets, their penalty and favor; with no name, list them all
+* **/tale [name]** - a Tales of Podracing event: track, Sebulba's loadout, win conditions, opponents and rewards; with no name, list all 12 in order
 * **/help** - list of Autopilot's commands
 * **/ping** - check that Autopilot is online and its response time
 
