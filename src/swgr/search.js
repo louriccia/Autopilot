@@ -61,6 +61,13 @@ const KINDS = [
         page: id => pages.partInfo(null, [Number(id)]),
     },
     {
+        kind: 'favor',
+        items: () => data.favors,
+        label: f => `${f.name} — Favor · ${f.character}`,
+        keywords: f => [f.character, f.ranks[0].description, 'favor', 'favour'],
+        page: pages.favorInfo,
+    },
+    {
         kind: 'vehicle',
         items: () => data.vehicles,
         label: v => `${v.name} — ${v.class}${v.manufacturer ? ` · ${v.manufacturer}` : v.pilot ? ` · ${v.pilot}` : ''}`,

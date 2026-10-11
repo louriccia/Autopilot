@@ -878,4 +878,44 @@ function vehicleInfo(vehicleId) {
     return page(container, files, rows)
 }
 
-module.exports = { vehicleInfo, vehicleClassInfo, vehiclesOverview, abilityInfo, abilitiesOverview, arcadeOverview, arcadeCategory, arcadeEvent, trackInfo, planetInfo, scenarioInfo, styleInfo, partInfo, parseKeywordMask }
+// --- favors ---
+
+function favorSelect(current) {
+    return select('favor', 'Pick a favor', data.favors.map(f => ({
+        label: f.name, value: f.id, emoji: emoji.named(f.emoji),
+        description: `${f.character} / ${f.ranks[0].description}`.slice(0, 100),
+    })), current)
+}
+
+function favorsOverview() {
+    const container = new ContainerBuilder().setAccentColor(DEFAULT_COLOR)
+    header(container, [crumbs('Favors'), '# Favors', `${data.favors.length} favors, each with three ranks. Equip them before a tour; a rank unlocks by completing planets with the one before it equipped.`])
+    container.addSeparatorComponents(separator())
+    container.addTextDisplayComponents(text(data.favors.map(f => `${emoji.named(f.emoji)} **${f.name}** / ${f.character}`).join('\n')))
+    return page(container, new Files(), [favorSelect()])
+}
+
+function favorInfo(favorId) {
+    const f = data.favor(favorId)
+    const files = new Files()
+    const container = new ContainerBuilder().setAccentColor(DEFAULT_COLOR)
+    header(container, [
+        crumbs('Favors', f.character),
+        `# ${f.name}`,
+        emojify(f.ranks[0].rich),
+        unlockLine(f.ranks[0].unlock),
+    ], files.add(f.icon))
+
+    // Rank I is the header; later ranks show what they change and how they unlock
+    if (f.ranks.length > 1) {
+        container.addSeparatorComponents(separator())
+        container.addTextDisplayComponents(text(f.ranks.slice(1).flatMap(r => [
+            `### Rank ${ROMAN[r.rank]}`,
+            emojify(r.rich),
+            unlockLine(r.unlock),
+        ]).filter(Boolean).join('\n')))
+    }
+    return page(container, files, [favorSelect(f.id)])
+}
+
+module.exports = { favorInfo, favorsOverview, vehicleInfo, vehicleClassInfo, vehiclesOverview, abilityInfo, abilitiesOverview, arcadeOverview, arcadeCategory, arcadeEvent, trackInfo, planetInfo, scenarioInfo, styleInfo, partInfo, parseKeywordMask }

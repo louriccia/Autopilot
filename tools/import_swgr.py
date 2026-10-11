@@ -1083,6 +1083,77 @@ def main():
                                                     f"vehicles/{slug(c)}.gif", height=240)}
                        for c in ADVANCED}
 
+    # --- favors ---
+    # The 20 campaign favors (Favour_<Key>_1..3), each in three ranks: the description's {int}/{perc} placeholders
+    # come from the rank's Description*Parameters, and its unlock text from the datamine's favours.csv. Favor text marks icons
+    # twice, <widget id="Part"/><img id="PartMyst"/> (the widget for menus, the img for mystery text), so the img is
+    # dropped after a widget; a lone XMyst img is the X icon. Icons with no keyword texture come from FAVOR_ICONS.
+    favours_dir = game / "Gameplay" / "Campaign" / "Loadouts" / "Favours"
+    icons_root = args.textures / "Griffin" / "Content" / "Griffin" / "UI" / "Library" / "Textures" / "Icons"
+    FAVOR_ICONS = {
+        "Token": ("LeagueToken", icons_root / "T_UI_Strike_Token_Icn.png"),
+        "Part": ("rw_Part", icons_root / "T_UI_Rewards_Affix_Icn.png"),
+        "Upgrade": ("rw_Upgrade", icons_root / "T_UI_Rewards_Upgrade_Icn.png"),
+        "ScrapDealer": ("map_ScrapDealer", icons_root / "Map" / "T_UI_Map_ExoticVendor_Icn.png"),
+    }
+
+    def favor_icon(name):
+        name = re.sub(r"Myst$", "", name)
+        if name == "Credit":
+            return "{emoji:Credits} "  # the server's credits emoji, used everywhere else
+        if name in FAVOR_ICONS:
+            emoji_name, src = FAVOR_ICONS[name]
+            return "{emoji:" + emojis.add(emoji_name, src) + "} " if src.exists() else ""
+        return keyword_icon(name)
+
+    def favor_text(text, props):
+        values = {p["Key"]: p["Value"] for p in props.get("DescriptionIntParameters", []) or []}
+        values.update({p["Key"]: f"{p['Value']:g}%" for p in props.get("DescriptionPercentParameters", []) or []})
+        # "{int}|plural(one=Token,other=Tokens)" is just the word, in the form the number needs
+        text = re.sub(r"\{(\w+)\}\|plural\(one=([^,]*),other=([^)]*)\)",
+                      lambda m: m.group(2) if str(values.get(m.group(1))) == "1" else m.group(3), text)
+        text = re.sub(r"\{(\w+)\}", lambda m: str(values.get(m.group(1), m.group(0))), text)
+        text = re.sub(r'(<widget id="\w+"\s*/>)\s*<img id="\w+Myst"\s*/>', r"\1", text)
+        return text
+
+    favors_out = []
+    favor_rows = list(rows(out / "favours.csv"))
+    for key in dict.fromkeys(r["Key"] for r in favor_rows):
+        ranks, props1 = [], None
+        for n in (1, 2, 3):
+            fj = load_json(favours_dir / f"Favour_{key}_{n}.json")
+            props = next((o.get("Properties") or {} for o in fj if o.get("Type") == "RacerFavour"), None)
+            if props is None:
+                continue
+            props1 = props1 or props
+            raw = favor_text((props.get("PlayerFacingDescription") or {}).get("LocalizedString", ""), props)
+            ranks.append({
+                "rank": n,
+                "description": rich_text(raw),
+                "rich": rich_text(raw, favor_icon, bold=True),
+                # the datamine's HowToUnlock has the goal's number filled in ("Complete {Target} ..." in the asset)
+                "unlock": next((r["HowToUnlock"] for r in favor_rows if r["Key"] == key and r["Rank"] == str(n)), None)
+                          or rich_text((props.get("UnlockDescription") or {}).get("LocalizedString", "")) or None,
+            })
+        if not ranks:
+            continue
+        name = (props1.get("PlayerFacingName") or {}).get("LocalizedString") or next(r["Name"] for r in favor_rows if r["Key"] == key)
+        character = next(r["Character"] for r in favor_rows if r["Key"] == key)
+        icon = texture(args.textures, (props1.get("Icon") or {}).get("AssetPathName"))
+        fid = slug(name)
+        favors_out.append({
+            "id": fid,
+            "name": name,
+            "key": key,
+            # "Hibi (A)" / "Sebulba (B)": the character offers two favors; "Q-33N (Broker backer)": a backer
+            "character": re.sub(r"\s*\((A|B)\)$", "", character),
+            "backer": bool(re.search(r"backer\)$", character)),
+            "ranks": ranks,
+            "emoji": emojis.add(f"fv_{key}", icon) if icon else None,
+            "icon": save_art(icon, f"favors/{fid}.webp", max_size=256) if icon else None,
+        })
+    favors_out.sort(key=lambda f: f["name"].lower())
+
     # --- vehicles ---
     # The four classes (their garage description, traits and Advanced stat) and every named vehicle in them. A
     # speeder's model is a cosmetic kit (TH_<codename>: its manufacturer's badge, a Kit Points price and the unlock
@@ -1166,7 +1237,8 @@ def main():
                        ("arcade", {"categories": categories, "vehicleClasses": vehicle_classes, "events": arcade}),
                        ("scenarios", scenarios_out), ("styles", styles_out), ("parts", {"keywords": keywords_out, "parts": parts_out}),
                        ("abilities", {"families": ability_families, "abilities": abilities_out}),
-                       ("vehicles", {"classes": vehicle_classes_out, "vehicles": vehicles_out, "kitPointsEmoji": kit_points})]:
+                       ("vehicles", {"classes": vehicle_classes_out, "vehicles": vehicles_out, "kitPointsEmoji": kit_points}),
+                       ("favors", favors_out)]:
         (DATA_OUT / f"{name}.json").write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     missing = [f"{e['name']} ({k})" for e in arcade for k in ("tile",) if not e[k]]
@@ -1174,7 +1246,7 @@ def main():
     print(f"{len(emojis.by_name)} emoji icons in assets/emoji")
     missing += [f"{t['name']} (map)" for t in tracks if not t["map"]]
     missing += [f"{p['name']} (image)" for p in planets if not p["image"]]
-    print(f"{len(planets)} planets, {len(tracks)} tracks, {len(arcade)} arcade events, {len(scenarios_out)} scenarios, {len(styles_out)} racer styles, {len(parts_out)} parts, {len(abilities_out)} abilities, {len(vehicles_out)} vehicles")
+    print(f"{len(planets)} planets, {len(tracks)} tracks, {len(arcade)} arcade events, {len(scenarios_out)} scenarios, {len(styles_out)} racer styles, {len(parts_out)} parts, {len(abilities_out)} abilities, {len(vehicles_out)} vehicles, {len(favors_out)} favors")
     if missing:
         print("missing art:", ", ".join(missing))
 
