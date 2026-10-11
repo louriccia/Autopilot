@@ -4,6 +4,8 @@ const planets = require('../data/swgr/planets.json')
 const tracks = require('../data/swgr/tracks.json')
 const { categories, vehicleClasses, events } = require('../data/swgr/arcade.json')
 const scenarios = require('../data/swgr/scenarios.json')
+const { families: abilityFamilies, abilities } = require('../data/swgr/abilities.json')
+const { classes, vehicles } = require('../data/swgr/vehicles.json')
 const styles = require('../data/swgr/styles.json')
 const { keywords: partKeywords, parts } = require('../data/swgr/parts.json')
 // Hand-maintained (not generated): staff times from the community leaderboard sheet, by arcade event id
@@ -15,6 +17,10 @@ const trackById = byId(tracks)
 const eventById = byId(events)
 const categoryById = byId(categories)
 const scenarioById = byId(scenarios)
+const abilityById = byId(abilities)
+const vehicleById = byId(vehicles)
+const classById = byId(classes)
+const abilityByName = Object.fromEntries(abilities.map(a => [a.name, a]))
 const styleById = byId(styles)
 const partById = byId(parts)
 const partByName = Object.fromEntries(parts.map(p => [p.name, p]))
@@ -43,6 +49,10 @@ module.exports = {
     categories,
     scenarios,
     styles,
+    abilities,
+    abilityFamilies,
+    classes,
+    vehicles,
     parts,
     vehicleClass: name => vehicleClasses[name],
     planet: id => planetById[id],
@@ -50,6 +60,14 @@ module.exports = {
     event: id => eventById[id],
     category: id => categoryById[id],
     scenario: id => scenarioById[id],
+    ability: id => abilityById[id],
+    vehicle: id => vehicleById[id],
+    vehicleByName: name => vehicles.find(v => v.name == name),
+    vehicleClassById: id => classById[id],
+    vehiclesInClass: name => vehicles.filter(v => v.class == name),
+    abilityByName: name => abilityByName[name],
+    // A family's abilities, by tier
+    abilitiesInFamily: id => abilities.filter(a => a.family == id).sort((a, b) => a.tier - b.tier),
     style: id => styleById[id],
     part: id => partById[id],
     partByName: name => partByName[name],

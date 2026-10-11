@@ -18,7 +18,7 @@ import math
 import re
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageChops, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA_OUT = ROOT / "src" / "data" / "swgr"
@@ -234,6 +234,50 @@ def stat_segments(emojis, textures):
             emojis.add_image(f"{kinds}{filled}", canvas)
 
 
+
+# Preflight inputs as the HUD shows them: the platform's controller glyphs (T_UI_Cntrl_<XB|PS|PC>_*). The datamine
+# names pad buttons by Xbox/PlayStation label ("A/X") and keys by UE key name. Letter keys have no texture of their
+# own (the game prints the letter on the blank key), so they're the blank key with the letter cut out.
+PAD_GLYPHS = {
+    "Up": "Dpad_Top", "Down": "Dpad_Bottom", "Left": "Dpad_Left", "Right": "Dpad_Right",
+    "A/X": "FaceButton_Bottom", "B/O": "FaceButton_Right", "X/[]": "FaceButton_Left", "Y/^": "FaceButton_Top",
+    "LB/L1": "ShoulderLeft", "RB/R1": "ShoulderRight", "LT/L2": "TriggerLeft", "RT/R2": "TriggerRight",
+}
+KEY_GLYPHS = {
+    "Up": "Arrow_Up", "Down": "Arrow_Down", "Left": "Arrow_Left", "Right": "Arrow_Right",
+    "LeftShift": "Key_Shift_Left", "SpaceBar": "Key_Space", "Enter": "Key_Enter", "Tab": "Tab",
+}
+GLYPH_FONT = Path("C:/Windows/Fonts/bahnschrift.ttf")
+
+
+def input_glyphs(emojis, textures):
+    """Returns glyph(platform, button) -> emoji name, platform being xbox, playstation or keyboard."""
+    folder = textures / "Griffin" / "Content" / "Griffin" / "UI" / "Library" / "Textures" / "Platform"
+    platforms = {"xbox": ("Xbox", "XB", PAD_GLYPHS), "playstation": ("Playstation", "PS", PAD_GLYPHS),
+                 "keyboard": ("PC", "PC", KEY_GLYPHS)}
+
+    def letter_key(letter):
+        key = Image.open(folder / "PC" / "T_UI_Cntrl_PC_Key_Blank_Icn.png").convert("RGBA")
+        font = ImageFont.truetype(str(GLYPH_FONT), 46)
+        font.set_variation_by_name("Bold")
+        mask = Image.new("L", key.size, 0)
+        ImageDraw.Draw(mask).text((key.width / 2, key.height / 2), letter, font=font, fill=255, anchor="mm")
+        key.putalpha(ImageChops.subtract(key.getchannel("A"), mask))
+        return key
+
+    def glyph(platform, button):
+        if platform == "playstation" and button in ("Up", "Down", "Left", "Right"):
+            platform = "xbox"  # both consoles show the squared d-pad (the PS d-pad textures go unused)
+        folder_name, prefix, names = platforms[platform]
+        name = f"in{prefix}_{re.sub(r'[^A-Za-z0-9]', '', names.get(button, button))}"
+        if button in names:
+            return emojis.add(name, folder / folder_name / f"T_UI_Cntrl_{prefix}_{names[button]}_Icn.png")
+        if platform == "keyboard" and len(button) == 1 and button.isalnum():
+            return emojis.add_image(name, letter_key(button.upper()))
+        return None
+    return glyph
+
+
 def save_flipbook_gif(datamine, name, dest, *, height):
     """One of the datamine's flipbook animations (tools/make_flipbook_gifs.py), rebuilt smaller.
 
@@ -321,6 +365,7 @@ def main():
     emojis = Emojis()
     stat_segments(emojis, args.textures)
     rarity_pips(emojis, args.textures)
+    input_glyph = input_glyphs(emojis, args.textures)
     speed_emoji = emojis.add("stat_Speed", ui_icons / "BuildStats" / "T_UI_BuildStats_Speed_Icn.png")
     emojis.add("lock", ui_icons / "T_UI_Lock_Icn.png")
     emojis.add("reverse", ui_icons / "T_UI_Reverse_Icn.png")
@@ -946,6 +991,86 @@ def main():
     if len(keywords_out) > 25:
         print(f"WARNING: {len(keywords_out)} part keywords; the finder's menu shows the first 25")
 
+    # --- abilities ---
+    # The 45 player abilities (AI-only versions skipped) in 9 families; tier = price level (1000 / 2000 / 4000
+    # credits). Descriptions are the blueprint's text with {placeholders} filled from the ability's config asset.
+    # Values a config leaves at the game code's default aren't in any asset: those can be filled by hand in
+    # src/data/community/ability-values.json, and anything still missing stays a "{?name}" token the cards show as ?.
+    ability_rows = [r for r in rows(out / "gameplay" / "abilities.csv") if r["ai_version"] != "True"]
+    preflight = {r["Asset"]: r for r in rows(out / "preflight_checks.csv")}
+    prices = {r[1]: int(r[2]) for r in csv.reader(open(out / "economy.csv", encoding="utf-8-sig"))
+              if len(r) > 2 and r[0] == "ECO_Campaign" and r[1].startswith("CampaignEconomy.Abilities.Level")}
+    hand_values_file = ROOT / "src" / "data" / "community" / "ability-values.json"
+    hand_values = json.loads(hand_values_file.read_text(encoding="utf-8")) if hand_values_file.exists() else {}
+    abilities_dir = game / "Gameplay" / "Abilities"
+    ability_json = {p.stem: p for p in abilities_dir.glob("**/BP_Ability_*.json")}
+    FAMILY_MERGE = {"VentV2": "Vent"}
+
+    def number(v):
+        return f"{v:g}" if isinstance(v, (int, float)) else str(v)
+
+    abilities_out = []
+    for r in ability_rows:
+        bp = load_json(ability_json.get(r["asset"], Path("-")))
+        props = next((o["Properties"] for o in bp if "Default__" in o.get("Name", "") and (o.get("Properties") or {}).get("Description")), {})
+        cfg_ref = (props.get("AbilityConfig") or {}).get("ObjectPath")
+        cfg = next((o.get("Properties") or {} for o in (game_json(cfg_ref) if cfg_ref else [])), {}) or {}
+        aid = slug(r["name"])
+        values = {k.lower(): number(v) for k, v in cfg.items() if isinstance(v, (int, float)) and not isinstance(v, bool)}
+        for pair in (r["config"] or "").split(", "):
+            if "=" in pair and pair.split("=", 1)[1].replace(".", "", 1).isdigit():
+                values.setdefault(pair.split("=", 1)[0].lower(), pair.split("=", 1)[1])
+        values.update({k.lower(): number(v) for k, v in hand_values.get(aid, {}).items()})
+        text = (props.get("Description") or {}).get("LocalizedString", "")
+        text = re.sub(r"\{(\w+)\}", lambda m: values.get(m.group(1).lower(), "{?" + m.group(1) + "}"), text)
+        icon_name = next((m for m in re.findall(r"T_UI_Ability_(\w+?)_Icn", json.dumps(bp)) if not m.endswith(("_Lg", "_Txt"))), None)
+        icon = ui_icons / "Abilities" / f"T_UI_Ability_{icon_name}_Icn.png" if icon_name else None
+        large = ui_icons / "Abilities" / "LargeAbilityIcons" / f"T_UI_Ability_{icon_name}_Lg_Icn.png" if icon_name else None
+        pf = preflight.get(r["asset"])
+        level = int(r["price_group"][-1]) if r["price_group"][-1:].isdigit() else None
+        abilities_out.append({
+            "id": aid,
+            "name": r["name"],
+            "family": FAMILY_MERGE.get(r["family"], r["family"]),
+            "tier": level,
+            "credits": prices.get(r["price_group"]),
+            "description": rich_text(re.sub(r"\{\?(\w+)\}", "?", text)),
+            "rich": rich_text(text, keyword_icon, bold=True),
+            "cooldown": num(r["cooldown_s"]) if r["cooldown_s"].isdigit() else (float(r["cooldown_s"]) if r["cooldown_s"] else None),
+            "energy": num(r["energy_cost"]) if r["energy_cost"].isdigit() else None,
+            "upgradesTo": [slug(n.strip()) for n in r["upgrades_to"].split(",") if n.strip()],
+            "preflight": {
+                "pad": pf["Sequence (pad)"], "keyboard": pf["Sequence (keyboard)"], "reward": pf["Reward"],
+                "simpleDrops": pf["Simple mode drops"],
+                # an emoji per input, per platform (None where there's no glyph)
+                "inputs": {platform: [input_glyph(platform, b) for b in pf[col].split()]
+                           for platform, col in (("xbox", "Sequence (pad)"), ("playstation", "Sequence (pad)"),
+                                                 ("keyboard", "Sequence (keyboard)"))},
+            } if pf else None,
+            "unlock": unlock_text(r["unlocked_by"]) if r["unlocked_by"] else None,
+            "emoji": emojis.add(f"ab_{icon_name}", icon) if icon and icon.exists() else None,
+            "icon": save_art(large if large and large.exists() else icon, f"abilities/{aid}.webp", max_size=256) if icon else None,
+            "usedIn": {
+                "events": [e["id"] for e in arcade if any(a["name"] == r["name"] for a in e["abilities"])],
+                "scenarios": [sc["id"] for sc in scenarios_out if any(a["name"] == r["name"] for a in sc["abilities"])],
+                "styles": [st["id"] for st in styles_out if any(a["name"] == r["name"] for a in st["abilities"])],
+            },
+        })
+    ability_ids = {a["id"] for a in abilities_out}
+    for a in abilities_out:
+        a["upgradesTo"] = [u for u in a["upgradesTo"] if u in ability_ids]
+        a["upgradesFrom"] = [b["id"] for b in abilities_out if a["id"] in b["upgradesTo"]]
+    # families, named after their first-tier ability, in data order
+    ability_families = []
+    for a in abilities_out:
+        if a["family"] not in [f["id"] for f in ability_families]:
+            base = next((b for b in abilities_out if b["family"] == a["family"] and b["tier"] == 1), a)
+            ability_families.append({"id": a["family"], "name": base["name"], "emoji": base["emoji"]})
+    unresolved = sorted({m for a in abilities_out for m in re.findall(r"\{\?(\w+)\}", a["rich"] or "")})
+    if unresolved:
+        print(f"{sum(1 for a in abilities_out if '{?' in (a['rich'] or ''))} abilities have values not in the game data "
+              f"({', '.join(unresolved)}); fill them in {hand_values_file.relative_to(ROOT).as_posix()}")
+
     icons_dir = args.textures / "Griffin" / "Content" / "Griffin" / "UI" / "Library" / "Textures" / "Icons" / "Arcade"
     categories = [{"id": k, "name": n,
                    "icon": save_art(icons_dir / f"{icn}.png", f"icons/arcade-{slug(k)}.webp", max_size=128),
@@ -958,9 +1083,90 @@ def main():
                                                     f"vehicles/{slug(c)}.gif", height=240)}
                        for c in ADVANCED}
 
+    # --- vehicles ---
+    # The four classes (their garage description, traits and Advanced stat) and every named vehicle in them. A
+    # speeder's model is a cosmetic kit (TH_<codename>: its manufacturer's badge, a Kit Points price and the unlock
+    # tag buying it sets); stats come from the build, not the model. Podracers are the rivals' named pods, which
+    # appear in arcade events but not in the garage. Myth (the player's own podracer) has no name and is left out.
+    loc = json.loads((out / "loc_en.json").read_text(encoding="utf-8"))
+    vtext = loc.get("VehicleText", {})
+    CLASS_KEY = {"Speeder Bike": "Bike", "Landspeeder": "Car", "Skim Speeder": "Skimmer", "Podracer": "Plane"}
+    kit_points = emojis.add("KitPoints", ui_icons / "T_UI_KitPoint_Icn.png")
+    textures_ui = args.textures / "Griffin" / "Content" / "Griffin" / "UI" / "Library" / "Textures"
+    # <action id="ImprovedSteering"/>: that action's button on each platform (IMC_Vehicle_Default / _Keyboard)
+    glyphs = " / ".join("{emoji:" + input_glyph(p, b) + "}" for p, b in
+                        (("playstation", "X/[]"), ("xbox", "X/[]"), ("keyboard", "SpaceBar")))
+    action_text = lambda s: re.sub(r'<action id="ImprovedSteering"\s*/>', glyphs, s or "")
+
+    vehicle_classes_out = []
+    for cls_name, key in CLASS_KEY.items():
+        traits = []
+        for n in (1, 2, 3):
+            name = vtext.get(f"Archetype_{key}_Trait0{n}_Name")
+            if name:
+                traits.append({"name": name, "description": rich_text(action_text(vtext.get(f"Archetype_{key}_Trait0{n}_Desc")))})
+        vehicle_classes_out.append({
+            "id": slug(cls_name),
+            "name": cls_name,
+            "description": rich_text(action_text(vtext.get(f"Archetype_{key}_Description"))),
+            "traits": traits,
+            "advanced": ADVANCED[cls_name],
+            "gif": vehicle_classes[cls_name]["gif"],
+        })
+
+    kit_json = {p.stem[3:]: p for p in (game / "Vehicles").glob("**/TH_*.json")}
+    kit_slots = {}
+    for r in rows(out / "vehicle_parts.csv"):
+        kit_slots.setdefault(r["kit"], []).append({"slot": r["slot_label"], "cost": num(r["cost"]) if r["cost"] else None})
+    racer_rows = list(rows(out / "racer_vehicles.csv"))
+    # rivals (not Shade, the player, nor the datamine's boss-race / aged duplicates)
+    racer_names = {r["racer"] for r in racer_rows if " " in r["racer"] or r["racer"] in ("Sebulba", "Gasgano", "Autopilot")}
+    pilot_art = textures_ui / "Content" / "Characters"
+
+    vehicles_out = []
+    for r in rows(out / "vehicles.csv"):
+        if not r["Name"]:
+            continue
+        code = r["Codename"]
+        th = next(iter(load_json(kit_json[code])), {}).get("Properties", {}) if code in kit_json else {}
+        badge = (th.get("Thumbnail") or {}).get("AssetPathName")
+        if r["Class"] == "Podracer":
+            # the pilot's portrait (named by persona: Sebulba's pod is the "Nesodon" one)
+            image = next((pilot_art / f"T_UI_PlaneChar_{x['persona']}_Thumb.png" for x in racer_rows
+                          if code in x["kits"].split("+") and (pilot_art / f"T_UI_PlaneChar_{x['persona']}_Thumb.png").exists()), None)
+            desc = re.sub(r"^<B>[^<]*</>\s*", "", vtext.get(f"Archetype_Plane_{code}_Desc", ""))
+        else:
+            image, desc = texture(args.textures, badge) if badge else None, ""
+        if th.get("IsAvailableToPlayerByDefault"):
+            unlock = "Owned from the start"
+        elif (th.get("UnlockedBy") or {}).get("TagName", "").startswith("GlobalUnlock.Entl"):
+            unlock = rich_text((th.get("LockReason") or {}).get("LocalizedString", ""))
+        else:
+            unlock = None
+        aid = slug(r["Name"])
+        vehicles_out.append({
+            "id": aid,
+            "name": r["Name"],
+            "codename": code,
+            "class": r["Class"],
+            "manufacturer": r["Manufacturer"] or None,
+            "kitPoints": num(r["Cost"]) if r["Cost"] else None,
+            "unlock": unlock,
+            "pilot": r["Pilot"] or None,
+            "description": rich_text(desc) or None,
+            "image": save_art(image, f"vehicles/{aid}.webp", max_size=256) if image and image.exists() else None,
+            "parts": kit_slots.get(code, []) if r["Class"] != "Podracer" else [],  # podracers can't be customised
+            "racers": sorted({x["racer"] for x in racer_rows if x["racer"] in racer_names and code in x["kits"].split("+")}),
+            "events": [e["id"] for e in arcade if e["vehicle"] == r["Name"]],
+        })
+    vehicle_order = list(CLASS_KEY)
+    vehicles_out.sort(key=lambda v: (vehicle_order.index(v["class"]), v["name"].lower()))
+
     for name, data in [("planets", planets), ("tracks", tracks),
                        ("arcade", {"categories": categories, "vehicleClasses": vehicle_classes, "events": arcade}),
-                       ("scenarios", scenarios_out), ("styles", styles_out), ("parts", {"keywords": keywords_out, "parts": parts_out})]:
+                       ("scenarios", scenarios_out), ("styles", styles_out), ("parts", {"keywords": keywords_out, "parts": parts_out}),
+                       ("abilities", {"families": ability_families, "abilities": abilities_out}),
+                       ("vehicles", {"classes": vehicle_classes_out, "vehicles": vehicles_out, "kitPointsEmoji": kit_points})]:
         (DATA_OUT / f"{name}.json").write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     missing = [f"{e['name']} ({k})" for e in arcade for k in ("tile",) if not e[k]]
@@ -968,7 +1174,7 @@ def main():
     print(f"{len(emojis.by_name)} emoji icons in assets/emoji")
     missing += [f"{t['name']} (map)" for t in tracks if not t["map"]]
     missing += [f"{p['name']} (image)" for p in planets if not p["image"]]
-    print(f"{len(planets)} planets, {len(tracks)} tracks, {len(arcade)} arcade events, {len(scenarios_out)} scenarios, {len(styles_out)} racer styles, {len(parts_out)} parts")
+    print(f"{len(planets)} planets, {len(tracks)} tracks, {len(arcade)} arcade events, {len(scenarios_out)} scenarios, {len(styles_out)} racer styles, {len(parts_out)} parts, {len(abilities_out)} abilities, {len(vehicles_out)} vehicles")
     if missing:
         print("missing art:", ", ".join(missing))
 

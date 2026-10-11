@@ -61,6 +61,27 @@ const KINDS = [
         page: id => pages.partInfo(null, [Number(id)]),
     },
     {
+        kind: 'vehicle',
+        items: () => data.vehicles,
+        label: v => `${v.name} — ${v.class}${v.manufacturer ? ` · ${v.manufacturer}` : v.pilot ? ` · ${v.pilot}` : ''}`,
+        keywords: v => [v.class, v.manufacturer, v.pilot, ...v.racers, 'vehicle'].filter(Boolean),
+        page: pages.vehicleInfo,
+    },
+    {
+        kind: 'class',
+        items: () => data.classes,
+        label: c => `${c.name} — Vehicle class · ${data.vehiclesInClass(c.name).length} vehicles`,
+        keywords: c => [c.advanced, ...c.traits.map(t => t.name), 'vehicle class'],
+        page: pages.vehicleClassInfo,
+    },
+    {
+        kind: 'ability',
+        items: () => data.abilities,
+        label: a => `${a.name} — Ability · Tier ${['', 'I', 'II', 'III'][a.tier] ?? '?'}`,
+        keywords: a => [a.description, 'ability'],
+        page: pages.abilityInfo,
+    },
+    {
         kind: 'arcade',
         items: () => [{ id: 'all', name: 'Arcade' }],
         label: () => `Arcade — all ${data.events.length} events`,

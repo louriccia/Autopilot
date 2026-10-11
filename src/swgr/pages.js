@@ -46,6 +46,8 @@ const formatTime = s => {
 const partText = p => (p.rich ?? p.description).replace(/\{emoji:(\w+)\}/g, (_, name) => emoji.named(name))
 // How something unlocks, as the last line of a card's header
 const unlockLine = text => text ? `-# ${emoji.named('lock')} ${text}` : null
+// A build's or style's abilities (by name) as ability records
+const abilitiesOf = x => (x.abilities ?? []).map(a => data.abilityByName(a.name)).filter(Boolean)
 const laps = n => n ? `${n} lap${n == 1 ? '' : 's'}` : null
 // The game's 10-segment level bar (7 short then 3 tall), drawn as 5 emojis of two segments each — ss/st/tt
 // for the pair's shapes plus how many of the two are filled. See stat_segments in tools/import_swgr.py.
@@ -335,6 +337,7 @@ function arcadeEvent(eventId) {
         categorySelect(e.category),
         eventSelect(data.eventsInCategory(e.category), e.id),
         ...(e.parts.length ? [partSelect(e.parts.map(x => data.partByName(x.name)).filter(Boolean))] : []),
+        ...(abilitiesOf(e).length ? [abilitySelect(abilitiesOf(e))] : []),
         buttons([`track_${track.id}`, track.name], [`planet_${planet.id}`, planet.name, emoji.planet[planet.id]]),
     ])
 }
@@ -469,6 +472,7 @@ function scenarioInfo(scenarioId) {
         scenarioSelect(sc.id),
         trackSelect(poolTracks),
         ...(sc.parts.length ? [partSelect(sc.parts.map(x => data.partByName(x.name)).filter(Boolean))] : []),
+        ...(abilitiesOf(sc).length ? [abilitySelect(abilitiesOf(sc))] : []),
         ...(style ? [buttons([`style_${style.id}`, style.name, emoji.named(style.emoji)])] : []),
     ])
 }
@@ -509,6 +513,7 @@ function styleInfo(styleId) {
     }
 
     const rows = [styleSelect(st.id)]
+    if (abilitiesOf(st).length) rows.push(abilitySelect(abilitiesOf(st), 'Starting abilities'))
     if (scenarios.length) rows.push(buttons(...scenarios.slice(0, 5).map(sc => [`scenario_${sc.id}`, sc.name, emoji.vehicle[sc.vehicleClass]])))
     return page(container, files, rows)
 }
@@ -676,4 +681,201 @@ function partInfo(partId, keywordIds = [], pageNumber = null) {
     return page(container, files, menus.rows)
 }
 
-module.exports = { arcadeOverview, arcadeCategory, arcadeEvent, trackInfo, planetInfo, scenarioInfo, styleInfo, partInfo, parseKeywordMask }
+// --- abilities ---
+
+const ROMAN = ['', 'I', 'II', 'III', 'IV']
+// Ability text: bold keywords with icons; values the game data doesn't have ({?duration}) show as ?
+const abilityText = a => (a.rich ?? a.description)
+    .replace(/\{\?\w+\}/g, '**?**')
+    .replace(/\{emoji:(\w+)\}/g, (_, name) => emoji.named(name))
+
+// Preflight inputs as the game's button glyphs (the importer's emoji per input), falling back to the button's name
+const inputs = (seq, glyphs = []) => seq.split(' ').map((b, i) => glyphs[i] ? emoji.named(glyphs[i]) : `\`${b}\``).join(' ')
+// The preflight reward, keeping only the parts written for people (the rest are raw tuning values)
+function preflightReward(reward) {
+    return reward.split(';').map(s => s.trim()).map(s =>
+        s == 'first cooldown x0.5' ? 'first reload takes half the time'
+            : /^(starts ready|first use improved)/.test(s) ? s
+            : null).filter(Boolean).join(', ')
+}
+
+function abilityFamilySelect(current) {
+    return select('ability_family', 'Pick an ability family',
+        data.abilityFamilies.map(f => ({
+            label: f.name, value: f.id, emoji: emoji.named(f.emoji),
+            description: data.abilitiesInFamily(f.id).map(a => a.name).join(', ').slice(0, 100),
+        })), current)
+}
+
+// A menu of abilities (a build's or a style's); value = ability id
+function abilitySelect(list, placeholder = 'Look up an ability') {
+    return select('ability', placeholder, list.map(a => ({
+        label: a.name, value: a.id, description: a.description.slice(0, 100), emoji: emoji.named(a.emoji),
+    })))
+}
+
+function abilitiesOverview() {
+    const container = new ContainerBuilder().setAccentColor(DEFAULT_COLOR)
+    header(container, [crumbs('Abilities'), '## Abilities', `${data.abilities.length} abilities in ${data.abilityFamilies.length} families.`])
+    container.addSeparatorComponents(separator())
+    container.addTextDisplayComponents(text(data.abilityFamilies.map(f =>
+        `${emoji.named(f.emoji)} **${f.name}** · ${data.abilitiesInFamily(f.id).filter(a => a.id != data.abilitiesInFamily(f.id)[0].id).map(a => a.name).join(', ')}`).join('\n')))
+    return page(container, new Files(), [abilityFamilySelect()])
+}
+
+function abilityInfo(abilityId) {
+    const a = data.ability(abilityId)
+    const family = data.abilitiesInFamily(a.family)
+    const familyName = data.abilityFamilies.find(f => f.id == a.family)?.name ?? a.family
+    const files = new Files()
+    const container = new ContainerBuilder().setAccentColor(DEFAULT_COLOR)
+
+    header(container, [
+        crumbs('Abilities', familyName),
+        `# ${a.name}`,
+        abilityText(a),
+        [a.tier && `Tier ${ROMAN[a.tier]}`, a.cooldown != null && `${a.cooldown}s reload`,
+            a.energy != null && `${emoji.named('kw_Battery')} ${a.energy} Energy`,
+            a.credits && `${emoji.credits} ${a.credits.toLocaleString('en-US')}`].filter(Boolean).join(' / '),
+        unlockLine(a.unlock),
+    ], files.add(a.icon))
+
+    // The family by tier, this ability's place in it, and a button for each member
+    container.addSeparatorComponents(separator())
+    const tiers = [...new Set(family.map(f => f.tier))].sort()
+    const names = ids => ids.map(id => `**${data.ability(id).name}**`).join(' or ')
+    container.addTextDisplayComponents(text([
+        '### Upgrades',
+        ...tiers.map(t => `-# Tier ${ROMAN[t]}: ${family.filter(f => f.tier == t).map(f => `${emoji.named(f.emoji)} ${f.id == a.id ? `**${f.name}**` : f.name}`).join(' · ')}`),
+        a.upgradesFrom.length && `-# Upgrades from ${names(a.upgradesFrom)}`,
+        a.upgradesTo.length && `-# Upgrades into ${names(a.upgradesTo)}`,
+    ].filter(Boolean).join('\n')))
+    // A button per member while they fit in one row (5), otherwise a menu
+    container.addActionRowComponents(family.length > 5
+        ? select('ability', 'Pick an ability in this family', family.map(f => ({
+            label: f.name, value: f.id, description: `Tier ${ROMAN[f.tier]}`, emoji: emoji.named(f.emoji),
+        })), a.id)
+        : new ActionRowBuilder().addComponents(family.map(f =>
+            new ButtonBuilder()
+                .setCustomId(`ability_${f.id}`)
+                .setLabel(f.name)
+                .setStyle(f.id == a.id ? ButtonStyle.Primary : ButtonStyle.Secondary)
+                .setDisabled(f.id == a.id))))
+
+    if (a.preflight) {
+        const reward = preflightReward(a.preflight.reward)
+        container.addSeparatorComponents(separator())
+        container.addTextDisplayComponents(text([
+            '### Preflight check',
+            inputs(a.preflight.pad, a.preflight.inputs?.playstation),
+            inputs(a.preflight.pad, a.preflight.inputs?.xbox),
+            inputs(a.preflight.keyboard, a.preflight.inputs?.keyboard),
+            reward && `-# Completing it: ${reward}`,
+        ].filter(Boolean).join('\n')))
+    }
+
+    const used = [
+        ...a.usedIn.events.map(data.event).map(e => ({ label: e.name, value: `event:${e.id}`, description: `Arcade · ${e.vehicle}`, emoji: emoji.vehicle[e.vehicleClass] })),
+        ...a.usedIn.scenarios.map(data.scenario).map(sc => ({ label: sc.name, value: `scenario:${sc.id}`, description: `Scenario · ${sc.tier}`, emoji: emoji.vehicle[sc.vehicleClass] })),
+        ...a.usedIn.styles.map(data.style).map(st => ({ label: st.name, value: `style:${st.id}`, description: 'Racer style (starting ability)', emoji: emoji.named(st.emoji) })),
+    ]
+    if (used.length) {
+        container.addSeparatorComponents(separator())
+        container.addTextDisplayComponents(text(['### Used in', ...used.map(u => `-# ${u.emoji ?? ''} **${u.label}** · ${u.description}`)].join('\n')))
+        container.addActionRowComponents(select('goto', 'Used in…', used.slice(0, 25)))
+    }
+    if (/\{\?\w+\}/.test(a.rich ?? '')) container.addTextDisplayComponents(text("-# ? = a value the game files don't include"))
+
+    container.addSeparatorComponents(separator())
+    return page(container, files, [abilityFamilySelect(a.family)])
+}
+
+// --- vehicles ---
+
+// Class > vehicle menus, broadest first
+function vehicleClassSelect(current) {
+    return select('vehicle_class', 'Pick a vehicle class', data.classes.map(c => ({
+        label: c.name, value: c.id, emoji: emoji.vehicle[c.name],
+        description: `${data.vehiclesInClass(c.name).length} vehicles / Advanced: ${c.advanced}`,
+    })), current)
+}
+function vehicleSelect(className, current) {
+    return select('vehicle', `Pick a ${className.toLowerCase()}`, data.vehiclesInClass(className).map(v => ({
+        label: v.name, value: v.id, emoji: emoji.vehicle[v.class],
+        description: (v.manufacturer ?? (v.pilot && `${v.pilot}'s podracer`) ?? v.class).slice(0, 100),
+    })), current)
+}
+const vehicleLine = v => `-# **${v.name}**${v.manufacturer ? ` / ${v.manufacturer}` : v.pilot ? ` / ${v.pilot}` : ''}`
+
+function vehiclesOverview() {
+    const container = new ContainerBuilder().setAccentColor(DEFAULT_COLOR)
+    header(container, [crumbs('Vehicles'), '# Vehicles', `${data.vehicles.length} vehicles in ${data.classes.length} classes. A speeder's model is cosmetic: its stats come from the build.`])
+    container.addSeparatorComponents(separator())
+    container.addTextDisplayComponents(text(data.classes.map(c =>
+        `${emoji.vehicle[c.name]} **${c.name}** / ${data.vehiclesInClass(c.name).length} vehicles / ${emoji.named('stat_Advanced')} ${c.advanced}`).join('\n')))
+    return page(container, new Files(), [vehicleClassSelect()])
+}
+
+function vehicleClassInfo(classId) {
+    const c = data.vehicleClassById(classId)
+    const files = new Files()
+    const container = new ContainerBuilder().setAccentColor(DEFAULT_COLOR)
+    header(container, [
+        crumbs('Vehicles'),
+        `# ${emoji.vehicle[c.name]} ${c.name}`,
+        `*${emojify(c.description).split('\n\n')[0]}*`,
+        `${emoji.named('stat_Advanced')} Advanced stat: **${c.advanced}**`,
+    ], files.add(c.gif))
+
+    if (c.traits.length) {
+        container.addSeparatorComponents(separator())
+        container.addTextDisplayComponents(text(['### Traits', ...c.traits.map(t => `-# **${t.name}**: ${emojify(t.description)}`)].join('\n')))
+    }
+    container.addSeparatorComponents(separator())
+    container.addTextDisplayComponents(text([`### Vehicles`, ...data.vehiclesInClass(c.name).map(vehicleLine)].join('\n')))
+    return page(container, files, [vehicleClassSelect(c.id), vehicleSelect(c.name)])
+}
+
+function vehicleInfo(vehicleId) {
+    const v = data.vehicle(vehicleId)
+    const c = data.classes.find(x => x.name == v.class)
+    const files = new Files()
+    const container = new ContainerBuilder().setAccentColor(DEFAULT_COLOR)
+    const kp = n => `${emoji.named('KitPoints')} ${n} Kit Points`
+
+    header(container, [
+        crumbs('Vehicles', v.class),
+        `# ${v.name}`,
+        v.description && `*${v.description}*`,
+        [v.manufacturer, v.pilot && `${v.pilot}'s podracer`, v.kitPoints && kp(v.kitPoints)].filter(Boolean).join(' / '),
+        unlockLine(v.unlock),
+    ], files.add(v.image))
+
+    if (v.parts.length) {
+        const costs = [...new Set(v.parts.map(p => p.cost).filter(Boolean))]
+        container.addSeparatorComponents(separator())
+        container.addTextDisplayComponents(text([
+            '### Parts',
+            `-# ${v.parts.map(p => p.slot).join(' / ')}`,
+            `-# ${costs.length == 1 ? `${kp(costs[0])} each` : 'Included with the vehicle'} / they fit any ${v.class.toLowerCase()}, so models can be mixed`,
+        ].join('\n')))
+    }
+
+    const events = v.events.map(data.event)
+    const racers = v.racers.filter(r => r != v.pilot)
+    if (racers.length || events.length) {
+        container.addSeparatorComponents(separator())
+        container.addTextDisplayComponents(text([
+            ...(racers.length ? ['### Raced by', `-# ${racers.join(' / ')}`] : []),
+            ...(events.length ? ['### Arcade', ...events.map(e => `-# ${emoji.planet[e.planet]} **${e.name}** / ${data.track(e.track).name}`)] : []),
+        ].join('\n')))
+    }
+
+    const rows = [vehicleClassSelect(c.id), vehicleSelect(v.class, v.id)]
+    if (events.length) rows.push(select('goto', 'Arcade events with it', events.map(e => ({
+        label: e.name, value: `event:${e.id}`, description: data.track(e.track).name, emoji: emoji.vehicle[e.vehicleClass],
+    }))))
+    return page(container, files, rows)
+}
+
+module.exports = { vehicleInfo, vehicleClassInfo, vehiclesOverview, abilityInfo, abilitiesOverview, arcadeOverview, arcadeCategory, arcadeEvent, trackInfo, planetInfo, scenarioInfo, styleInfo, partInfo, parseKeywordMask }
