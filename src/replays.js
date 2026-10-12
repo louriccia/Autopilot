@@ -93,7 +93,7 @@ async function readScreen(url) {
             model: VISION_MODEL,
             messages: [
                 { role: 'system', content: SCREEN_PROMPT },
-                { role: 'user', content: [{ type: 'image_url', image_url: { url } }] },
+                { role: 'user', content: [{ type: 'image_url', image_url: { url, detail: 'high' } }] },
             ],
             response_format: { type: 'json_schema', json_schema: { name: 'screen', strict: true, schema: SCREEN } },
         }),
@@ -183,8 +183,14 @@ exports.handle = async message => {
         const mentioned = [...message.mentions.users.values()].filter(u => !u.bot)
         const racer = mentioned.length == 1 && records.canSubmitForOthers(message.member) ? mentioned[0] : src.author
         for (const image of images) {
-            const screen = await readScreen(image.url).catch(error => ({ error }))
-            const match = !screen.error && racer && exports.matchScreen(screen, [racer.username, racer.globalName, racer.id == src.author?.id ? src.member?.displayName : null])
+            // The model now and then misses a row on an arcade screen; one more read usually gets it
+            const names = racer ? [racer.username, racer.globalName, racer.id == src.author?.id ? src.member?.displayName : null] : []
+            let screen = await readScreen(image.url).catch(error => ({ error }))
+            let match = !screen.error && racer && exports.matchScreen(screen, names)
+            if (!match && racer && screen.screen?.startsWith('arcade')) {
+                screen = await readScreen(image.url).catch(error => ({ error }))
+                match = !screen.error && exports.matchScreen(screen, names)
+            }
             if (!match || !racer || racer.bot) { results.push({ label: image.name, skipped: true, why: screen.error?.message ?? screen.screen }); continue }
             await save(match, { racer, date: src.posted, proof: message.url, label: `${image.name} (${match.title})` })
         }
