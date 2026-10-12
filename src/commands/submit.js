@@ -31,7 +31,7 @@ module.exports = {
         }
         const result = await submit({ kind, target, member: interaction.member, memberId: member_id, racer: o.getUser('racer'),
             time: o.getString('time'), platform: o.getString('platform'), proof: o.getString('proof'), notes: o.getString('notes') })
-        await interaction.reply({ content: result.error ?? result.message, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } })
+        await interaction.reply({ content: result.error ?? result.receipt ?? result.message, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } })
     },
     async autocomplete(interaction) {
         const q = interaction.options.getFocused().toLowerCase()

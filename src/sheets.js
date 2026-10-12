@@ -131,7 +131,7 @@ exports.importCsv = async (csv, { importer, members }) => {
         }
 
         const res = await submit({
-            kind, target: item.id, member: importer, memberId: importer.id, racer, trusted: true, keepPlatform: true,
+            kind, target: item.id, member: importer, memberId: importer.id, racer, trusted: true, keepPlatform: true, announce: false,
             time: formatTime(seconds), platform: row.platform || undefined, proof: row.proof, notes: row.notes, date: Number.isFinite(date) ? date : undefined,
         })
         if (res.error) fail(res.error)

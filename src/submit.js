@@ -3,6 +3,7 @@
 const records = require('./records.js')
 const data = require('./swgr/data.js')
 const { database } = require('./firebase.js')
+const progress = require('./progress.js')
 
 const BOARDS = {
     arcade: { item: data.event },
@@ -18,11 +19,13 @@ exports.formatTime = s => {
     return m ? `${m}:${rest.toFixed(2).padStart(5, '0')}` : rest.toFixed(2)
 }
 
-// Returns { error } or { message } (what to tell the submitter)
+// Returns { error } or { message, receipt, duplicate, updated }: message is a one-line summary (logs, imports), receipt
+// the submitter's private reply (src/progress.js). A save that changes a big enough board's top 3 is announced
+// (src/progress.js) unless announce is false (imports, backfills).
 // trusted: the racer was worked out by the bot (src/replays.js), so no permission is needed to credit them.
 // date: when the run happened, if known; youtube: the proof video's channel id. keepPlatform: leave an empty platform
 // empty instead of filling in the racer's usual one (imports).
-exports.submit = async ({ kind, target, member, memberId, racer, time: rawTime, platform, proof, notes, trusted, date, youtube, keepPlatform }) => {
+exports.submit = async ({ kind, target, member, memberId, racer, time: rawTime, platform, proof, notes, trusted, date, youtube, keepPlatform, announce = true }) => {
     if (!database) return { error: "Times can't be saved right now (no database)." }
     const item = exports.board(kind, target)
     if (!item) return { error: "That isn't an arcade event or scenario." }
@@ -44,14 +47,21 @@ exports.submit = async ({ kind, target, member, memberId, racer, time: rawTime, 
 
     const existing = records.allTimes().find(t => t.kind == kind && t.target == target && t.user == user && t.time == time)
     if (existing?.platform && !picked) platform = ''
+    const before = records.leaderboard(kind, target)
     const { duplicate, updated } = await records.addTime({ kind, target, user, submittedBy: memberId, time, platform, proof, notes: exports.clean(notes).slice(0, 120), date, youtube })
     const board = records.leaderboard(kind, target)
     const rank = board.findIndex(t => t.user == user) + 1
     const best = board[rank - 1]
     const whose = user == memberId ? 'Your' : `<@${user}>'s`
-    if (duplicate && updated.length) return { message: `${whose} ${exports.formatTime(time)} on ${item.name} was already saved (#${rank}); updated its ${updated.length > 1 ? `${updated.slice(0, -1).join(', ')} and ${updated.at(-1)}` : updated[0]}.`, duplicate, updated }
-    if (duplicate) return { message: `${whose} ${exports.formatTime(time)} on ${item.name} is already saved (#${rank}), with the same details.`, duplicate, updated }
+    const history = records.allTimes().filter(t => t.kind == kind && t.target == target && t.user == user).sort((a, b) => a.date - b.date)
+    const receipt = progress.receipt({ item, kind, user, forSelf: user == memberId, time, platform, before, after: board, history, duplicate, updated })
+    if (!duplicate && announce && member?.client) {
+        await progress.announce(member.client, progress.podium({ kind, item, user, time, proof, before, after: board })).catch(error => console.error('[podium]', error))
+    }
+    if (duplicate && updated.length) return { message: `${whose} ${exports.formatTime(time)} on ${item.name} was already saved (#${rank}); updated its ${updated.length > 1 ? `${updated.slice(0, -1).join(', ')} and ${updated.at(-1)}` : updated[0]}.`, receipt, duplicate, updated }
+    if (duplicate) return { message: `${whose} ${exports.formatTime(time)} on ${item.name} is already saved (#${rank}), with the same details.`, receipt, duplicate, updated }
     return {
+        receipt,
         message: best.time < time
             ? `Saved ${exports.formatTime(time)} on ${item.name}. ${whose} best is still ${exports.formatTime(best.time)} (#${rank}).`
             : `Saved! ${whose} ${exports.formatTime(time)} is #${rank} on ${item.name}.`,

@@ -4,6 +4,7 @@
 //                                         youtube? (the proof video's channel id) }: date is when the run happened, as
 //                                         far as we know (the earlier of upload and post for replays; else when saved)
 //   youtube/<channel id>                { user, name, linkedBy, linkedAt }: whose runs a YouTube channel's videos are
+//   rivals/<discord id>                 { rival (discord id), setAt }: the racer they measure themselves against
 //   feedback/<kind>/<target>/<user>     { rating: up | neutral | down, date }
 //   submitters/<discord id>             { addedBy, addedAt }: may submit times for other people
 //   staff/<event id>/<name>              { seconds, from: developer | publisher }: staff times on arcade cards
@@ -14,7 +15,7 @@ const { PermissionFlagsBits } = require('discord.js')
 const { database } = require('./firebase.js')
 const { submitter_roles } = require('./data/discord/guild.js')
 
-let times = {}, feedback = {}, submitters = {}, staff = {}, youtube = {}
+let times = {}, feedback = {}, submitters = {}, staff = {}, youtube = {}, rivals = {}
 exports.listen = () => {
     if (!database) return
     database.ref('times').on('value', s => { times = s.val() ?? {} })
@@ -22,6 +23,7 @@ exports.listen = () => {
     database.ref('submitters').on('value', s => { submitters = s.val() ?? {} })
     database.ref('staff').on('value', s => { staff = s.val() ?? {} })
     database.ref('youtube').on('value', s => { youtube = s.val() ?? {} })
+    database.ref('rivals').on('value', s => { rivals = s.val() ?? {} })
 }
 
 // "1:08.92", "68.92", "1:01:08.9" -> seconds to the hundredth (the game's precision); null if it isn't a time.
@@ -123,6 +125,15 @@ exports.addTime = async entry => {
     const ref = await database.ref('times').push(entry)
     times[ref.key] = entry  // so the card that's redrawn next already shows it
     return { id: ref.key, duplicate: false }
+}
+
+// Declared rivals (/times rival): one each; null clears
+exports.rivalOf = user => rivals[user]?.rival ?? null
+exports.setRival = async (user, rival) => {
+    const value = rival ? { rival, setAt: Date.now() } : null
+    await database.ref(`rivals/${user}`).set(value)
+    if (value) rivals[user] = value
+    else delete rivals[user]
 }
 
 // YouTube channels -> Discord ids (src/replays.js credits a channel's videos to its owner)

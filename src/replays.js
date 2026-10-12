@@ -149,14 +149,15 @@ exports.readScreen = readScreen
 exports.VIDEO = VIDEO
 
 // Saves every run found in a message; returns what happened to each, for logs and backfills
-exports.handle = async message => {
+// announce: false for backfills of old posts, so they don't announce podium changes
+exports.handle = async (message, { announce = true } = {}) => {
     if (message.author.bot || message.channelId != (testing ? test_channel : replay_channel)) return []
     const src = await source(message)
     const results = []
     const save = async (match, { racer, date, proof, youtube, label }) => {
         const result = await submit({
             kind: 'arcade', target: match.event.id, member: message.member, memberId: message.author.id, racer, trusted: true,
-            time: formatTime(match.seconds), proof, date, youtube,
+            time: formatTime(match.seconds), proof, date, youtube, announce,
         })
         results.push({ label, event: match.event.name, time: formatTime(match.seconds), racer: racer.id, ...result })
     }

@@ -5,6 +5,7 @@
 // Layout (top-level paths):
 //   feeds/<feed name>   what each announcement feed has already posted (src/feeds/state.js); feeds-testing/ for a testing copy
 //   youtube/<channel id>   whose runs a YouTube channel's videos are (src/records.js, src/replays.js)
+//   rivals/<discord id>   the racer someone declared their rival (/times rival, src/records.js)
 //   streamers/<twitch user id>   recognized streamers { login, name, addedBy, addedAt } (/streamer, src/feeds/twitch.js)
 //   times/<push id>     community times { kind, target, user, submittedBy, time, platform, proof, notes, date } (src/records.js)
 //   feedback/<kind>/<target>/<discord id>   thumbs up / neutral / down on an arcade event or scenario (src/records.js)

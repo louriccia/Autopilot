@@ -83,12 +83,14 @@ const boardTime = s => `**\`${formatTime(s)}\`**`
 const place = rank => rank <= 10 ? emoji.named(`place_${rank}`) : `**#${rank}**`
 // A time's platform as the game's logo (platform_PC / _PS5 / _Xbox); anything else in words
 const platformMark = p => !p ? '' : records.PLATFORMS.includes(p) ? ` ${emoji.named(`platform_${p}`)}` : ` / ${p}`
-const timeLine = (t, rank) => `${place(rank)} ${t.proof ? `[${boardTime(t.time)}](<${t.proof}>)` : boardTime(t.time)} <@${t.user}>${platformMark(t.platform)}`
-// A board's community times as shown: the top 5, plus whoever is looking (src/viewer.js) if they're further down
+// The viewer's declared rival (/times rival) gets the rival marker
+const timeLine = (t, rank) => `${place(rank)} ${t.proof ? `[${boardTime(t.time)}](<${t.proof}>)` : boardTime(t.time)} <@${t.user}>${platformMark(t.platform)}${t.user == records.rivalOf(viewer.id()) ? ` ${emoji.named('rival')}` : ''}`
+// A board's community times as shown: the top 5, plus whoever is looking (src/viewer.js) and their rival if they're
+// further down
 const shownTimes = (kind, target) => {
     const board = records.leaderboard(kind, target).map((t, i) => ({ ...t, rank: i + 1 }))
-    const me = viewer.id()
-    return board.filter(t => t.rank <= 5 || t.user == me)
+    const me = viewer.id(), rival = records.rivalOf(me)
+    return board.filter(t => t.rank <= 5 || t.user == me || (rival && t.user == rival))
 }
 // Submit a time, then rate the event / scenario with the three thumbs (counts on the buttons)
 function recordButtons(kind, target) {
@@ -450,14 +452,26 @@ function arcadeResults(userId) {
 const medalCounts = results => ['gold', 'silver', 'bronze'].map(m => [m, results.filter(r => r.medal == m).length])
     .filter(([, n]) => n).map(([m, n]) => `${emoji.medal[m]} ${n}`).join(' / ')
 
-// A racer's arcade timesheet. The overview gives their totals (medals, placements, events with a time); each category's
-// stats are in the menu, and picking one lists its events with their time, place and medal.
+// Head to head against a rival on some events: where both have a time, how many each is faster on, and the gap summed
+const headToHead = (events, mine, theirs) => {
+    const shared = events.filter(e => mine[e.id] && theirs[e.id])
+    const wins = shared.filter(e => mine[e.id].time < theirs[e.id].time).length, losses = shared.filter(e => mine[e.id].time > theirs[e.id].time).length
+    return { shared: shared.length, wins, losses, gap: shared.reduce((n, e) => n + mine[e.id].time - theirs[e.id].time, 0) }
+}
+const rivalLine = (h, rival, own) => !h.shared ? `${emoji.named('rival')} **Rival** <@${rival}>: no events in common yet`
+    : `${emoji.named('rival')} **Rival** <@${rival}>: ${h.wins > h.losses ? `${own ? 'you lead' : 'leads'}` : h.wins < h.losses ? `${own ? 'you trail' : 'trails'}` : 'level at'} **${h.wins}–${h.losses}** on ${h.shared} shared event${h.shared == 1 ? '' : 's'} / ${formatTime(Math.abs(h.gap))} ${h.gap <= 0 ? 'faster' : 'slower'} in total`
+
+// A racer's arcade timesheet. The overview gives their totals (medals, placements, events with a time) and, with a
+// declared rival (/times rival), the head to head; each category's stats are in the menu, and picking one lists its
+// events with their time, place and medal, and the gap to the rival on each.
 // racer: { id, name, avatar }
 function arcadeTimesheet(racer, categoryId) {
     const results = arcadeResults(racer.id)
     const container = new ContainerBuilder().setAccentColor(DEFAULT_COLOR)
     const category = categoryId && data.category(categoryId)
     const timedIn = events => events.map(e => results[e.id]).filter(Boolean)  // their results on those events
+    const rival = records.rivalOf(racer.id), rivalResults = rival ? arcadeResults(rival) : {}
+    const own = racer.id == viewer.id()  // "you lead" on your own timesheet
 
     if (!category) {
         const timed = timedIn(data.events)
@@ -469,6 +483,7 @@ function arcadeTimesheet(racer, categoryId) {
             `Times on ${timed.length} of ${data.events.length} events`,
             timed.length && `**Medals** ${medalCounts(timed) || 'none yet'}`,
             (places.length || topTen) && `**Placements** ${[...places.map(([n, c]) => `${place(n)} ${c}`), topTen && `${topTen} more in the top 10`].filter(Boolean).join(' / ')}`,
+            rival && rivalLine(headToHead(data.events, results, rivalResults), rival, own),
         ], racer.avatar)
         if (!timed.length) container.addTextDisplayComponents(text('-# No arcade times yet. Submit one from any arcade event card, or with /submit.'))
     } else {
@@ -480,11 +495,15 @@ function arcadeTimesheet(racer, categoryId) {
             crumbs('Arcade', 'Timesheet', racer.name),
             `## ${categoryEmoji(category)} ${category.name}`,
             [`${timed.length} of ${events.length} events`, medalCounts(timed), total && `Total ${boardTime(total.time)} ${place(total.rank)}`].filter(Boolean).join(' / '),
+            rival && rivalLine(headToHead(events, results, rivalResults), rival, own),
         ], racer.avatar)
         container.addSeparatorComponents(separator())
         container.addTextDisplayComponents(text(events.map(e => {
-            const r = results[e.id]
-            return r ? `${place(r.rank)} ${boardTime(r.time)} **${e.name}**${r.medal ? ` ${emoji.medal[r.medal]}` : ''}` : `-# ${e.name}: no time yet`
+            const r = results[e.id], v = rivalResults[e.id]
+            // Against the rival: the gap where both have a time, or the rival's time where only they do
+            const vs = v && r ? ` ${emoji.named('rival')} ${r.time == v.time ? 'tied' : `${formatTime(Math.abs(r.time - v.time))} ${r.time < v.time ? 'ahead' : 'behind'}`}` : ''
+            return r ? `${place(r.rank)} ${boardTime(r.time)} **${e.name}**${r.medal ? ` ${emoji.medal[r.medal]}` : ''}${vs}`
+                : `-# ${e.name}: no time yet${v ? ` / rival ${formatTime(v.time)}` : ''}`
         }).join('\n')))
     }
 
@@ -495,7 +514,8 @@ function arcadeTimesheet(racer, categoryId) {
             const events = data.eventsInCategory(c.id)
             const timed = timedIn(events)
             const medals = ['gold', 'silver', 'bronze'].map(m => [m, timed.filter(r => r.medal == m).length]).filter(([, n]) => n).map(([m, n]) => `${n} ${m}`)
-            return { label: c.name, value: c.id, description: [`${timed.length} of ${events.length} events`, ...medals].join(' / ').slice(0, 100), emoji: categoryEmoji(c) }
+            const h = rival && headToHead(events, results, rivalResults)
+            return { label: c.name, value: c.id, description: [`${timed.length} of ${events.length} events`, ...medals, h?.shared && `${h.wins}–${h.losses} vs rival`].filter(Boolean).join(' / ').slice(0, 100), emoji: categoryEmoji(c) }
         }),
     ]
     return page(container, new Files(), [select(`timesheet_${racer.id}`, 'Pick a category', options, category?.id ?? 'all')])

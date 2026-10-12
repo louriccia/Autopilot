@@ -63,10 +63,10 @@ module.exports = {
             time: f.getTextInputValue('time'), platform: f.getStringSelectValues('platform')[0], proof: f.getTextInputValue('proof'), notes: f.getTextInputValue('notes') })
         if (result.error) return whisper(interaction, result.error)
         if (interaction.isFromMessage()) {
-            await interaction.update({ ...viewer.run(viewer.ownerOf(interaction), () => KINDS[kind].page(target)), attachments: [] })
-            await interaction.followUp({ content: result.message, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } })
+            await interaction.update({ ...viewer.run(interaction.user.id, () => KINDS[kind].page(target)), attachments: [] })
+            await interaction.followUp({ content: result.receipt ?? result.message, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } })
         } else {
-            await interaction.reply({ content: result.message, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } })
+            await interaction.reply({ content: result.receipt ?? result.message, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } })
         }
     },
 }

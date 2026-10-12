@@ -17,6 +17,6 @@ module.exports = {
         if (!item?.(target) || !['up', 'neutral', 'down'].includes(rating)) return interaction.reply({ content: "That event isn't around anymore.", flags: MessageFlags.Ephemeral })
         if (!database) return interaction.reply({ content: "Feedback can't be saved right now (no database).", flags: MessageFlags.Ephemeral })
         await records.rate(kind, target, member_id, rating)
-        await interaction.update({ ...viewer.run(viewer.ownerOf(interaction), () => page(target)), attachments: [] })
+        await interaction.update({ ...viewer.run(interaction.user.id, () => page(target)), attachments: [] })
     },
 }

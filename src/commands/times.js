@@ -1,6 +1,7 @@
 const { SlashCommandBuilder, MessageFlags } = require('discord.js');
 const records = require('../records.js')
 const data = require('../swgr/data.js')
+const emoji = require('../data/discord/emoji.js')
 
 // /times staff and staff-remove manage the staff times (database staff/, see src/records.js); /times youtube sets
 // whose runs a YouTube channel's videos are (database youtube/, src/replays.js).
@@ -85,6 +86,9 @@ module.exports = {
         .addSubcommand(sub => sub.setName('youtube').setDescription("set whose runs a YouTube channel's videos are (server managers)")
             .addStringOption(o => o.setName('video').setDescription('a link to any video from the channel').setRequired(true))
             .addUserOption(o => o.setName('racer').setDescription('whose channel it is').setRequired(true)))
+        // A declared rival, compared on timesheets and receipts
+        .addSubcommand(sub => sub.setName('rival').setDescription('declare your rival (leave racer empty to clear it)')
+            .addUserOption(o => o.setName('racer').setDescription('the racer to measure yourself against')))
         // Spreadsheets (src/sheets.js)
         .addSubcommand(sub => sub.setName('export').setDescription('download saved times as a CSV for spreadsheets')
             .addStringOption(o => o.setName('board').setDescription('only this arcade event or scenario').setAutocomplete(true))
@@ -94,6 +98,19 @@ module.exports = {
     async execute({ interaction } = {}) {
         const sub = interaction.options.getSubcommand()
         if (sub == 'export' || sub == 'import') return sheet(interaction, sub)
+        if (sub == 'rival') {
+            const rival = interaction.options.getUser('racer')
+            const current = records.rivalOf(interaction.user.id)
+            if (!rival) {
+                if (!current) return reply(interaction, "You don't have a rival. Pick one with **/times rival racer:**.")
+                await records.setRival(interaction.user.id, null)
+                return reply(interaction, `<@${current}> is no longer your rival.`)
+            }
+            if (rival.id == interaction.user.id) return reply(interaction, "You can't be your own rival (though it's a nice thought).")
+            if (rival.bot) return reply(interaction, "Bots don't race.")
+            await records.setRival(interaction.user.id, rival.id)
+            return reply(interaction, `${emoji.named('rival')} <@${rival.id}> is your rival${current && current != rival.id ? ` (instead of <@${current}>)` : ''}. Your timesheet and your receipts will show how you compare.`)
+        }
         if (sub == 'youtube') {
             if (!records.canSubmitForOthers(interaction.member)) return reply(interaction, 'Only server managers and submitters can link YouTube channels.')
             const { videos, VIDEO } = require('../replays.js')
