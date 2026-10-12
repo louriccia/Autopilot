@@ -2,7 +2,8 @@ const { SlashCommandBuilder, MessageFlags } = require('discord.js');
 const records = require('../records.js')
 const data = require('../swgr/data.js')
 
-// /times staff and staff-remove manage the staff times (database staff/, see src/records.js).
+// /times staff and staff-remove manage the staff times (database staff/, see src/records.js); /times youtube sets
+// whose runs a YouTube channel's videos are (database youtube/, src/replays.js).
 // Removing a saved time (a typo, a wrong event, a run that shouldn't count). Anyone can remove their own; server
 // managers and /submitter people can remove anyone's. The entry is picked from an autocomplete of the times you
 // may remove, searchable by event, scenario, time or racer.
@@ -34,9 +35,24 @@ module.exports = {
             .addStringOption(o => o.setName('name').setDescription("their name, if they have no Discord account here (default: the racer's)").setMaxLength(32)))
         .addSubcommand(sub => sub.setName('staff-remove').setDescription('remove a staff time (server managers)')
             .addStringOption(o => o.setName('event').setDescription('the arcade event').setRequired(true).setAutocomplete(true))
-            .addStringOption(o => o.setName('name').setDescription('the staff member').setRequired(true))),
+            .addStringOption(o => o.setName('name').setDescription('the staff member').setRequired(true)))
+        // Whose runs a YouTube channel's videos are (src/replays.js links a channel to its first poster)
+        .addSubcommand(sub => sub.setName('youtube').setDescription("set whose runs a YouTube channel's videos are (server managers)")
+            .addStringOption(o => o.setName('video').setDescription('a link to any video from the channel').setRequired(true))
+            .addUserOption(o => o.setName('racer').setDescription('whose channel it is').setRequired(true))),
     async execute({ interaction } = {}) {
         const sub = interaction.options.getSubcommand()
+        if (sub == 'youtube') {
+            if (!records.canSubmitForOthers(interaction.member)) return reply(interaction, 'Only server managers and submitters can link YouTube channels.')
+            const { videos, VIDEO } = require('../replays.js')
+            const id = [...interaction.options.getString('video').matchAll(VIDEO)][0]?.[1]
+            const racer = interaction.options.getUser('racer')
+            const v = id && (await videos([id]).catch(() => ({})))[id]
+            if (!v?.channelId) return reply(interaction, "Couldn't find that video's channel. Paste a YouTube video link.")
+            await records.linkYoutube(v.channelId, { user: racer.id, name: v.channelName, by: interaction.user.id })
+            const moved = await records.moveYoutubeTimes(v.channelId, racer.id)
+            return reply(interaction, `${v.channelName}'s videos are now <@${racer.id}>'s runs.${moved ? ` Moved ${moved} time${moved == 1 ? '' : 's'} already saved from them.` : ''}`)
+        }
         if (sub.startsWith('staff')) {
             if (!records.canSubmitForOthers(interaction.member)) return reply(interaction, 'Only server managers and submitters can change staff times.')
             const event = data.event(interaction.options.getString('event'))

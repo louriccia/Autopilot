@@ -1,6 +1,9 @@
 // Community times and feedback for arcade events and scenarios, kept in the database and always keyed by Discord id
 // (like Botto), never by name:
-//   times/<push id>                     { kind, target, user, submittedBy, time (s), platform, proof, notes, date }
+//   times/<push id>                     { kind, target, user, submittedBy, time (s), platform, proof, notes, date,
+//                                         youtube? (the proof video's channel id) }: date is when the run happened, as
+//                                         far as we know (the earlier of upload and post for replays; else when saved)
+//   youtube/<channel id>                { user, name, linkedBy, linkedAt }: whose runs a YouTube channel's videos are
 //   feedback/<kind>/<target>/<user>     { rating: up | neutral | down, date }
 //   submitters/<discord id>             { addedBy, addedAt }: may submit times for other people
 //   staff/<event id>/<name>              { seconds, from: developer | publisher }: staff times on arcade cards
@@ -11,13 +14,14 @@ const { PermissionFlagsBits } = require('discord.js')
 const { database } = require('./firebase.js')
 const { submitter_roles } = require('./data/discord/guild.js')
 
-let times = {}, feedback = {}, submitters = {}, staff = {}
+let times = {}, feedback = {}, submitters = {}, staff = {}, youtube = {}
 exports.listen = () => {
     if (!database) return
     database.ref('times').on('value', s => { times = s.val() ?? {} })
     database.ref('feedback').on('value', s => { feedback = s.val() ?? {} })
     database.ref('submitters').on('value', s => { submitters = s.val() ?? {} })
     database.ref('staff').on('value', s => { staff = s.val() ?? {} })
+    database.ref('youtube').on('value', s => { youtube = s.val() ?? {} })
 }
 
 // "1:08.92", "68.92", "1:01:08.9" -> seconds to the hundredth (the game's precision); null if it isn't a time.
@@ -94,20 +98,39 @@ exports.canSubmitForOthers = member => !!(member?.permissions?.has?.(PermissionF
 // details (platform, proof, notes) given this time replace the old ones instead, and blank ones keep what was there.
 // Returns { id, duplicate, updated: [the detail fields that changed] }.
 const DETAILS = ['platform', 'proof', 'notes']
+// entry.date (when the run happened, if known) defaults to now; a repeat with an earlier date moves the saved one back,
+// and one that knows the proof video's channel (entry.youtube) fills it in. Neither counts as an updated detail.
 exports.addTime = async entry => {
+    entry = { ...entry, date: entry.date ?? Date.now() }
+    if (!entry.youtube) delete entry.youtube
     const same = Object.entries(times).find(([, t]) => t.kind == entry.kind && t.target == entry.target && t.user == entry.user && t.time == entry.time)
     if (same) {
         const [id, old] = same
         const changes = Object.fromEntries(DETAILS.filter(f => entry[f] && entry[f] != old[f]).map(f => [f, entry[f]]))
-        if (Object.keys(changes).length) {
-            await database.ref(`times/${id}`).update(changes)
-            times[id] = { ...old, ...changes }
+        const quiet = { ...(entry.date < old.date ? { date: entry.date } : {}), ...(entry.youtube && !old.youtube ? { youtube: entry.youtube } : {}) }
+        if (Object.keys(changes).length || Object.keys(quiet).length) {
+            await database.ref(`times/${id}`).update({ ...changes, ...quiet })
+            times[id] = { ...old, ...changes, ...quiet }
         }
         return { id, duplicate: true, updated: Object.keys(changes) }
     }
-    const ref = await database.ref('times').push({ ...entry, date: Date.now() })
-    times[ref.key] = { ...entry, date: Date.now() }  // so the card that's redrawn next already shows it
+    const ref = await database.ref('times').push(entry)
+    times[ref.key] = entry  // so the card that's redrawn next already shows it
     return { id: ref.key, duplicate: false }
+}
+
+// YouTube channels -> Discord ids (src/replays.js credits a channel's videos to its owner)
+exports.youtubeOwner = channelId => youtube[channelId]?.user ?? null
+exports.linkYoutube = async (channelId, { user, name, by }) => {
+    const value = { user, name: name ?? null, linkedBy: by ?? null, linkedAt: Date.now() }
+    await database.ref(`youtube/${channelId}`).set(value)
+    youtube[channelId] = value
+}
+// Relinking a channel also moves the times already credited from its videos
+exports.moveYoutubeTimes = async (channelId, user) => {
+    const moved = Object.entries(times).filter(([, t]) => t.youtube == channelId && t.user != user)
+    for (const [id] of moved) { await database.ref(`times/${id}/user`).set(user); times[id] = { ...times[id], user } }
+    return moved.length
 }
 
 // Pressing the rating you already gave takes it back

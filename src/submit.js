@@ -19,7 +19,9 @@ exports.formatTime = s => {
 }
 
 // Returns { error } or { message } (what to tell the submitter)
-exports.submit = async ({ kind, target, member, memberId, racer, time: rawTime, platform, proof, notes }) => {
+// trusted: the racer was worked out by the bot (src/replays.js), so no permission is needed to credit them.
+// date: when the run happened, if known; youtube: the proof video's channel id.
+exports.submit = async ({ kind, target, member, memberId, racer, time: rawTime, platform, proof, notes, trusted, date, youtube }) => {
     if (!database) return { error: "Times can't be saved right now (no database)." }
     const item = exports.board(kind, target)
     if (!item) return { error: "That isn't an arcade event or scenario." }
@@ -29,7 +31,7 @@ exports.submit = async ({ kind, target, member, memberId, racer, time: rawTime, 
     if (proof && !/^https?:\/\/\S+$/i.test(proof)) return { error: 'The proof needs to be a link (starting with https://).' }
     let user = memberId
     if (racer && racer.id != memberId) {
-        if (!records.canSubmitForOthers(member)) return { error: "You can't submit times for other people." }
+        if (!trusted && !records.canSubmitForOthers(member)) return { error: "You can't submit times for other people." }
         if (racer.bot) return { error: "Bots don't race." }
         user = racer.id
     }
@@ -41,7 +43,7 @@ exports.submit = async ({ kind, target, member, memberId, racer, time: rawTime, 
 
     const existing = records.allTimes().find(t => t.kind == kind && t.target == target && t.user == user && t.time == time)
     if (existing?.platform && !picked) platform = ''
-    const { duplicate, updated } = await records.addTime({ kind, target, user, submittedBy: memberId, time, platform, proof, notes: exports.clean(notes).slice(0, 120) })
+    const { duplicate, updated } = await records.addTime({ kind, target, user, submittedBy: memberId, time, platform, proof, notes: exports.clean(notes).slice(0, 120), date, youtube })
     const board = records.leaderboard(kind, target)
     const rank = board.findIndex(t => t.user == user) + 1
     const best = board[rank - 1]
