@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Discord bot for the Star Wars: Galactic Racer server",
   "engines": {
-    "node": "20.x"
+    "node": "22.x"
   },
   "main": "src/bot.js",
   "scripts": {
