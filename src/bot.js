@@ -10,8 +10,9 @@ const { errorMessage } = require('./data/flavor/error.js')
 const fs = require('fs');
 const { Client, Events, GatewayIntentBits, Collection, MessageFlags } = require('discord.js')
 const client = new Client({
-    // GuildMembers (privileged: Server Members Intent in the Developer Portal) is for join messages
-    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
+    // GuildMembers (privileged: Server Members Intent in the Developer Portal) is for join messages; GuildMessages and
+    // MessageContent (privileged: Message Content Intent) for runs posted in the replay channel (src/replays.js)
+    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
 });
 
 //add commands to client
@@ -113,6 +114,12 @@ client.once(Events.ClientReady, () => {
     console.log(`Ready! Logged in as ${client.user.tag}${testing ? ' (testing)' : ''}`)
     require('./feeds/index.js').start(client, reportError).catch(error => reportError('Feeds', error))
     require('./records.js').listen()
+})
+
+// Runs posted as videos in the replay channel (src/replays.js)
+client.on(Events.MessageCreate, message => {
+    if (!message.guildId || !switchGuard(message.guildId)) return
+    require('./replays.js').handle(message).catch(error => reportError('Replays', error))
 })
 
 // Join messages (src/welcome.js)
