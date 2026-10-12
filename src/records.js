@@ -9,6 +9,7 @@
 // kept current by listeners that start with the bot (listen()), so building a card never waits on the database.
 const { PermissionFlagsBits } = require('discord.js')
 const { database } = require('./firebase.js')
+const { submitter_roles } = require('./data/discord/guild.js')
 
 let times = {}, feedback = {}, submitters = {}, staff = {}
 exports.listen = () => {
@@ -76,8 +77,11 @@ exports.rolePlatform = member => {
 // The platform a time defaults to: their last submission's, else their console role's
 exports.defaultPlatform = (user, member) => exports.lastPlatform(user) || exports.rolePlatform(member)
 
-// Server managers, and anyone on the submitters list, may submit for others
-exports.canSubmitForOthers = member => !!(member?.permissions?.has?.(PermissionFlagsBits.ManageGuild) || submitters[member?.id ?? member?.user?.id])
+// Server managers, anyone on the submitters list, and anyone with a submitter role (SUBMITTER_ROLE_IDS) may submit
+// for others
+exports.canSubmitForOthers = member => !!(member?.permissions?.has?.(PermissionFlagsBits.ManageGuild)
+    || submitters[member?.id ?? member?.user?.id]
+    || submitter_roles.some(id => member?.roles?.cache?.has(id)))
 
 // Saves a time. If the same person already has that exact time on that board, it isn't saved twice: any new
 // details (platform, proof, notes) given this time replace the old ones instead, and blank ones keep what was there.
