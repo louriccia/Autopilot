@@ -109,7 +109,7 @@ client.on(Events.InteractionCreate, async interaction => {
 
 client.once(Events.ClientReady, () => {
     console.log(`Ready! Logged in as ${client.user.tag}${testing ? ' (testing)' : ''}`)
-    require('./feeds/index.js').start(client, reportError)
+    require('./feeds/index.js').start(client, reportError).catch(error => reportError('Feeds', error))
 })
 
 // Global error handling — prevent crashes and report to the log channel when live

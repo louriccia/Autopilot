@@ -17,9 +17,11 @@ src/
   commands/           # One slash command per file: { data: SlashCommandBuilder, execute, autocomplete? }
   interactions/       # Component/modal handlers: { name, execute }, routed by customId prefix
   respond.js          # navigate(): owner updates the message in place, others get an ephemeral copy
+  firebase.js         # Realtime Database (Firebase project autopilot-swgr) via firebase-admin; `database` is null without FIREBASE_* in .env
   feeds/              # Announcement feeds polled on a timer: steam-build (new Steam builds, via steam-user's anonymous
                       #   product info), steam-news (official announcements; patch notes in full), youtube (channel RSS).
-                      #   State (what's been posted) in data/state/feeds.json, git-ignored; a feed's first run only primes it
+                      #   State (what's been posted) in the database at feeds/<name> (data/state/feeds.json, git-ignored, when
+                      #   there's no database); a feed's first run only primes it
   swgr/data.js        # Lookups and autocomplete search over the game data
   swgr/search.js      # /search index: one entry per searchable kind (items, label, keywords, page)
   swgr/pages.js       # Page builders (arcade, track, planet, scenario, racer style, part, ability, vehicle, favor, rival, mystery, status effect, backer, tale, livery): Components V2 payloads
@@ -46,6 +48,7 @@ The game is STAR WARS Galactic Racer (codename "Griffin"; planets have dog coden
 - **customId routing**: `"<name>_<arg1>_<arg2>"` → `src/interactions/<handler with that name>` with `args = [arg1, arg2]`. Handler names must not contain `_`.
 - **Guild switching**: `testing` (from `TESTING` in .env, or automatically when `USERNAME == 'louri'`) makes the bot answer only in `TEST_GUILD_ID`; live, it answers everywhere except there.
 - **Feeds**: post to PATCH_CHANNEL_ID (Steam builds + announcements) and VIDEO_CHANNEL_ID (YouTube; channels in YOUTUBE_CHANNELS, default the game's own). While testing, everything goes to TEST_CHANNEL_ID. A feed with no channel doesn't run. New feed = a module in src/feeds with { name, channel, every, check(seen, { preview }) } added to FEEDS.
+- **Database**: Firebase Realtime Database `autopilot-swgr-default-rtdb` (project `autopilot-swgr`). The bot writes with the firebase-adminsdk service account, which bypasses rules; the rules (database.rules.json, `firebase deploy --only database`) lock out everyone else. Document each top-level path in src/firebase.js.
 - **Errors**: `reportError()` in bot.js posts stack traces to `LOG_CHANNEL_ID` when live.
 - **Intents**: only `Guilds`. Add more (and enable privileged ones in the Developer Portal) when a feature needs them.
 - **Components V2**: reference pages are V2 messages (`flags: MessageFlags.IsComponentsV2`, a `ContainerBuilder` with text/sections/media/action rows; no `content` or `embeds`). Images must be attached and referenced as `attachment://name`. Limits: 40 components total, 4000 chars of text.

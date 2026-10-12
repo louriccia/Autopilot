@@ -27,13 +27,14 @@ async function run(client, feed, report) {
             seen.primed = true
             console.log(`[feeds] ${feed.name}: primed (${messages.length} existing item(s) not posted)`)
         }
-        state.save()
+        await state.save(feed.name)
     } catch (error) {
         report(`Feed: ${feed.name}`, error)
     }
 }
 
-exports.start = function (client, report) {
+exports.start = async function (client, report) {
+    await state.load()
     for (const feed of FEEDS) {
         const channelId = testing ? test_channel : feedChannels[feed.channel]
         if (!channelId) {

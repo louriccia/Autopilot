@@ -51,7 +51,7 @@ node src/scripts/upload-emojis.js
 ## Setup
 
 1. Create an application at https://discord.com/developers/applications and add a bot.
-2. Copy `.env.example` to `.env` and fill in `token`, `clientId`, and the guild/channel IDs.
+2. Copy `.env.example` to `.env` and fill in `token`, `clientId`, the guild/channel IDs and the Firebase service account (the bot runs without a database if those are blank).
 3. Install and register commands with the test guild:
 
    ```

@@ -15,6 +15,7 @@
   "dependencies": {
     "discord.js": "^14.26.3",
     "dotenv": "^16.4.5",
+    "firebase-admin": "^13.10.0",
     "steam-user": "^5.3.0"
   }
 }
