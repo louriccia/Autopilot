@@ -370,7 +370,9 @@ def main():
     emojis.add("lock", ui_icons / "T_UI_Lock_Icn.png")
     emojis.add("reverse", ui_icons / "T_UI_Reverse_Icn.png")
     # Inline-icon widget ids that don't match a keyword icon's file name, but have an icon elsewhere in the game
-    KEYWORD_ALIASES = {"Surging": "Surge", "Ability": "Abilities", "SysMalfunction": "SystemMalfunction", "Energy": "Battery"}
+    # Critical Malfunction has no icon of its own: the game shows System Malfunction's
+    KEYWORD_ALIASES = {"Surging": "Surge", "Ability": "Abilities", "SysMalfunction": "SystemMalfunction", "CritMalfunction": "SystemMalfunction",
+                       "Energy": "Battery"}
     STAT_WIDGETS = {"Speed": "Speed", "Cornering": "Cornering"}
     ABILITY_WIDGETS = {"Shield": "Shield", "Vent": "Vent", "FlameVent": "Vent", "SupercooledVent": "Vent", "IonBolt": "IonBolt",
                        "Shockwave": "Shockwave", "VectoredShockwave": "Shockwave", "Autopilot": "Autopilot",
@@ -411,6 +413,15 @@ def main():
         im.putalpha(mask.resize(im.size, Image.LANCZOS))
         im.thumbnail((128, 128), Image.LANCZOS)
         emojis.add_image("staff", im)
+    # The publisher's staff times get the publisher's logo (tools/art/publisher-logo.jpg), circle-cropped the same way
+    logo = ROOT / "tools" / "art" / "publisher-logo.jpg"
+    if logo.exists():
+        im = Image.open(logo).convert("RGBA")
+        mask = Image.new("L", (im.width * 4, im.height * 4))
+        ImageDraw.Draw(mask).ellipse((4, 4, im.width * 4 - 4, im.height * 4 - 4), fill=255)
+        im.putalpha(mask.resize(im.size, Image.LANCZOS))
+        im.thumbnail((128, 128), Image.LANCZOS)
+        emojis.add_image("publisher", im)
     # Planet conditions (Burning, Cooled...) use the status keyword icons
     for p in planets:
         p["conditions"] = [{"name": c, "emoji": emojis.add(f"cond_{c}", ui_icons / "Keywords" / f"T_UI_Keyword_{c}_Icn.png")}
@@ -485,9 +496,15 @@ def main():
         # Refs end in an export index (.0, .1); the object with the icon isn't always the package's first.
         props = next((o["Properties"] for o in game_json(ref["ObjectPath"]) if (o.get("Properties") or {}).get("Icon")), {})
         icon = texture(args.textures, props.get("Icon", {}).get("AssetPathName"))
-        name = a.get("Name") or asset
-        return {"name": name, "description": a.get("Description", ""), "rich": part_rich(props, a.get("Values")),
-                "emoji": emojis.add(camel(name), icon)}
+        values = a.get("Values")
+        if not a:  # a scenario's custom part, not in the catalog: name and values from the asset itself
+            values = "; ".join(f"{x['Key']}={x['Value']:g}{suffix}" for key, suffix in
+                               (("PercentProperties", "%"), ("IntProperties", ""), ("FloatProperties", ""))
+                               for x in props.get(key, []) or [])
+        name = a.get("Name") or (props.get("PlayerFacingName") or {}).get("LocalizedString") or asset
+        rich = part_rich(props, values)
+        description = a.get("Description") or rich_text(re.sub(r"\{emoji:\w+\}\s*", "", rich or "").replace("**", ""))
+        return {"name": name, "description": description, "rich": rich, "emoji": emojis.add(camel(name), icon)}
 
     def ability(ref):
         asset = ref["ObjectName"].split("'")[1].removesuffix("_C")
@@ -837,6 +854,9 @@ def main():
             "build": build,
             "parts": [part(a) for a in vbd.get("Affixes", [])],
             "abilities": [ability(a) for a in vbd.get("AbilitySlots", [])],
+            # the parts its rewards can offer (scenario_parts.csv), by name; "only" = found in no other pool
+            "offers": [{"name": x["Part"], "rarity": x["Rarity"], "only": x["Scenario-only"] == "yes"}
+                       for x in rows(out / "scenario_parts.csv") if x["#"] == sr["#"]],
             "schedule": schedule,
             "unlock": sr["Unlock requirement"] or None,
             "winMessage": sr["Win message"],
@@ -934,15 +954,39 @@ def main():
         for p_ in sc["parts"]:
             used_in.setdefault(p_["name"], {"events": [], "scenarios": []})["scenarios"].append(sc["id"])
 
+    # The logbook's 300: the catalog's regular parts (podracer traits and other Special ones aren't parts you can
+    # own) plus the 4 that only Mystery Encounters give (Narrative/MysteryInteractions/Affixes, not in the catalog)
+    upgrades_dir = game / "Vehicles" / "Common" / "Upgrades"
+    part_rows = [dict(r, _path=upgrades_dir / r["Folder"] / f"{r['Asset']}.json")
+                 for r in rows(out / "affixes.csv") if r["Name"] and r["Folder"] == "Affixes"]
+    part_prices = {r[1]: r[2] for r in csv.reader(open(out / "economy.csv", encoding="utf-8-sig")) if len(r) > 2 and r[0] == "ECO_Campaign"}
+    for path in sorted((game / "Narrative" / "MysteryInteractions" / "Affixes").glob("AFX_MYST_*.json")):
+        mp = next((o["Properties"] for o in load_json(path) if (o.get("Properties") or {}).get("PlayerFacingName")), {})
+        rarity_key = (mp.get("Rarity") or "").split("::")[-1]
+        values = "; ".join(f"{x['Key']}={x['Value']:g}{suffix}" for key, suffix in
+                           (("PercentProperties", "%"), ("IntProperties", ""), ("FloatProperties", "")) for x in mp.get(key, []) or [])
+        name = mp["PlayerFacingName"]
+        name = name.get("LocalizedString", "") if isinstance(name, dict) else name
+        desc = mp.get("PlayerFacingDescription") or mp.get("FaultyPlayerFacingDescription") or ""
+        desc = desc.get("LocalizedString", "") if isinstance(desc, dict) else desc
+        for pair in values.split("; "):
+            if "=" in pair:
+                desc = desc.replace("{" + pair.split("=")[0] + "}", pair.split("=")[1])
+        part_rows.append({
+            "Name": name, "Description": rich_text(desc), "Values": values, "Asset": path.stem, "Folder": "Mystery", "_path": path,
+            "Category": "Faulty" if rarity_key == "Faulty" else "Ramjet" if "Ramjet" in path.stem else "Mystery",
+            "Rarity": {"Lowest": "", "Low": "Low", "High": "High", "Highest": "Highest", "Faulty": "Faulty"}.get(rarity_key, rarity_key),
+            "Credits": part_prices.get((mp.get("EconomyGroup") or {}).get("TagName", ""), ""),
+            "UnlockedBy": "",
+        })
+
     parts_out, part_ids = [], {}
-    for r in rows(out / "affixes.csv"):
-        if not r["Name"]:
-            continue
+    for r in part_rows:
         pid = slug(r["Name"])
         if pid in part_ids.values():  # a few parts exist as two assets; keep the first, but map both to it
             part_ids[r["Asset"]] = pid
             continue
-        aj = load_json(game / "Vehicles" / "Common" / "Upgrades" / r["Folder"] / f"{r['Asset']}.json")
+        aj = load_json(r["_path"])
         props = next((o["Properties"] for o in aj if (o.get("Properties") or {}).get("Icon")), {})
         icon = texture(args.textures, (props.get("Icon") or {}).get("AssetPathName"))
         large = texture(args.textures, (props.get("LargeIcon") or {}).get("AssetPathName")) or icon
@@ -957,8 +1001,9 @@ def main():
             "rarity": rarity,
             "pips": pips,
             "credits": num(r["Credits"]),
-            "unlock": unlock_text(r["UnlockedBy"]) if r["UnlockedBy"] and r["UnlockedBy"] != "Unlock.Cam.Affixes.Base" else None,
-            "special": r["Folder"] != "Affixes",
+            "unlock": ("Only from a Mystery Encounter" if r["Folder"] == "Mystery" else
+                       unlock_text(r["UnlockedBy"]) if r["UnlockedBy"] and r["UnlockedBy"] != "Unlock.Cam.Affixes.Base" else None),
+            "special": r["Folder"] == "Mystery",
             "asset": r["Asset"],
             "emoji": emojis.add(camel(r["Name"]), icon),
             "icon": save_art(large, f"parts/{pid}.webp", max_size=256),
@@ -1311,7 +1356,9 @@ def main():
             continue
         favor = next((f for f in favors_out if f"Favour_{f['key']}_1" == r["reward_favour"]), None)
         person = favor["character"].split(" (")[0] if favor else None
-        who = {"Q-33N": "q33n", "Vranki the Blue": "vranki", "Sidon Ithano": "sidon_ithano"}.get(person)
+        sdef = next((o.get("Properties") or {} for o in load_json(game / "Gameplay" / "Campaign" / "Sponsors" / f"{r['asset']}.json")
+                     if o.get("Type") == "SponsorDef"), {})
+        sponsor_icon = texture(args.textures, (sdef.get("Icon") or {}).get("AssetPathName"))
         sid = slug(r["name"])
         contracts = []
         for c in contract_rows:
@@ -1326,7 +1373,9 @@ def main():
             "name": r["name"],
             "person": person,
             "bio": re.sub(r"\s+", " ", bios.get(person, {}).get("Bio", "")).strip() or None,
-            "holo": save_flipbook_gif(args.datamine, f"holo_{who}", f"sponsors/{sid}.gif", height=240) if who else None,
+            # the backer's own logo (SponsorDef Icon), the card's thumbnail and its emoji
+            "icon": save_art(sponsor_icon, f"sponsors/{sid}.webp", max_size=256) if sponsor_icon else None,
+            "emoji": emojis.add(f"backer_{camel(r['name'].replace('The ', ''))}", sponsor_icon) if sponsor_icon else None,
             "startingCredits": num(economy[r["starting_credits"]]) if r["starting_credits"] in economy else None,
             "contracts": contracts,
             "penalty": penalties.get(r["penalty_favour"]),
@@ -1498,7 +1547,7 @@ def main():
         ("Burning", "Burning", "Burning", False), ("Frozen", "Frozen", "Frozen", False),
         ("Choked", "Choked", "Choked", False), ("Corroded", "Corroded", "Corroded", False),
         ("Concussed", "Concussed", "Concussed", False), ("Disrupted", "Disrupted", "Distrupted", False),
-        ("Malfunction", "SystemMalfunction", None, False), ("CritMalfunction", None, None, False),
+        ("Malfunction", "SystemMalfunction", None, False), ("CritMalfunction", "SystemMalfunction", None, False),  # same icon in game
     ]
     st_keyword = loc.get("ST_Keyword", {})
     tune = {r["asset"].replace("TNS_Condition_", ""): r for r in rows(out / "gameplay" / "status_effects.csv")}

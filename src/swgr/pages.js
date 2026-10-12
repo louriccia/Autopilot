@@ -153,108 +153,9 @@ const when = n => n == 0 ? 'from the start' : `after ${n} event${n == 1 ? '' : '
 // An event's lap setting: "2" -> "(2 laps)"; "unlimited" (takedown events run on time) -> nothing
 const eventLaps = l => /^\d+$/.test(l) ? `(${laps(+l)})` : ''
 
-// One planet stop in a campaign act, grouped by when things become available, each with the race kinds that open
-// up then as indented subtext lines:
-//   ### Act 1 ([planet] 3rd stop)
-//   From the start
-//   -#   [icon] Field Test: [landspeeder] Ramjet Distance (2 laps)
-//   After 1 event
-//   -#   [icon] Race (2 laps): Reverse (Afternoon Dry)
-//   -#   [icon] Eliminator: Reverse (Afternoon Dry)
-//   Finale
-//   -#   [icon] Championship Race (4 laps): (Night)
-// Race / Eliminator pools grow as you complete events on the stop; Field Tests and Podracer Tests are open all
-// stop; finales are fixed. Kind names are the campaign map legend's (the data calls Race / Eliminator "Standard" /
-// "High Risk"). Discord strips leading spaces, so the indent is em spaces (U+2003), which it keeps.
+// Discord strips leading spaces, so indents are em spaces (U+2003), which it keeps
 const INDENT = '\u2003\u2003'
-const capitalize = s => s.charAt(0).toUpperCase() + s.slice(1)
-const conditionsText = list => list.length ? `(${list.join(', ')})` : ''
 const indented = lines => lines.map(l => `-# ${INDENT}${l}`)
-
-// Laps only show where they differ from the track's own count (defaultLaps), which the header already gives.
-// Point-to-point tracks (pointToPoint) never mention laps.
-function campaignStop({ act, stop, planet, kinds }, showDirections, defaultLaps, pointToPoint) {
-    // Each event line: "+ [kind icon] variants / conditions / laps". The map icon stands for the kind; kinds without
-    // one (Podracer Test, Galactic Gauntlet) keep their name. Race shows the laps its variants run; Eliminators are
-    // timed (last place out on a cadence until three remain); Field Tests carry laps per event.
-    const kindLabel = k => emoji.named(k.emoji) || `${k.kind.startsWith('Podracer') ? emoji.vehicle['Podracer'] + ' ' : ''}${k.kind}`
-    const lapsOf = k => {
-        const counts = k.kind == 'Race' ? k.laps
-            : k.kind != 'Field Test' ? [...new Set(k.events.map(ev => ev.laps).filter(l => /^\d+$/.test(l)).map(Number))] : []
-        if (pointToPoint || !counts.length || (counts.length == 1 && counts[0] == defaultLaps)) return ''
-        return counts.length > 1 ? `${counts.join('–')} laps` : laps(counts[0])
-    }
-    // One line per variant (plain Forward shows no direction), or a single line when the track has only the one
-    const perVariant = variants => showDirections && variants.length ? [...new Set(variants)] : [null]
-    // An icon label runs straight into the details; a text label (Podracer Test) is separated like the rest
-    const line = (k, parts) => {
-        const label = kindLabel(k)
-        return `+ ${label}${parts.some(Boolean) ? (label.endsWith('>') ? ' ' : ' / ') : ''}${parts.filter(Boolean).join(' / ')}`
-    }
-
-    // Events open from the start sit right under the act; later unlocks and finales get their own label
-    const buckets = new Map()  // sort key -> { label, lines }
-    const add = (key, label, text) => {
-        if (!buckets.has(key)) buckets.set(key, { label, lines: [] })
-        buckets.get(key).lines.push(text)
-    }
-    for (const k of kinds) {
-        if (k.kind == 'Race' || k.kind == 'Eliminator') {
-            for (const u of k.unlocks) {
-                for (const v of perVariant(u.variants)) {
-                    add(u.after, u.after ? capitalize(when(u.after)) : null, line(k, [v && variantLabel(v), u.conditions.join(', '), lapsOf(k)]))
-                }
-            }
-        } else if (k.kind == 'Field Test') {
-            // All of a stop's Field Tests on one line, each vehicle followed by its events
-            const byVehicle = new Map()
-            for (const ev of k.events) byVehicle.set(ev.vehicle, [...(byVehicle.get(ev.vehicle) ?? []), [ev.mode, !pointToPoint && ev.laps != String(defaultLaps) && eventLaps(ev.laps)].filter(Boolean).join(' ')])
-            add(0, null, line(k, [[...byVehicle].map(([v, evs]) => `${cls(v)} ${evs.join(', ')}`).join(' · ')]))
-        } else if (k.kind.startsWith('Podracer')) {
-            for (const v of perVariant(k.unlocks.flatMap(u => u.variants))) add(0, null, line(k, [v && variantLabel(v, { type: false }), lapsOf(k)]))
-        } else {
-            add(Infinity, 'Finale', line(k, [[...new Set(k.unlocks.flatMap(u => u.conditions))].join(', '), lapsOf(k)]))
-        }
-    }
-    return [
-        `### ${act} (${emoji.planet[planet]} ${ordinal(stop)} stop)`,
-        ...[...buckets.entries()].sort((a, b) => a[0] - b[0]).flatMap(([, b]) => [b.label, ...indented(b.lines)].filter(Boolean)),
-    ]
-}
-
-// A scenario as a plain line (its vehicle class first), then which days / the final eliminator use the track:
-//   [skim] Katja Mox (II: Pilot)
-//   -#   Days 1–4: Forward, Reverse (Afternoon Dry, Night Dry)
-//   -#   Final eliminator: Reverse with mines (Afternoon Dry)
-function scenarioLines(sc, showDirections) {
-    const d = sc.days
-    const days = d.length > 1 && d[d.length - 1] - d[0] == d.length - 1 ? `Days ${d[0]}–${d[d.length - 1]}` : `Day${d.length > 1 ? 's' : ''} ${d.join(', ')}`
-    // One line per variant in the pool, like the campaign: "Days 1–4 / [reverse] / Blue Hour, Sunset"
-    const poolLines = (label, p) => (showDirections && p.variants.length ? p.variants : [null])
-        .map(v => [label, v && variantLabel(v), p.conditions.join(', ')].filter(Boolean).join(' / '))
-    const lines = []
-    if (sc.pools.days && d.length) lines.push(...poolLines(days, sc.pools.days))
-    if (sc.pools.final) lines.push(...poolLines('Final eliminator', sc.pools.final))
-    return [`${cls(sc.vehicle)} **${sc.name}** (${sc.tier})`.trim(), ...indented(lines)]
-}
-
-// Arcade events, grouped under the track variant they run when the track has more than one
-function arcadeLines(events, showDirections, defaultLaps, pointToPoint) {
-    // Laps only where the event differs from the track's count in the header
-    const lineOf = e => [`${cls(e.vehicleClass)} **${e.name}**`, e.vehicle, !pointToPoint && e.laps && e.laps != defaultLaps && laps(e.laps),
-        `${emoji.medal.gold} ${e.medals.gold.time}`].filter(Boolean).join(' · ')
-    if (!showDirections) return events.map(e => `-# ${lineOf(e)}`)
-    const groups = new Map()
-    for (const e of events) {
-        const v = e.variant ?? 'Forward'
-        if (!groups.has(v)) groups.set(v, [])
-        groups.get(v).push(e)
-    }
-    // Plain Forward events come first with no label (it's implied); other variants under their label
-    const order = v => ['Forward', 'Reverse', 'Rally'].findIndex(d => v.endsWith(d)) + (v.includes(' ') ? 10 * (v.startsWith('Podracer') ? 2 : 1) : 0)
-    return [...groups.entries()].sort((a, b) => order(a[0]) - order(b[0]))
-        .flatMap(([v, list]) => [variantLabel(v), ...indented(list.map(lineOf))].filter(Boolean))
-}
 
 function trackSelect(tracks, current) {
     return select('track', 'Pick a track',
@@ -325,11 +226,11 @@ function arcadeEvent(eventId) {
     container.addSeparatorComponents(separator())
     addBuild(container, files, e, e.vehicle)
 
-    // Leaderboard: the medal rivals plus any staff times (Fuse logo), fastest first
+    // Leaderboard: the medal rivals plus any staff times (Fuse's logo, or the publisher's), fastest first
     container.addSeparatorComponents(separator())
     const board = [
         ...Object.entries(e.medals).map(([m, x]) => ({ seconds: x.seconds, line: `${emoji.medal[m]} **${x.time}** ${x.rival}` })),
-        ...data.staffTimes(e.id).map(s => ({ seconds: s.seconds, line: `${emoji.named('staff')} **${formatTime(s.seconds)}** ${s.name}` })),
+        ...data.staffTimes(e.id).map(s => ({ seconds: s.seconds, line: `${emoji.named(s.from == 'publisher' ? 'publisher' : 'staff')} **${formatTime(s.seconds)}** ${s.name}` })),
     ].sort((a, b) => a.seconds - b.seconds)
     container.addTextDisplayComponents(text(board.map(b => b.line).join('\n')))
 
@@ -351,7 +252,7 @@ function trackInfo(trackId) {
     const files = new Files()
     const container = new ContainerBuilder().setAccentColor(PLANET_COLORS[t.planet] ?? DEFAULT_COLOR)
 
-    // "Loop / [vehicles] Speeders + Podracer / 2 laps", then the variants (per-mode laps are in the list below)
+    // "Loop / [vehicles] Speeders + Podracer / 2 laps", then the variants
     const variants = variantGroups(t.variants)
     const headerLines = [
         crumbs('Planets', planet.name),
@@ -365,27 +266,20 @@ function trackInfo(trackId) {
     header(container, headerLines, files.add(planet.image))
     gallery(container, files.add(t.map))
 
-    // Every way to race the track. Heading levels: track name #, campaign acts / Scenarios / Arcade ###, race kinds
-    // plain text, appearances -# subtext
-    const access = []
-    if (t.campaign.length) access.push(...t.campaign.flatMap(a => campaignStop(a, !!variants, t.defaultLaps, t.format == 'Point-to-point')))
-    if (t.scenarios.length) access.push('### Scenarios', ...t.scenarios.flatMap(sc => scenarioLines(sc, !!variants)))
-    if (events.length) access.push('### Arcade', ...arcadeLines(events, !!variants, t.defaultLaps, t.format == 'Point-to-point'))
-    if (access.length) {
-        // Discord caps a message's text at 4000 characters in total; trim the end of the list rather than fail
-        const budget = TEXT_LIMIT - headerLines.filter(Boolean).join('\n').length
-        let body = access.join('\n')
-        if (body.length > budget) {
-            const more = '\n-# …and more'
-            body = body.slice(0, budget - more.length).replace(/\n[^\n]*$/, '') + more
-        }
+    // Where it's raced, by name only: variants, conditions and laps for each are on the event / scenario pages
+    const scenarios = data.scenariosOnTrack(t.id)
+    const raced = [
+        scenarios.length && `-# **Scenarios**: ${scenarios.map(sc => `${cls(sc.vehicleClass)} ${sc.name}`).join(', ')}`,
+        events.length && `-# **Arcade**: ${events.map(e => `${cls(e.vehicleClass)} ${e.name}`).join(', ')}`,
+        t.campaign.length && `-# **Campaign**: ${[...new Set(t.campaign.map(c => c.act))].join(', ')}`,
+    ].filter(Boolean)
+    if (raced.length) {
         container.addSeparatorComponents(separator())
-        container.addTextDisplayComponents(text(body))
+        container.addTextDisplayComponents(text(['### Raced in', ...raced].join('\n')))
     }
 
     const rows = [planetSelect(t.planet), trackSelect(data.tracksOnPlanet(t.planet), t.id)]
     if (events.length) rows.push(eventSelect(events))
-    const scenarios = data.scenariosOnTrack(t.id)
     if (scenarios.length) rows.push(select('scenario', 'Pick a scenario', scenarios.map(sc => ({ label: sc.name, value: sc.id, description: `${sc.tier} · ${sc.style.name}`, emoji: emoji.vehicle[sc.vehicleClass] }))))
     return page(container, files, rows)
 }
@@ -423,10 +317,13 @@ function scenarioSelect(current) {
 const dayLabel = d => d.length > 1 && d[d.length - 1] - d[0] == d.length - 1 ? `Days ${d[0]}–${d[d.length - 1]}` : `Day${d.length > 1 ? 's' : ''} ${d.join(', ')}`
 
 // A pool track: its name, then any variants beyond plain Forward ("+ [reverse]" when Forward is in the pool too)
-function poolTrack(t) {
+function poolTrack(t, { laps: showLaps = false } = {}) {
+    const track = data.track(t.track)
     const others = t.variants.map(v => variantLabel(v)).filter(Boolean)
     const forward = t.variants.length == 0 || t.variants.some(v => !variantLabel(v))
-    return `**${data.track(t.track).name}**${others.length ? ` ${forward ? '+ ' : ''}${others.join(', ')}` : ''}`
+    return [`**${track.name}**${others.length ? ` ${forward ? '+ ' : ''}${others.join(', ')}` : ''}`,
+        (t.conditions ?? []).join(', '),
+        showLaps && track.format != 'Point-to-point' && laps(track.defaultLaps)].filter(Boolean).join(' / ')
 }
 
 function scenarioInfo(scenarioId) {
@@ -457,22 +354,39 @@ function scenarioInfo(scenarioId) {
     container.addSeparatorComponents(separator())
     container.addTextDisplayComponents(text(sc.schedule.flatMap(d => [
         [`${emoji.named(d.emoji)} **${dayLabel(d.days)}**`, d.event == 'Race' ? null : d.event, d.mustWin && 'must win'].filter(Boolean).join(' / '),
-        ...indented(d.tracks.map(t => `+ ${poolTrack(t)}`)),
+        ...indented(d.tracks.map(t => `+ ${poolTrack(t, { laps: !/Eliminator/.test(d.event) })}`)),  // eliminators are timed
     ]).join('\n')))
 
-    const footer = [
-        sc.winMessage && `Win: ${sc.winMessage}`,
-        sc.repeatRewards && `Repeat wins: ${sc.repeatRewards}`,
-    ].filter(Boolean)
-    if (footer.length) container.addTextDisplayComponents(text(footer.map(l => `-# ${l}`).join('\n')))
+    const style = data.styles.find(st => st.name == sc.style.name)
+    if (style) {
+        container.addSeparatorComponents(separator())
+        container.addTextDisplayComponents(text([
+            `### ${emoji.named(style.emoji)} ${style.name}`,
+            `*${style.description}*`,
+            ...style.ranks.flatMap(r => r.traits).map(t => `-# **${t.name}**: ${emojify(t.description)}`),  // no trait icons: the card is near the text limit
+        ].join('\n')))
+    }
+
+    // Parts its rewards can offer, counted by rarity (the menus list them)
+    const offers = ['Common', 'Rare', 'Epic', 'Legendary'].map(r => [r, sc.offers.filter(o => o.rarity == r)]).filter(([, list]) => list.length)
+    container.addSeparatorComponents(separator())
+    container.addTextDisplayComponents(text([
+        '### Rewards',
+        sc.winMessage && `-# Win: ${sc.winMessage}`,
+        sc.repeatRewards && `-# Each win after the first: ${sc.repeatRewards}`,
+        offers.length && `-# Parts it can offer: ${offers.map(([r, list]) => `${list.length} ${r}`).join(' / ')} (in the menus below)`,
+    ].filter(Boolean).join('\n')))
 
     const poolTracks = [...new Set(sc.schedule.flatMap(d => d.tracks.map(t => t.track)))].map(data.track)
-    const style = data.styles.find(st => st.name == sc.style.name)
+    const offered = sc.offers.map(o => data.partByName(o.name)).filter(Boolean)
     return page(container, files, [
         scenarioSelect(sc.id),
         trackSelect(poolTracks),
         ...(sc.parts.length ? [partSelect(sc.parts.map(x => data.partByName(x.name)).filter(Boolean))] : []),
         ...(abilitiesOf(sc).length ? [abilitySelect(abilitiesOf(sc))] : []),
+        // offered parts, 25 to a menu (part_pick_<mask>_<n>: the n only keeps the two menus' ids apart)
+        ...[0, 25].filter(i => offered.length > i).map(i => select(`part_pick_0_${i}`, `Parts it can offer${offered.length > 25 ? ` (${i + 1}–${Math.min(i + 25, offered.length)})` : ''}`,
+            offered.slice(i, i + 25).map(p => ({ label: p.name, value: p.id, description: p.description.slice(0, 100), emoji: emoji.named(p.emoji) })))),
         ...(style ? [buttons([`style_${style.id}`, style.name, emoji.named(style.emoji)])] : []),
     ])
 }
@@ -1115,7 +1029,7 @@ function statusInfo(statusId) {
 
 function backerSelect(current) {
     return select('backer', 'Pick a backer', data.sponsors.map(s => ({
-        label: s.name, value: s.id, emoji: s.favor ? emoji.named(data.favor(s.favor).emoji) : undefined,
+        label: s.name, value: s.id, emoji: emoji.named(s.emoji),
         description: `${s.person} / Penalty: ${s.penalty}`.slice(0, 100),
     })), current)
 }
@@ -1130,7 +1044,7 @@ function backersOverview() {
         'Pick a backer for a tour, then one of their contracts: every time you do its action, you earn credits.'])
     container.addSeparatorComponents(separator())
     container.addTextDisplayComponents(text(data.sponsors.map(s =>
-        `${s.favor ? emoji.named(data.favor(s.favor).emoji) : ''} **${s.name}** / ${s.person}\n-# Penalty: ${s.penalty}`).join('\n')))
+        `${emoji.named(s.emoji)} **${s.name}** / ${s.person}\n-# Penalty: ${s.penalty}`).join('\n')))
     return page(container, new Files(), [backerSelect()])
 }
 
@@ -1144,7 +1058,7 @@ function backerInfo(sponsorId) {
         `**${s.person}**`,
         s.bio && `*${s.bio}*`,
         s.startingCredits && `Start the tour with ${emoji.credits} ${s.startingCredits.toLocaleString('en-US')}`,
-    ], files.add(s.holo))
+    ], files.add(s.icon))
 
     container.addSeparatorComponents(separator())
     container.addTextDisplayComponents(text(['### Contracts', '-# Pick one; each action pays out, and the target rises planet by planet',

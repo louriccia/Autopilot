@@ -1,8 +1,8 @@
 {
-  "_source": "Highlighted staff entries on the community 'Time Trial/Race Leaderboard' sheet: https://docs.google.com/spreadsheets/d/1vvu-Eurr80n_mgYUqQN6gdK1uuobwPgcV7CFuQw_lmU/edit?gid=1332592452 — hand-maintained; keyed by arcade event id, times in seconds.",
+  "_source": "Highlighted staff entries on the community 'Time Trial/Race Leaderboard' sheet: https://docs.google.com/spreadsheets/d/1vvu-Eurr80n_mgYUqQN6gdK1uuobwPgcV7CFuQw_lmU/edit?gid=1332592452 — hand-maintained; keyed by arcade event id, times in seconds. \"from\": \"publisher\" marks the publisher's staff (SM-, shown with their logo); others are the developer's (Fuse).",
   "landspeeder-ace": [{ "name": "Stoney", "seconds": 70.41 }],
-  "acid-ringer": [{ "name": "SM-Louis", "seconds": 56.84 }],
+  "acid-ringer": [{ "name": "SM-Louis", "seconds": 56.84, "from": "publisher" }],
   "caustic-flood": [{ "name": "Fuse_Luis", "seconds": 63.12 }],
-  "risky-rider": [{ "name": "SM_Wes", "seconds": 114.56 }],
+  "risky-rider": [{ "name": "SM_Wes", "seconds": 114.56, "from": "publisher" }],
   "venting-machine": [{ "name": "Fuse_Luis", "seconds": 87.02 }]
 }

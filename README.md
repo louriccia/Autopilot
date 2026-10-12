@@ -6,7 +6,7 @@ A Discord bot for the Star Wars: Galactic Racer server. Its command and interact
 
 * **/search &lt;query&gt;** - find anything (arcade events and categories, tracks, planets, scenarios, racer styles, parts, part keywords, abilities, vehicles, vehicle classes, favors, rivals, mysteries, status effects, backers, Tales of Podracing, livery palettes and patterns) and open its page
 * **/arcade [event] [category]** - arcade events: medal times and rivals, track, vehicle, build, parts and unlocks
-* **/track &lt;name&gt;** - track map, format, laps and the arcade events run on it
+* **/track &lt;name&gt;** - track map, format, laps, variants, and the scenarios, arcade events and acts it's raced in
 * **/planet &lt;name&gt;** - planet description, conditions and tracks
 * **/scenario &lt;name&gt;** - a scenario's racer style, starting build, day-by-day schedule and track pools
 * **/style &lt;name&gt;** - a racer style's starting abilities, traits per level and how each level unlocks
@@ -25,6 +25,15 @@ A Discord bot for the Star Wars: Galactic Racer server. Its command and interact
 
 The reference pages link to each other through select menus and buttons. Whoever ran the command navigates in place; anyone else who clicks gets a private copy.
 
+
+## Announcements
+
+The bot also posts on its own:
+
+* **Patches** (`PATCH_CHANNEL_ID`) - a new Steam build goes live (build id, time, download size; checked every 5 minutes), and official Steam announcements, with patch notes in full (every 10 minutes)
+* **Videos** (`VIDEO_CHANNEL_ID`) - new uploads on the official YouTube channel (`YOUTUBE_CHANNELS` to change or add channels; every 10 minutes)
+
+While testing, everything goes to `TEST_CHANNEL_ID`. `node src/scripts/preview-feeds.js` posts the latest of each there to check the cards.
 ## Game data
 
 `src/data/swgr/*.json` and `assets/` are generated from the `swgr-datamine` outputs (expected next to this repo) by:

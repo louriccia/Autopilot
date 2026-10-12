@@ -17,6 +17,9 @@ src/
   commands/           # One slash command per file: { data: SlashCommandBuilder, execute, autocomplete? }
   interactions/       # Component/modal handlers: { name, execute }, routed by customId prefix
   respond.js          # navigate(): owner updates the message in place, others get an ephemeral copy
+  feeds/              # Announcement feeds polled on a timer: steam-build (new Steam builds, via steam-user's anonymous
+                      #   product info), steam-news (official announcements; patch notes in full), youtube (channel RSS).
+                      #   State (what's been posted) in data/state/feeds.json, git-ignored; a feed's first run only primes it
   swgr/data.js        # Lookups and autocomplete search over the game data
   swgr/search.js      # /search index: one entry per searchable kind (items, label, keywords, page)
   swgr/pages.js       # Page builders (arcade, track, planet, scenario, racer style, part, ability, vehicle, favor, rival, mystery, status effect, backer, tale, livery): Components V2 payloads
@@ -27,6 +30,7 @@ src/
   data/discord/       # Guild and channel IDs (from .env)
   data/flavor/        # Flavor text
   scripts/deploy-commands.js  # Register slash commands (--list | --global | --guild | --clear-guild)
+  scripts/preview-feeds.js    # Post each feed's latest item to TEST_CHANNEL_ID to see the cards
   templates/          # Starting points for new commands and interactions (not loaded)
 assets/               # GENERATED art (WebP), uploaded as attachments and referenced via attachment://
 tools/import_swgr.py  # Builds data/swgr + assets from ../swgr-datamine/out and E:/SWGR_Export (Python + Pillow)
@@ -41,12 +45,13 @@ The game is STAR WARS Galactic Racer (codename "Griffin"; planets have dog coden
 - **Handler context**: every `execute` receives `{ client, interaction, member_id, member_name, member_avatar }`; interaction handlers also get `args`.
 - **customId routing**: `"<name>_<arg1>_<arg2>"` → `src/interactions/<handler with that name>` with `args = [arg1, arg2]`. Handler names must not contain `_`.
 - **Guild switching**: `testing` (from `TESTING` in .env, or automatically when `USERNAME == 'louri'`) makes the bot answer only in `TEST_GUILD_ID`; live, it answers everywhere except there.
+- **Feeds**: post to PATCH_CHANNEL_ID (Steam builds + announcements) and VIDEO_CHANNEL_ID (YouTube; channels in YOUTUBE_CHANNELS, default the game's own). While testing, everything goes to TEST_CHANNEL_ID. A feed with no channel doesn't run. New feed = a module in src/feeds with { name, channel, every, check(seen, { preview }) } added to FEEDS.
 - **Errors**: `reportError()` in bot.js posts stack traces to `LOG_CHANNEL_ID` when live.
 - **Intents**: only `Guilds`. Add more (and enable privileged ones in the Developer Portal) when a feature needs them.
 - **Components V2**: reference pages are V2 messages (`flags: MessageFlags.IsComponentsV2`, a `ContainerBuilder` with text/sections/media/action rows; no `content` or `embeds`). Images must be attached and referenced as `attachment://name`. Limits: 40 components total, 4000 chars of text.
 - **Page style**: small breadcrumb line first (`-# Arcade / Advanced`, separated by ` / `), then `# Title`. Everything in a page's header block is separated by ` / ` too (track type / vehicles / laps; variants; event track / direction / laps / conditions), never bullets or dashes. Menus stack like breadcrumbs, broadest on top, with no separator above them. A card's unlock requirement (`unlockLine`) is the last line of its header. Controls that belong to a section (e.g. tier buttons under a part's Family) sit right under that section. Don't repeat a planet's name next to its emoji.
-- **Campaign timing** (an assumption, see `stop_unlock` in the importer): a stop is 4 events (the map branches and joins, but you must finish 4 to move on), and a track-pool unlock's event count is counted since the act started. So on stop k an entry is open on arrival, opens after 1–3 events there, or is unreachable and dropped. Unconfirmed: whether Podracer Tests count toward it.
-- **Laps**: a loop track's header gives its lap count; appearance lists only mention laps where they differ. Point-to-point tracks never mention laps. Eliminators have no laps (timed eliminations).
+- **Track cards** describe the track (format, vehicles, laps, variants, map) and list where it's raced by name only. Which variant, conditions and laps an event uses belong on that event's / scenario's own page (feedback: per-act appearance lists were confusing). The importer still derives campaign pools (`stop_unlock`), but cards only show which acts use a track.
+- **Laps**: a loop track's header gives its lap count; scenario schedules show each race track's laps. Point-to-point tracks never mention laps. Eliminators have no laps (timed eliminations).
 - **Directions**: plain Forward is implied (never written); Reverse is the `reverse` emoji; Rally is spelled out.
 - **Times**: the game shows hundredths — format times to 2 decimal places (`1:19.00`).
 - **Speeds**: the game shows km/h (data is stored in mph). The importer's arcade Speed formula is verified against all 53 in-game values; re-check it if the datamine changes.

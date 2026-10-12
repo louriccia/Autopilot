@@ -2,7 +2,7 @@ require('dotenv').config({ path: __dirname + '/../.env' })
 
 const { testing } = require('../config.js')
 
-const { test_guild } = require('./data/discord/guild.js')
+const { test_guilds } = require('./data/discord/guild.js')
 const { log_channel } = require('./data/discord/channel.js')
 const { errorMessage } = require('./data/flavor/error.js')
 
@@ -35,13 +35,11 @@ for (const file of buttonFiles) {
     client.buttons.set(button.name, button);
 }
 
-// While testing, only the test guild is served; live, everything except the test guild is. This lets a
-// local copy and the deployed bot share one application without both answering the same interaction.
+// While testing, only the test guilds (TEST_GUILD_ID plus TESTING_GUILDS) are served; live, everything except
+// them is. This lets a local copy and the deployed bot share one application without both answering the same
+// interaction.
 function switchGuard(guildId) {
-    if (testing) {
-        return guildId == test_guild
-    }
-    return guildId !== test_guild
+    return testing ? test_guilds.includes(guildId) : !test_guilds.includes(guildId)
 }
 
 //interactions
@@ -111,6 +109,7 @@ client.on(Events.InteractionCreate, async interaction => {
 
 client.once(Events.ClientReady, () => {
     console.log(`Ready! Logged in as ${client.user.tag}${testing ? ' (testing)' : ''}`)
+    require('./feeds/index.js').start(client, reportError)
 })
 
 // Global error handling — prevent crashes and report to the log channel when live
