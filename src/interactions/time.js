@@ -44,7 +44,7 @@ module.exports = {
                 .setCustomId(`time_save_${kind}_${target}`)
                 .setTitle(`Submit a time: ${item.name}`.slice(0, 45))
                 .addLabelComponents(
-                    new LabelBuilder().setLabel('Time').setTextInputComponent(field('time', TextInputStyle.Short, { required: true, placeholder: '1:08.92', max: 12 })),
+                    new LabelBuilder().setLabel('Time').setTextInputComponent(field('time', TextInputStyle.Short, { required: true, placeholder: '1:08.92 or 10892', max: 12 })),
                     new LabelBuilder().setLabel('Platform').setStringSelectMenuComponent(platform),
                     new LabelBuilder().setLabel('Proof (optional)').setDescription('A link to a video or screenshot')
                         .setTextInputComponent(field('proof', TextInputStyle.Short, { placeholder: 'https://youtu.be/…', max: 200 })),

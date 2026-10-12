@@ -24,7 +24,7 @@ exports.submit = async ({ kind, target, member, memberId, racer, time: rawTime, 
     const item = exports.board(kind, target)
     if (!item) return { error: "That isn't an arcade event or scenario." }
     const time = records.parseTime(rawTime)
-    if (time == null) return { error: `"${exports.clean(rawTime)}" isn't a time. Use minutes:seconds, like 1:08.92.` }
+    if (time == null) return { error: `"${exports.clean(rawTime)}" isn't a time. Use minutes:seconds like 1:08.92, or just the digits like 10892.` }
     proof = String(proof ?? '').trim()
     if (proof && !/^https?:\/\/\S+$/i.test(proof)) return { error: 'The proof needs to be a link (starting with https://).' }
     let user = memberId

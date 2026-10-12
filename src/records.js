@@ -20,9 +20,16 @@ exports.listen = () => {
     database.ref('staff').on('value', s => { staff = s.val() ?? {} })
 }
 
-// "1:08.92", "68.92", "1:01:08.9" -> seconds to the hundredth (the game's precision); null if it isn't a time
+// "1:08.92", "68.92", "1:01:08.9" -> seconds to the hundredth (the game's precision); null if it isn't a time.
+// Digits alone get the separators by length, from the right (hundredths, seconds, minutes, hours):
+// "5555" -> 55.55, "10329" -> 1:03.29, "1010329" -> 1:01:03.29
 exports.parseTime = text => {
-    const m = String(text ?? '').trim().match(/^(?:(\d+):)?(?:(\d{1,2}):)?(\d{1,2}(?:\.\d+)?)$/)
+    let s = String(text ?? '').trim()
+    if (/^\d{3,8}$/.test(s)) {
+        const hu = s.slice(-2), sec = s.slice(-4, -2), mi = s.slice(-6, -4), h = s.slice(0, -6)
+        s = [h, mi, sec].filter(Boolean).join(':') + '.' + hu
+    }
+    const m = s.match(/^(?:(\d+):)?(?:(\d{1,2}):)?(\d{1,2}(?:\.\d+)?)$/)
     if (!m) return null
     const [h, mi] = m[2] != null ? [Number(m[1]), Number(m[2])] : [0, Number(m[1] ?? 0)]
     if ((m[1] != null && Number(m[3]) >= 60) || (m[2] != null && mi >= 60)) return null  // "1:75" isn't a time

@@ -27,7 +27,7 @@ module.exports = {
         // Staff times: the developer's and publisher's own runs, shown with their logo on arcade cards (by name)
         .addSubcommand(sub => sub.setName('staff').setDescription('set a staff time on an arcade event (server managers)')
             .addStringOption(o => o.setName('event').setDescription('the arcade event').setRequired(true).setAutocomplete(true))
-            .addStringOption(o => o.setName('time').setDescription('e.g. 1:08.92').setRequired(true))
+            .addStringOption(o => o.setName('time').setDescription('e.g. 1:08.92, or just the digits: 10892').setRequired(true))
             .addStringOption(o => o.setName('from').setDescription('whose staff').setRequired(true)
                 .addChoices({ name: 'Developer (Fuse Games)', value: 'developer' }, { name: 'Publisher', value: 'publisher' }))
             .addUserOption(o => o.setName('racer').setDescription('the staff member, shown as a mention'))
@@ -49,7 +49,7 @@ module.exports = {
                     ? `Removed ${name}'s staff time on ${event.name}.` : `${name} has no staff time on ${event.name}.`)
             }
             const seconds = records.parseTime(interaction.options.getString('time'))
-            if (seconds == null) return reply(interaction, "That isn't a time. Use minutes:seconds, like 1:08.92.")
+            if (seconds == null) return reply(interaction, "That isn't a time. Use minutes:seconds like 1:08.92, or just the digits like 10892.")
             await records.setStaffTime(event.id, name, seconds, interaction.options.getString('from'), racer?.id)
             return reply(interaction, `${name}: ${formatTime(seconds)} on ${event.name}, shown as a ${interaction.options.getString('from')} staff time.`)
         }

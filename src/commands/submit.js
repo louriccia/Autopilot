@@ -15,7 +15,7 @@ module.exports = {
         .setName('submit')
         .setDescription('submit a time for an arcade event or scenario')
         .addStringOption(o => o.setName('board').setDescription('the arcade event or scenario').setRequired(true).setAutocomplete(true))
-        .addStringOption(o => o.setName('time').setDescription('e.g. 1:08.92').setRequired(true).setMaxLength(12))
+        .addStringOption(o => o.setName('time').setDescription('e.g. 1:08.92, or just the digits: 10892').setRequired(true).setMaxLength(12))
         .addUserOption(o => o.setName('racer').setDescription('submit for someone else (server managers and submitters)'))
         .addStringOption(o => o.setName('platform').setDescription('default: your last one, else your console role')
             .addChoices(...records.PLATFORMS.map(p => ({ name: p, value: p }))))

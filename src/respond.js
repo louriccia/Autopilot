@@ -9,6 +9,10 @@ exports.navigate = async function (interaction, payload) {
         // `attachments: []` drops the previous page's images; `files` uploads this page's.
         await interaction.update({ ...payload, attachments: [] })
     } else {
-        await interaction.reply({ ...payload, flags: (payload.flags ?? 0) | MessageFlags.Ephemeral })
+        // Redraw the public message unchanged first: otherwise their Discord keeps showing the option they picked in
+        // its menu, so the card looks like the page they chose while its buttons (Submit time) still act on the old
+        // one. Then their page follows as a private message.
+        await interaction.update({ components: interaction.message.components })
+        await interaction.followUp({ ...payload, flags: (payload.flags ?? 0) | MessageFlags.Ephemeral })
     }
 }
