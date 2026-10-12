@@ -131,8 +131,9 @@ exports.staffTimes = event => Object.entries(staff[event] ?? {}).map(([key, s]) 
 
 // Firebase keys can't hold . # $ [ ] /
 const staffKey = name => name.replace(/[.#$\[\]/]/g, '_')
-exports.setStaffTime = async (event, name, seconds, from) => {
-    const value = { name, seconds, from }
+// user: their Discord id, when known (the card then shows them as a mention instead of the name)
+exports.setStaffTime = async (event, name, seconds, from, user) => {
+    const value = { name, seconds, from, ...(user ? { user } : {}) }
     await database.ref(`staff/${event}/${staffKey(name)}`).set(value)
     ;(staff[event] ??= {})[staffKey(name)] = value
 }
