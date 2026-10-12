@@ -5,6 +5,9 @@
 // Layout (top-level paths):
 //   feeds/<feed name>   what each announcement feed has already posted (src/feeds/state.js)
 //   streamers/<twitch user id>   recognized streamers { login, name, addedBy, addedAt } (/streamer, src/feeds/twitch.js)
+//   times/<push id>     community times { kind, target, user, submittedBy, time, platform, proof, notes, date } (src/records.js)
+//   feedback/<kind>/<target>/<discord id>   thumbs up / neutral / down on an arcade event or scenario (src/records.js)
+//   submitters/<discord id>   may submit times for others (/submitter)
 const { initializeApp, cert } = require('firebase-admin/app')
 const { getDatabase } = require('firebase-admin/database')
 

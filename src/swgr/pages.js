@@ -6,6 +6,7 @@ const {
     ContainerBuilder, TextDisplayBuilder, SectionBuilder, ThumbnailBuilder, MediaGalleryBuilder, SeparatorBuilder,
 } = require('discord.js')
 const data = require('./data.js')
+const records = require('../records.js')
 const emoji = require('../data/discord/emoji.js')
 
 const ROOT = path.join(__dirname, '../..')
@@ -69,6 +70,24 @@ class Files {
 
 // --- building blocks ---
 
+// Text already on a card (Discord counts every text display toward its 4000 characters)
+const textLength = container => {
+    let n = 0
+    const walk = c => { if (c.type == 10) n += c.content.length; (c.components ?? []).forEach(walk); if (c.accessory) walk(c.accessory) }
+    walk(container.toJSON())
+    return n
+}
+// Community times (src/records.js): one line per person's best, the time linked to its proof when there is one
+const timeLine = (t, rank) => `${rank ? `${rank}. ` : ''}**${t.proof ? `[${formatTime(t.time)}](<${t.proof}>)` : formatTime(t.time)}** <@${t.user}>${t.platform ? ` / ${t.platform}` : ''}`
+// Submit a time, then rate the event / scenario with the three thumbs (counts on the buttons)
+function recordButtons(kind, target) {
+    const counts = records.feedbackCounts(kind, target)
+    return new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`time_open_${kind}_${target}`).setLabel('Submit time').setEmoji('⏱️').setStyle(ButtonStyle.Primary),
+        ...[['up', emoji.thumbsUp], ['neutral', emoji.thumbsNeutral], ['down', emoji.thumbsDown]].map(([r, e]) =>
+            new ButtonBuilder().setCustomId(`rate_${kind}_${target}_${r}`).setLabel(String(counts[r])).setEmoji(emoji.component(e)).setStyle(ButtonStyle.Secondary)))
+}
+
 const text = content => new TextDisplayBuilder().setContent(content)
 const separator = () => new SeparatorBuilder()
 
@@ -88,7 +107,7 @@ function gallery(container, image) {
 
 function page(container, files, rows) {
     if (rows.length) container.addActionRowComponents(...rows)
-    return { components: [container], files: files.list, flags: MessageFlags.IsComponentsV2 }
+    return { components: [container], files: files.list, flags: MessageFlags.IsComponentsV2, allowedMentions: { parse: [] } }
 }
 
 // Menus are stacked like breadcrumbs, broadest at the top: category > event for arcade, planet > track >
@@ -228,11 +247,14 @@ function arcadeEvent(eventId) {
 
     // Leaderboard: the medal rivals plus any staff times (Fuse's logo, or the publisher's), fastest first
     container.addSeparatorComponents(separator())
+    const community = records.leaderboard('arcade', e.id).slice(0, 10)
     const board = [
         ...Object.entries(e.medals).map(([m, x]) => ({ seconds: x.seconds, line: `${emoji.medal[m]} **${x.time}** ${x.rival}` })),
         ...data.staffTimes(e.id).map(s => ({ seconds: s.seconds, line: `${emoji.named(s.from == 'publisher' ? 'publisher' : 'staff')} **${formatTime(s.seconds)}** ${s.name}` })),
+        ...community.map((t, i) => ({ seconds: t.time, line: timeLine(t, i + 1) })),
     ].sort((a, b) => a.seconds - b.seconds)
     container.addTextDisplayComponents(text(board.map(b => b.line).join('\n')))
+    container.addActionRowComponents(recordButtons('arcade', e.id))
 
     return page(container, files, [
         categorySelect(e.category),
@@ -376,6 +398,18 @@ function scenarioInfo(scenarioId) {
         sc.repeatRewards && `-# Each win after the first: ${sc.repeatRewards}`,
         offers.length && `-# Parts it can offer: ${offers.map(([r, list]) => `${list.length} ${r}`).join(' / ')} (in the menus below)`,
     ].filter(Boolean).join('\n')))
+
+    // Community times: the best runs that fit under Discord's text limit
+    const best = records.leaderboard('scenario', sc.id)
+    const used = textLength(container)
+    const lines = []
+    for (const [i, t] of best.slice(0, 5).entries()) {
+        if (used + 30 + [...lines, timeLine(t, i + 1)].join('\n').length > TEXT_LIMIT) break  // 30: the heading
+        lines.push(timeLine(t, i + 1))
+    }
+    container.addSeparatorComponents(separator())
+    container.addTextDisplayComponents(text(['### Times', ...(lines.length ? lines : ['-# No times yet. Be the first to submit one!'])].join('\n')))
+    container.addActionRowComponents(recordButtons('scenario', sc.id))
 
     const poolTracks = [...new Set(sc.schedule.flatMap(d => d.tracks.map(t => t.track)))].map(data.track)
     const offered = sc.offers.map(o => data.partByName(o.name)).filter(Boolean)

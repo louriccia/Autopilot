@@ -111,6 +111,7 @@ client.on(Events.InteractionCreate, async interaction => {
 client.once(Events.ClientReady, () => {
     console.log(`Ready! Logged in as ${client.user.tag}${testing ? ' (testing)' : ''}`)
     require('./feeds/index.js').start(client, reportError).catch(error => reportError('Feeds', error))
+    require('./records.js').listen()
 })
 
 // Join messages (src/welcome.js)

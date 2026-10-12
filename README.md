@@ -26,6 +26,10 @@ A Discord bot for the Star Wars: Galactic Racer server. Its command and interact
 The reference pages link to each other through select menus and buttons. Whoever ran the command navigates in place; anyone else who clicks gets a private copy.
 
 
+## Times and feedback
+
+Arcade event and scenario cards have a **⏱️ Submit time** button (time, platform, optional proof link and notes) and three thumbs buttons for feedback, which anyone can use without submitting a time. Each person's best time joins the card's leaderboard. Times are linked to Discord accounts, never names. Server managers, and anyone added with **/submitter add**, can submit for someone else. **/times remove** takes a time back: your own, or anyone's if you can submit for others.
+
 ## Announcements
 
 The bot also posts on its own:
