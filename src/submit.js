@@ -20,8 +20,9 @@ exports.formatTime = s => {
 
 // Returns { error } or { message } (what to tell the submitter)
 // trusted: the racer was worked out by the bot (src/replays.js), so no permission is needed to credit them.
-// date: when the run happened, if known; youtube: the proof video's channel id.
-exports.submit = async ({ kind, target, member, memberId, racer, time: rawTime, platform, proof, notes, trusted, date, youtube }) => {
+// date: when the run happened, if known; youtube: the proof video's channel id. keepPlatform: leave an empty platform
+// empty instead of filling in the racer's usual one (imports).
+exports.submit = async ({ kind, target, member, memberId, racer, time: rawTime, platform, proof, notes, trusted, date, youtube, keepPlatform }) => {
     if (!database) return { error: "Times can't be saved right now (no database)." }
     const item = exports.board(kind, target)
     if (!item) return { error: "That isn't an arcade event or scenario." }
@@ -39,7 +40,7 @@ exports.submit = async ({ kind, target, member, memberId, racer, time: rawTime, 
     // platform replaces the one on a resubmitted time.
     const picked = records.PLATFORMS.includes(platform)
     const racerMember = user == memberId ? member : await member?.guild?.members.fetch(user).catch(() => null)
-    platform = picked ? platform : records.defaultPlatform(user, racerMember)
+    platform = picked ? platform : keepPlatform ? '' : records.defaultPlatform(user, racerMember)
 
     const existing = records.allTimes().find(t => t.kind == kind && t.target == target && t.user == user && t.time == time)
     if (existing?.platform && !picked) platform = ''
@@ -48,8 +49,8 @@ exports.submit = async ({ kind, target, member, memberId, racer, time: rawTime, 
     const rank = board.findIndex(t => t.user == user) + 1
     const best = board[rank - 1]
     const whose = user == memberId ? 'Your' : `<@${user}>'s`
-    if (duplicate && updated.length) return { message: `${whose} ${exports.formatTime(time)} on ${item.name} was already saved (#${rank}); updated its ${updated.length > 1 ? `${updated.slice(0, -1).join(', ')} and ${updated.at(-1)}` : updated[0]}.`, duplicate }
-    if (duplicate) return { message: `${whose} ${exports.formatTime(time)} on ${item.name} is already saved (#${rank}), with the same details.`, duplicate }
+    if (duplicate && updated.length) return { message: `${whose} ${exports.formatTime(time)} on ${item.name} was already saved (#${rank}); updated its ${updated.length > 1 ? `${updated.slice(0, -1).join(', ')} and ${updated.at(-1)}` : updated[0]}.`, duplicate, updated }
+    if (duplicate) return { message: `${whose} ${exports.formatTime(time)} on ${item.name} is already saved (#${rank}), with the same details.`, duplicate, updated }
     return {
         message: best.time < time
             ? `Saved ${exports.formatTime(time)} on ${item.name}. ${whose} best is still ${exports.formatTime(best.time)} (#${rank}).`

@@ -11,6 +11,7 @@ const boards = () => [
 ]
 
 module.exports = {
+    boards,
     data: new SlashCommandBuilder()
         .setName('submit')
         .setDescription('submit a time for an arcade event or scenario')

@@ -19,6 +19,51 @@ const removable = interaction => {
     return records.canSubmitForOthers(interaction.member) ? all : all.filter(t => t.user == interaction.user.id)
 }
 
+// /times export and import: spreadsheets of times (src/sheets.js). Export is once per EXPORT_EVERY per person; import
+// once per IMPORT_EVERY. Anyone can import their own times; people who can submit for others can import anyone's.
+const EXPORT_EVERY = 10 * 60 * 1000, IMPORT_EVERY = 60 * 1000, MAX_FILE = 2 * 1024 * 1024
+const lastUse = new Map()  // "<sub>:<user id>" -> time
+async function sheet(interaction, sub) {
+    const sheets = require('../sheets.js')
+    const key = `${sub}:${interaction.user.id}`, wait = (sub == 'export' ? EXPORT_EVERY : IMPORT_EVERY) - (Date.now() - (lastUse.get(key) ?? 0))
+    if (wait > 0) return reply(interaction, `You can ${sub} again <t:${Math.ceil((Date.now() + wait) / 1000)}:R>.`)
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral })
+    lastUse.set(key, Date.now())
+    const members = interaction.guild ? await interaction.guild.members.fetch().catch(() => interaction.guild.members.cache) : new Map()
+    const day = new Date().toISOString().slice(0, 10)
+
+    if (sub == 'export') {
+        const [kind, target] = (interaction.options.getString('board') ?? '').split(':')
+        const racer = interaction.options.getUser('racer')
+        const times = records.allTimes().filter(t => (!target || (t.kind == kind && t.target == target)) && (!racer || t.user == racer.id))
+            .sort((a, b) => a.kind.localeCompare(b.kind) || nameOf(a).localeCompare(nameOf(b)) || a.time - b.time)
+        if (!times.length) { lastUse.delete(key); return interaction.editReply('No saved times match that.') }
+        const names = {}
+        for (const id of new Set(times.map(t => t.user))) names[id] = members.get(id)?.user.username ?? (await interaction.client.users.fetch(id).catch(() => null))?.username ?? ''
+        return interaction.editReply({
+            content: `${times.length} time${times.length == 1 ? '' : 's'}. Edit it and bring it back with **/times import**: keep the headers as they are; a row's racer is its discord_id, or its username if the id is blank.`,
+            files: [{ attachment: Buffer.from(sheets.toCsv(times, names)), name: `autopilot-times-${day}.csv` }],
+        })
+    }
+
+    const file = interaction.options.getAttachment('file')
+    if (!/\.csv$/i.test(file.name) && !/csv|text\/plain/.test(file.contentType ?? '')) { lastUse.delete(key); return interaction.editReply('Attach a .csv file.') }
+    if (file.size > MAX_FILE) { lastUse.delete(key); return interaction.editReply('That file is over 2 MB.') }
+    const csv = await (await fetch(file.url)).text()
+    const r = await sheets.importCsv(csv, { importer: interaction.member, members })
+    if (r.error) { lastUse.delete(key); return interaction.editReply(r.error) }
+    const lines = [
+        `Imported **${file.name}**: ${r.saved} new, ${r.updated} corrected, ${r.deleted} removed, ${r.unchanged} unchanged${r.failed.length ? `, **${r.failed.length} failed**` : ''}.`,
+        ...r.failed.slice(0, 15).map(f => `-# Row ${f.row}: ${f.reason}`),
+        r.failed.length > 15 && `-# …and ${r.failed.length - 15} more.`,
+        r.failed.length && 'The failed rows are attached with the same headers: fix them and import that file.',
+    ].filter(Boolean)
+    return interaction.editReply({
+        content: lines.join('\n').slice(0, 2000), allowedMentions: { parse: [] },
+        files: r.failed.length ? [{ attachment: Buffer.from(sheets.failedCsv(r.failed)), name: `failed-rows-${day}.csv` }] : [],
+    })
+}
+
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('times')
@@ -39,9 +84,16 @@ module.exports = {
         // Whose runs a YouTube channel's videos are (src/replays.js links a channel to its first poster)
         .addSubcommand(sub => sub.setName('youtube').setDescription("set whose runs a YouTube channel's videos are (server managers)")
             .addStringOption(o => o.setName('video').setDescription('a link to any video from the channel').setRequired(true))
-            .addUserOption(o => o.setName('racer').setDescription('whose channel it is').setRequired(true))),
+            .addUserOption(o => o.setName('racer').setDescription('whose channel it is').setRequired(true)))
+        // Spreadsheets (src/sheets.js)
+        .addSubcommand(sub => sub.setName('export').setDescription('download saved times as a CSV for spreadsheets')
+            .addStringOption(o => o.setName('board').setDescription('only this arcade event or scenario').setAutocomplete(true))
+            .addUserOption(o => o.setName('racer').setDescription("only this racer's times")))
+        .addSubcommand(sub => sub.setName('import').setDescription('add times from a CSV laid out like /times export')
+            .addAttachmentOption(o => o.setName('file').setDescription('a .csv with the same headers as an export').setRequired(true))),
     async execute({ interaction } = {}) {
         const sub = interaction.options.getSubcommand()
+        if (sub == 'export' || sub == 'import') return sheet(interaction, sub)
         if (sub == 'youtube') {
             if (!records.canSubmitForOthers(interaction.member)) return reply(interaction, 'Only server managers and submitters can link YouTube channels.')
             const { videos, VIDEO } = require('../replays.js')
@@ -77,6 +129,9 @@ module.exports = {
     },
     async autocomplete(interaction) {
         const q = interaction.options.getFocused().toLowerCase()
+        if (interaction.options.getFocused(true).name == 'board') {
+            return interaction.respond(require('./submit.js').boards().filter(b => b.name.toLowerCase().includes(q)).slice(0, 25))
+        }
         if (interaction.options.getFocused(true).name == 'event') {
             return interaction.respond(data.events.filter(e => e.name.toLowerCase().includes(q)).slice(0, 25).map(e => ({ name: e.name, value: e.id })))
         }

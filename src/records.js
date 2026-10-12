@@ -25,10 +25,12 @@ exports.listen = () => {
 }
 
 // "1:08.92", "68.92", "1:01:08.9" -> seconds to the hundredth (the game's precision); null if it isn't a time.
+// Three parts without a decimal point are minutes:seconds:hundredths, the way people type the game's times:
+// "1:10:00" -> 1:10.00 (no run takes an hour).
 // Digits alone get the separators by length, from the right (hundredths, seconds, minutes, hours):
 // "5555" -> 55.55, "10329" -> 1:03.29, "1010329" -> 1:01:03.29
 exports.parseTime = text => {
-    let s = String(text ?? '').trim()
+    let s = String(text ?? '').trim().replace(/^(\d{1,2}):(\d{2}):(\d{2})$/, '$1:$2.$3')
     if (/^\d{3,8}$/.test(s)) {
         const hu = s.slice(-2), sec = s.slice(-4, -2), mi = s.slice(-6, -4), h = s.slice(0, -6)
         s = [h, mi, sec].filter(Boolean).join(':') + '.' + hu
@@ -98,6 +100,10 @@ exports.canSubmitForOthers = member => !!(member?.permissions?.has?.(PermissionF
 // details (platform, proof, notes) given this time replace the old ones instead, and blank ones keep what was there.
 // Returns { id, duplicate, updated: [the detail fields that changed] }.
 const DETAILS = ['platform', 'proof', 'notes']
+// Video proof beats a screenshot: a repeat brings a video in over a screenshot (or a post), never the other way. The
+// date stays the earliest, so a screenshot posted first and its video later keep the screenshot's time.
+exports.isVideo = url => /youtu\.?be|twitch\.tv|streamable\.com|medal\.tv|vimeo\.com|\.(mp4|mov|webm|mkv)(\?|$)/i.test(url ?? '')
+const replaces = (f, next, old) => !(f == 'proof' && exports.isVideo(old) && !exports.isVideo(next))
 // entry.date (when the run happened, if known) defaults to now; a repeat with an earlier date moves the saved one back,
 // and one that knows the proof video's channel (entry.youtube) fills it in. Neither counts as an updated detail.
 exports.addTime = async entry => {
@@ -106,7 +112,7 @@ exports.addTime = async entry => {
     const same = Object.entries(times).find(([, t]) => t.kind == entry.kind && t.target == entry.target && t.user == entry.user && t.time == entry.time)
     if (same) {
         const [id, old] = same
-        const changes = Object.fromEntries(DETAILS.filter(f => entry[f] && entry[f] != old[f]).map(f => [f, entry[f]]))
+        const changes = Object.fromEntries(DETAILS.filter(f => entry[f] && entry[f] != old[f] && replaces(f, entry[f], old[f])).map(f => [f, entry[f]]))
         const quiet = { ...(entry.date < old.date ? { date: entry.date } : {}), ...(entry.youtube && !old.youtube ? { youtube: entry.youtube } : {}) }
         if (Object.keys(changes).length || Object.keys(quiet).length) {
             await database.ref(`times/${id}`).update({ ...changes, ...quiet })
@@ -150,6 +156,12 @@ exports.submitters = () => submitters
 
 // Every saved time, newest first, with its id
 exports.allTimes = () => Object.entries(times).map(([id, t]) => ({ id, ...t })).sort((a, b) => b.date - a.date)
+
+// Changes fields of a saved time in place (bulk corrections from /times import)
+exports.updateTime = async (id, changes) => {
+    await database.ref(`times/${id}`).update(changes)
+    times[id] = { ...times[id], ...changes }
+}
 
 exports.removeTime = async id => {
     await database.ref(`times/${id}`).remove()
