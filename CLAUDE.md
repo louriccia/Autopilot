@@ -6,7 +6,7 @@ Discord.js v14 bot for the Star Wars: Galactic Racer server. Its command/interac
 
 - **Runtime**: Node.js 18+
 - **Framework**: discord.js v14
-- **Deployment**: Procfile `worker` process (no HTTP surface, unlike Botto's `web` dyno)
+- **Deployment**: Heroku app `autopilot-swgr` (same account as Botto's `swe1rbotto`), one Basic `worker` dyno from the Procfile (no HTTP surface, unlike Botto's `web` dyno; web stays at 0). Deploy with `git push heroku main`; settings are Heroku config vars mirroring .env, with `TESTING=false` and no `TESTING_GUILDS` / `TEST_CHANNEL_ID`. Logs: `heroku logs -a autopilot-swgr --tail`.
 
 ## Project Structure
 
@@ -45,8 +45,8 @@ The game is STAR WARS Galactic Racer (codename "Griffin"; planets have dog coden
 
 - **Handler context**: every `execute` receives `{ client, interaction, member_id, member_name, member_avatar }`; interaction handlers also get `args`.
 - **customId routing**: `"<name>_<arg1>_<arg2>"` → `src/interactions/<handler with that name>` with `args = [arg1, arg2]`. Handler names must not contain `_`.
-- **Guild switching**: `testing` (from `TESTING` in .env, or automatically when `USERNAME == 'louri'`) makes the bot answer only in `TEST_GUILD_ID`; live, it answers everywhere except there.
-- **Feeds**: post to PATCH_CHANNEL_ID (Steam builds + announcements) and VIDEO_CHANNEL_ID (YouTube; channels in YOUTUBE_CHANNELS, default the game's own) and STREAM_CHANNEL_ID (Twitch; needs TWITCH_ID / TWITCH_SECRET; streams announced at TWITCH_MIN_VIEWERS, default 10, in TWITCH_LANGUAGES, default en, once per streamer per 8 hours, as Botto-style embeds; recognized streamers (/streamer, database streamers/) skip the minimum and get the big card). While testing, everything goes to TEST_CHANNEL_ID. A feed with no channel doesn't run. New feed = a module in src/feeds with { name, channel, every, check(seen, { preview }) } added to FEEDS.
+- **Guild switching**: `testing` (from `TESTING` in .env, or automatically when `USERNAME == 'louri'`) makes the bot answer only in `TEST_GUILD_ID` (plus `TESTING_GUILDS`); live, it answers everywhere except there. The local copy and the Heroku bot share one application, so never put a live server in the local `TESTING_GUILDS`: both would answer there.
+- **Feeds**: post to PATCH_CHANNEL_ID (Steam builds + announcements) and VIDEO_CHANNEL_ID (YouTube; channels in YOUTUBE_CHANNELS, default the game's own) and STREAM_CHANNEL_ID (Twitch; needs TWITCH_ID / TWITCH_SECRET; streams announced at TWITCH_MIN_VIEWERS, default 100, in TWITCH_LANGUAGES, default en, once per streamer per 8 hours, as Botto-style embeds; recognized streamers (/streamer, database streamers/) skip the minimum and get the big card). While testing, everything goes to TEST_CHANNEL_ID. A feed with no channel doesn't run. New feed = a module in src/feeds with { name, channel, every, check(seen, { preview }) } added to FEEDS.
 - **Database**: Firebase Realtime Database `autopilot-swgr-default-rtdb` (project `autopilot-swgr`). The bot writes with the firebase-adminsdk service account, which bypasses rules; the rules (database.rules.json, `firebase deploy --only database`) lock out everyone else. Document each top-level path in src/firebase.js.
 - **Errors**: `reportError()` in bot.js posts stack traces to `LOG_CHANNEL_ID` when live.
 - **Intents**: `Guilds`, plus `GuildMembers` (privileged: Server Members Intent in the Developer Portal) for join messages. Add more (and enable privileged ones in the Developer Portal) when a feature needs them; a privileged intent that isn't enabled stops the bot logging in.

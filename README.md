@@ -36,7 +36,7 @@ The bot also posts on its own:
 
 * **Patches** (`PATCH_CHANNEL_ID`) - a new Steam build goes live (build id, time, download size; checked every 5 minutes), and official Steam announcements, with patch notes in full (every 10 minutes)
 * **Videos** (`VIDEO_CHANNEL_ID`) - new uploads on the official YouTube channel (`YOUTUBE_CHANNELS` to change or add channels; every 10 minutes)
-* **Streams** (`STREAM_CHANNEL_ID`) - someone is live on Twitch in the game's category with at least `TWITCH_MIN_VIEWERS` watching (default 10) in English (`TWITCH_LANGUAGES` to change), at most once per streamer every 8 hours (every 3 minutes; needs `TWITCH_ID` / `TWITCH_SECRET`). Recognized streamers skip the minimum and get a bigger card: server managers add them with **/streamer add &lt;twitch&gt;** (also `remove` and `list`)
+* **Streams** (`STREAM_CHANNEL_ID`) - someone is live on Twitch in the game's category with at least `TWITCH_MIN_VIEWERS` watching (default 100) in English (`TWITCH_LANGUAGES` to change), at most once per streamer every 8 hours (every 3 minutes; needs `TWITCH_ID` / `TWITCH_SECRET`). Recognized streamers skip the minimum and get a bigger card: server managers add them with **/streamer add &lt;twitch&gt;** (also `remove` and `list`)
 
 While testing, everything goes to `TEST_CHANNEL_ID`. `node src/scripts/preview-feeds.js` posts the latest of each there to check the cards.
 ## Game data

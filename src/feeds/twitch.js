@@ -9,7 +9,7 @@ const GAME = '474709880'          // STAR WARS: Galactic Racer
 const COOLDOWN = 8 * 60 * 60      // seconds
 const MAX_PER_CHECK = 10          // a flood (launch day, a big event) posts the most-watched ten
 // The category is busy (around a hundred live at once), so other streams are announced once they reach this many
-const MIN_VIEWERS = Number(process.env.TWITCH_MIN_VIEWERS ?? 10)
+const MIN_VIEWERS = Number(process.env.TWITCH_MIN_VIEWERS || 100)
 // Stream languages to announce (Twitch's language codes, comma-separated; blank = any). Recognized streamers always are.
 const LANGUAGES = (process.env.TWITCH_LANGUAGES ?? 'en').split(',').map(l => l.trim().toLowerCase()).filter(Boolean)
 
