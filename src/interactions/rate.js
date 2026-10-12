@@ -2,6 +2,7 @@ const { MessageFlags } = require('discord.js')
 const records = require('../records.js')
 const data = require('../swgr/data.js')
 const pages = require('../swgr/pages.js')
+const viewer = require('../viewer.js')
 const { database } = require('../firebase.js')
 
 // Feedback on an arcade event or scenario, like Botto's thumbs: rate_<kind>_<target>_<up|neutral|down>. Anyone can
@@ -16,6 +17,6 @@ module.exports = {
         if (!item?.(target) || !['up', 'neutral', 'down'].includes(rating)) return interaction.reply({ content: "That event isn't around anymore.", flags: MessageFlags.Ephemeral })
         if (!database) return interaction.reply({ content: "Feedback can't be saved right now (no database).", flags: MessageFlags.Ephemeral })
         await records.rate(kind, target, member_id, rating)
-        await interaction.update({ ...page(target), attachments: [] })
+        await interaction.update({ ...viewer.run(viewer.ownerOf(interaction), () => page(target)), attachments: [] })
     },
 }

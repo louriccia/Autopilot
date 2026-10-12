@@ -18,8 +18,6 @@ const characters = require('../data/swgr/characters.json')
 const characterEmojiByName = Object.fromEntries(characters.map(c => [c.name, c.emoji]))
 const styles = require('../data/swgr/styles.json')
 const { keywords: partKeywords, parts } = require('../data/swgr/parts.json')
-// Hand-maintained (not generated): staff times from the community leaderboard sheet, by arcade event id
-const { _source, ...staffTimes } = require('../data/community/staff-times.json')
 
 const byId = list => Object.fromEntries(list.map(item => [item.id, item]))
 const planetById = byId(planets)
@@ -121,7 +119,6 @@ module.exports = {
     tracksOnPlanet: id => tracks.filter(t => t.planet == id),
     eventsOnTrack: id => events.filter(e => e.track == id),
     eventsInCategory: id => events.filter(e => e.category == id),
-    staffTimes: id => staffTimes[id] ?? [],
     // Scenarios whose schedule can draw this track
     scenariosOnTrack: id => scenarios.filter(sc => sc.schedule.some(d => d.tracks.some(t => t.track == id))),
     search,

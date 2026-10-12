@@ -1,9 +1,14 @@
 // What each feed has already posted, kept across restarts: in the database at feeds/<name> when Firebase is
 // configured (so a bot running elsewhere picks up where this one left off), otherwise in data/state/feeds.json
 // (git-ignored). load() before the feeds start; save(name) after a feed's check.
+// A testing copy keeps its own record (feeds-testing/), so what it posts to the test channel doesn't count as
+// posted for the live bot.
 const fs = require('node:fs')
 const path = require('node:path')
 const { database } = require('../firebase.js')
+const { testing } = require('../../config.js')
+
+const ROOT = testing ? 'feeds-testing' : 'feeds'
 
 const FILE = path.join(__dirname, '../../data/state/feeds.json')
 let all = {}
@@ -18,7 +23,7 @@ exports.load = async () => {
     try {
         // A database that doesn't answer (not created yet, offline) shouldn't hold the feeds up forever
         const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('no answer in 10s')), 10000))
-        all = (await Promise.race([database.ref('feeds').get(), timeout])).val() ?? local
+        all = (await Promise.race([database.ref(ROOT).get(), timeout])).val() ?? local
     } catch (error) {
         console.log(`[feeds] database unavailable (${error.message}); using data/state/feeds.json`)
         useFile = true
@@ -28,7 +33,7 @@ exports.load = async () => {
 exports.get = name => (all[name] ??= {})
 
 exports.save = async name => {
-    if (!useFile) return database.ref(`feeds/${name}`).set(all[name] ?? null)
+    if (!useFile) return database.ref(`${ROOT}/${name}`).set(all[name] ?? null)
     fs.mkdirSync(path.dirname(FILE), { recursive: true })
     fs.writeFileSync(FILE, JSON.stringify(all, null, 2) + '\n')
 }

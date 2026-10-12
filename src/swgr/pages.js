@@ -7,6 +7,7 @@ const {
 } = require('discord.js')
 const data = require('./data.js')
 const records = require('../records.js')
+const viewer = require('../viewer.js')
 const emoji = require('../data/discord/emoji.js')
 
 const ROOT = path.join(__dirname, '../..')
@@ -78,12 +79,22 @@ const textLength = container => {
     return n
 }
 // Community times (src/records.js): one line per person's best, the time linked to its proof when there is one
-const timeLine = (t, rank) => `${rank ? `${rank}. ` : ''}**${t.proof ? `[${formatTime(t.time)}](<${t.proof}>)` : formatTime(t.time)}** <@${t.user}>${t.platform ? ` / ${t.platform}` : ''}`
+const boardTime = s => `**\`${formatTime(s)}\`**`
+const place = rank => rank <= 10 ? emoji.named(`place_${rank}`) : `**#${rank}**`
+// A time's platform as the game's logo (platform_PC / _PS5 / _Xbox); anything else in words
+const platformMark = p => !p ? '' : records.PLATFORMS.includes(p) ? ` ${emoji.named(`platform_${p}`)}` : ` / ${p}`
+const timeLine = (t, rank) => `${place(rank)} ${t.proof ? `[${boardTime(t.time)}](<${t.proof}>)` : boardTime(t.time)} <@${t.user}>${platformMark(t.platform)}`
+// A board's community times as shown: the top 5, plus whoever is looking (src/viewer.js) if they're further down
+const shownTimes = (kind, target) => {
+    const board = records.leaderboard(kind, target).map((t, i) => ({ ...t, rank: i + 1 }))
+    const me = viewer.id()
+    return board.filter(t => t.rank <= 5 || t.user == me)
+}
 // Submit a time, then rate the event / scenario with the three thumbs (counts on the buttons)
 function recordButtons(kind, target) {
     const counts = records.feedbackCounts(kind, target)
     return new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`time_open_${kind}_${target}`).setLabel('Submit time').setEmoji('⏱️').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId(`time_open_${kind}_${target}`).setLabel('Submit time').setEmoji(emoji.named('stopwatch')).setStyle(ButtonStyle.Primary),
         ...[['up', emoji.thumbsUp], ['neutral', emoji.thumbsNeutral], ['down', emoji.thumbsDown]].map(([r, e]) =>
             new ButtonBuilder().setCustomId(`rate_${kind}_${target}_${r}`).setLabel(String(counts[r])).setEmoji(emoji.component(e)).setStyle(ButtonStyle.Secondary)))
 }
@@ -172,16 +183,14 @@ const when = n => n == 0 ? 'from the start' : `after ${n} event${n == 1 ? '' : '
 // An event's lap setting: "2" -> "(2 laps)"; "unlimited" (takedown events run on time) -> nothing
 const eventLaps = l => /^\d+$/.test(l) ? `(${laps(+l)})` : ''
 
-// Discord strips leading spaces, so indents are em spaces (U+2003), which it keeps
+// Discord strips leading spaces, so spacing uses em spaces (U+2003), which it keeps
 const INDENT = '\u2003\u2003'
-const indented = lines => lines.map(l => `-# ${INDENT}${l}`)
 
 function trackSelect(tracks, current) {
     return select('track', 'Pick a track',
         tracks.map(t => ({ label: t.name, value: t.id, description: `${t.format} · ${t.vehicles}`, emoji: emoji.planet[t.planet] })), current)
 }
 
-const eventLine = e => `${cls(e.vehicleClass)} **${e.name}** — ${emoji.planet[e.planet]} ${data.track(e.track).name} · ${e.vehicle} · ${emoji.medal.gold} ${e.medals.gold.time}`
 
 // --- arcade ---
 
@@ -203,25 +212,52 @@ function arcadeCategory(categoryId) {
     const events = data.eventsInCategory(categoryId)
     const files = new Files()
     const container = new ContainerBuilder().setAccentColor(DEFAULT_COLOR)
-    header(container, [crumbs('Arcade'), `## ${category.name}`, `${events.length} events`], files.add(category.icon))
+    header(container, [
+        crumbs('Arcade'),
+        `## ${categoryEmoji(category)} ${category.name}`,
+        `Total time across all ${events.length} events, for everyone with a time on each of them.`,
+    ], files.add(category.icon))
+
+    // The cumulative leaderboard: summed medal times, then each racer's summed bests (top 5 and the viewer), fastest
+    // first; someone still missing events sees how many they have
+    const { ranked, done } = records.cumulative('arcade', events.map(e => e.id))
+    const me = viewer.id()
+    const board = [
+        ...['gold', 'silver', 'bronze'].map(m => {
+            const seconds = events.reduce((n, e) => n + e.medals[m].seconds, 0)
+            return { seconds, line: `${emoji.medal[m]} ${boardTime(seconds)} ${m[0].toUpperCase() + m.slice(1)} medals` }
+        }),
+        ...ranked.filter(t => t.rank <= 5 || t.user == me).map(t => ({ seconds: t.time, line: timeLine(t, t.rank) })),
+    ].sort((a, b) => a.seconds - b.seconds)
     container.addSeparatorComponents(separator())
-    container.addTextDisplayComponents(text(events.map(eventLine).join('\n')))
+    container.addTextDisplayComponents(text([
+        ...board.map(b => b.line),
+        !ranked.length && '-# No one has a time on every event yet.',
+        me && done[me] != null && done[me] < events.length && `-# You have times on ${done[me]} of ${events.length} events.`,
+    ].filter(Boolean).join('\n')))
     return page(container, files, [categorySelect(categoryId), eventSelect(events)])
 }
 
 // A build section (arcade events and scenarios): vehicle and speed as a heading, the six upgrade stats as bare bars
 // (icon + segments), max energy, abilities, with the class's animation on the right; then the parts.
 function addBuild(container, files, b, title) {
+    // Stats in two columns, in the game's order down each: Cornering / Afterburner / Resilience, then Ramjet /
+    // Battery / Advanced. As small text (-#), which shrinks the emojis, so both columns fit beside the thumbnail on
+    // a phone; one en space between them.
+    const stat = s => `${emoji.named(s.emoji)}${segments(s.level)}`
+    const half = Math.ceil(b.build.length / 2)
     const lines = [
         `## ${cls(b.vehicleClass)} ${title} · ${emoji.named(b.speed.emoji)} ${b.speed.value}`,
-        ...b.build.map(s => `${emoji.named(s.emoji)} ${segments(s.level)}`),
+        ...b.build.slice(0, half).map((s, i) => `-# ${[stat(s), b.build[half + i] && stat(b.build[half + i])].filter(Boolean).join(' ')}`),
         `*Max Energy* ${'●'.repeat(b.maxEnergy)}${'○'.repeat(Math.max(0, MAX_ENERGY - b.maxEnergy))}`,
     ]
-    if (b.abilities.length) lines.push(b.abilities.map(a => `${emoji.named(a.emoji)} ${a.name}`).join('   '))
     header(container, lines, files.add(data.vehicleClass(b.vehicleClass)?.gif))
-    if (b.parts.length) {
-        container.addTextDisplayComponents(text(b.parts.map(p => `${emoji.named(p.emoji)} **${p.name}**: ${partText(p)}`).join('\n')))
-    }
+    // The build's parts and abilities, looked up from one menu right under it
+    const options = [
+        ...b.parts.map(x => data.partByName(x.name)).filter(Boolean).map(p => ({ label: p.name, value: `part:${p.id}`, description: p.description.slice(0, 100), emoji: emoji.named(p.emoji) })),
+        ...abilitiesOf(b).map(a => ({ label: a.name, value: `ability:${a.id}`, description: a.description.slice(0, 100), emoji: emoji.named(a.emoji) })),
+    ]
+    if (options.length) container.addActionRowComponents(select('goto', 'View parts and abilities', options))
 }
 
 function arcadeEvent(eventId) {
@@ -238,30 +274,30 @@ function arcadeEvent(eventId) {
         `${MODE_EMOJI[e.mode] ?? ''} **${e.mode}**`.trim(),
         `# ${e.name}`,
         e.description && `*${e.description}*`,
-        [`${emoji.planet[planet.id]} **${track.name}**`, e.direction == 'Reverse' ? emoji.named('reverse') : e.direction == 'Forward' ? null : e.direction, track.format != 'Point-to-point' && laps(e.laps), e.condition, ...e.notes].filter(Boolean).join(' / '),
-        unlockLine(e.unlock),
     ], files.add(e.tile))
+    // Where it runs: the track's name on a button to its card (with its planet's emoji), the rest of the line beside it
+    container.addSectionComponents(new SectionBuilder()
+        .addTextDisplayComponents(text([e.direction == 'Reverse' ? emoji.named('reverse') : e.direction == 'Forward' ? null : e.direction, track.format != 'Point-to-point' && laps(e.laps), e.condition, ...e.notes].filter(Boolean).join(' / ') || '​'))
+        .setButtonAccessory(new ButtonBuilder().setCustomId(`track_${track.id}`).setLabel(track.name.slice(0, 80)).setEmoji(emoji.component(emoji.planet[planet.id])).setStyle(ButtonStyle.Secondary)))
+    if (e.unlock) container.addTextDisplayComponents(text(unlockLine(e.unlock)))
 
     container.addSeparatorComponents(separator())
     addBuild(container, files, e, e.vehicle)
 
-    // Leaderboard: the medal rivals plus any staff times (Fuse's logo, or the publisher's), fastest first
+    // Leaderboard, fastest first: the medal rivals, staff times (Fuse's logo, or the publisher's), the community's
+    // top 5 and the viewer's own best
     container.addSeparatorComponents(separator())
-    const community = records.leaderboard('arcade', e.id).slice(0, 10)
     const board = [
-        ...Object.entries(e.medals).map(([m, x]) => ({ seconds: x.seconds, line: `${emoji.medal[m]} **${x.time}** ${x.rival}` })),
-        ...data.staffTimes(e.id).map(s => ({ seconds: s.seconds, line: `${emoji.named(s.from == 'publisher' ? 'publisher' : 'staff')} **${formatTime(s.seconds)}** ${s.name}` })),
-        ...community.map((t, i) => ({ seconds: t.time, line: timeLine(t, i + 1) })),
+        ...Object.entries(e.medals).map(([m, x]) => ({ seconds: x.seconds, line: `${emoji.medal[m]} ${boardTime(x.seconds)} ${x.rival}` })),
+        ...records.staffTimes(e.id).map(s => ({ seconds: s.seconds, line: `${emoji.named(s.from == 'publisher' ? 'publisher' : 'staff')} ${boardTime(s.seconds)} ${s.name}` })),
+        ...shownTimes('arcade', e.id).map(t => ({ seconds: t.time, line: timeLine(t, t.rank) })),
     ].sort((a, b) => a.seconds - b.seconds)
     container.addTextDisplayComponents(text(board.map(b => b.line).join('\n')))
-    container.addActionRowComponents(recordButtons('arcade', e.id))
 
     return page(container, files, [
         categorySelect(e.category),
         eventSelect(data.eventsInCategory(e.category), e.id),
-        ...(e.parts.length ? [partSelect(e.parts.map(x => data.partByName(x.name)).filter(Boolean))] : []),
-        ...(abilitiesOf(e).length ? [abilitySelect(abilitiesOf(e))] : []),
-        buttons([`track_${track.id}`, track.name], [`planet_${planet.id}`, planet.name, emoji.planet[planet.id]]),
+        recordButtons('arcade', e.id),
     ])
 }
 
@@ -338,7 +374,8 @@ function scenarioSelect(current) {
 // "Days 1–4", "Day 5"
 const dayLabel = d => d.length > 1 && d[d.length - 1] - d[0] == d.length - 1 ? `Days ${d[0]}–${d[d.length - 1]}` : `Day${d.length > 1 ? 's' : ''} ${d.join(', ')}`
 
-// A pool track: its name, then any variants beyond plain Forward ("+ [reverse]" when Forward is in the pool too)
+// A pool track: its name, then any variants beyond plain Forward ("+ [reverse]" when Forward is in the pool too),
+// its conditions and (for races on loop tracks) laps
 function poolTrack(t, { laps: showLaps = false } = {}) {
     const track = data.track(t.track)
     const others = t.variants.map(v => variantLabel(v)).filter(Boolean)
@@ -354,75 +391,114 @@ function scenarioInfo(scenarioId) {
     const files = new Files()
     const container = new ContainerBuilder().setAccentColor(PLANET_COLORS[sc.planet] ?? DEFAULT_COLOR)
 
+    const style = data.styles.find(st => st.name == sc.style.name)
     header(container, [
         crumbs('Scenarios', sc.tier),
         `# ${sc.name}`,
         `*${sc.tagline}*`,
-        [`${emoji.planet[planet.id]} ${planet.name}`, `${emoji.named(sc.style.emoji)} ${sc.style.name}`, sc.difficulty].filter(Boolean).join(' / '),
-        unlockLine(sc.unlock),
+        [`${emoji.planet[planet.id]} ${planet.name}`, sc.difficulty].filter(Boolean).join(' / '),
     ], files.add(sc.tile))
-    container.addTextDisplayComponents(text(sc.details))
+    if (sc.unlock) container.addTextDisplayComponents(text(unlockLine(sc.unlock)))
+    // The details (which describe the racer style), with the style's name on a button to its card beside them
+    if (style) {
+        container.addSectionComponents(new SectionBuilder()
+            .addTextDisplayComponents(text(sc.details))
+            .setButtonAccessory(new ButtonBuilder().setCustomId(`style_${style.id}`).setLabel(style.name.slice(0, 80)).setEmoji(emoji.component(emoji.named(style.emoji))).setStyle(ButtonStyle.Secondary)))
+    } else {
+        container.addTextDisplayComponents(text(sc.details))
+    }
 
     container.addSeparatorComponents(separator())
     addBuild(container, files, sc, sc.vehicleClass)
-    container.addTextDisplayComponents(text(`-# ${[
-        sc.startingPower != null && `Starting power ${sc.startingPower}`,
-        sc.partSlots != null && `${sc.partSlots} part slots`,
-        sc.favorSlots != null && `${sc.favorSlots} favor slots`,
-        sc.leagueTokens != null && `${sc.leagueTokens} league token${sc.leagueTokens == 1 ? '' : 's'}`,
-    ].filter(Boolean).join(' / ')}`))
 
     // The schedule: each run of days with its event and the tracks it can draw
     container.addSeparatorComponents(separator())
     container.addTextDisplayComponents(text(sc.schedule.flatMap(d => [
         [`${emoji.named(d.emoji)} **${dayLabel(d.days)}**`, d.event == 'Race' ? null : d.event, d.mustWin && 'must win'].filter(Boolean).join(' / '),
-        ...indented(d.tracks.map(t => `+ ${poolTrack(t, { laps: !/Eliminator/.test(d.event) })}`)),  // eliminators are timed
+        ...d.tracks.map(t => `-# ${INDENT}+ ${poolTrack(t, { laps: !/Eliminator/.test(d.event) })}`),  // eliminators are timed
     ]).join('\n')))
 
-    const style = data.styles.find(st => st.name == sc.style.name)
-    if (style) {
-        container.addSeparatorComponents(separator())
-        container.addTextDisplayComponents(text([
-            `### ${emoji.named(style.emoji)} ${style.name}`,
-            `*${style.description}*`,
-            ...style.ranks.flatMap(r => r.traits).map(t => `-# **${t.name}**: ${emojify(t.description)}`),  // no trait icons: the card is near the text limit
-        ].join('\n')))
-    }
-
-    // Parts its rewards can offer, counted by rarity (the menus list them)
-    const offers = ['Common', 'Rare', 'Epic', 'Legendary'].map(r => [r, sc.offers.filter(o => o.rarity == r)]).filter(([, list]) => list.length)
-    container.addSeparatorComponents(separator())
-    container.addTextDisplayComponents(text([
-        '### Rewards',
-        sc.winMessage && `-# Win: ${sc.winMessage}`,
-        sc.repeatRewards && `-# Each win after the first: ${sc.repeatRewards}`,
-        offers.length && `-# Parts it can offer: ${offers.map(([r, list]) => `${list.length} ${r}`).join(' / ')} (in the menus below)`,
-    ].filter(Boolean).join('\n')))
-
-    // Community times: the best runs that fit under Discord's text limit
-    const best = records.leaderboard('scenario', sc.id)
+    // Community times: the top 5 and the viewer's own best, as many as fit under Discord's text limit
     const used = textLength(container)
     const lines = []
-    for (const [i, t] of best.slice(0, 5).entries()) {
-        if (used + 30 + [...lines, timeLine(t, i + 1)].join('\n').length > TEXT_LIMIT) break  // 30: the heading
-        lines.push(timeLine(t, i + 1))
+    for (const t of shownTimes('scenario', sc.id)) {
+        if (used + 30 + [...lines, timeLine(t, t.rank)].join('\n').length > TEXT_LIMIT) break  // 30: the heading
+        lines.push(timeLine(t, t.rank))
     }
     container.addSeparatorComponents(separator())
     container.addTextDisplayComponents(text(['### Times', ...(lines.length ? lines : ['-# No times yet. Be the first to submit one!'])].join('\n')))
-    container.addActionRowComponents(recordButtons('scenario', sc.id))
 
-    const poolTracks = [...new Set(sc.schedule.flatMap(d => d.tracks.map(t => t.track)))].map(data.track)
-    const offered = sc.offers.map(o => data.partByName(o.name)).filter(Boolean)
     return page(container, files, [
         scenarioSelect(sc.id),
-        trackSelect(poolTracks),
-        ...(sc.parts.length ? [partSelect(sc.parts.map(x => data.partByName(x.name)).filter(Boolean))] : []),
-        ...(abilitiesOf(sc).length ? [abilitySelect(abilitiesOf(sc))] : []),
-        // offered parts, 25 to a menu (part_pick_<mask>_<n>: the n only keeps the two menus' ids apart)
-        ...[0, 25].filter(i => offered.length > i).map(i => select(`part_pick_0_${i}`, `Parts it can offer${offered.length > 25 ? ` (${i + 1}–${Math.min(i + 25, offered.length)})` : ''}`,
-            offered.slice(i, i + 25).map(p => ({ label: p.name, value: p.id, description: p.description.slice(0, 100), emoji: emoji.named(p.emoji) })))),
-        ...(style ? [buttons([`style_${style.id}`, style.name, emoji.named(style.emoji)])] : []),
+        recordButtons('scenario', sc.id),
     ])
+}
+
+// --- timesheets ---
+
+// A racer's arcade results: per event their best time, its place on the board and the best medal it beats
+function arcadeResults(userId) {
+    return Object.fromEntries(data.events.map(e => {
+        const rank = records.leaderboard('arcade', e.id).findIndex(t => t.user == userId) + 1
+        if (!rank) return [e.id, null]
+        const time = records.leaderboard('arcade', e.id)[rank - 1].time
+        return [e.id, { time, rank, medal: ['gold', 'silver', 'bronze'].find(m => time <= e.medals[m].seconds) ?? null }]
+    }))
+}
+
+// Medal counts as "[gold] 12 / [silver] 3 / [bronze] 1" (zeros left out)
+const medalCounts = results => ['gold', 'silver', 'bronze'].map(m => [m, results.filter(r => r.medal == m).length])
+    .filter(([, n]) => n).map(([m, n]) => `${emoji.medal[m]} ${n}`).join(' / ')
+
+// A racer's arcade timesheet. The overview gives their totals (medals, placements, events with a time); each category's
+// stats are in the menu, and picking one lists its events with their time, place and medal.
+// racer: { id, name, avatar }
+function arcadeTimesheet(racer, categoryId) {
+    const results = arcadeResults(racer.id)
+    const container = new ContainerBuilder().setAccentColor(DEFAULT_COLOR)
+    const category = categoryId && data.category(categoryId)
+    const timedIn = events => events.map(e => results[e.id]).filter(Boolean)  // their results on those events
+
+    if (!category) {
+        const timed = timedIn(data.events)
+        const places = [1, 2, 3].map(n => [n, timed.filter(r => r.rank == n).length]).filter(([, c]) => c)
+        const topTen = timed.filter(r => r.rank > 3 && r.rank <= 10).length
+        header(container, [
+            crumbs('Arcade', 'Timesheet'),
+            `# ${racer.name}`,
+            `Times on ${timed.length} of ${data.events.length} events`,
+            timed.length && `**Medals** ${medalCounts(timed) || 'none yet'}`,
+            (places.length || topTen) && `**Placements** ${[...places.map(([n, c]) => `${place(n)} ${c}`), topTen && `${topTen} more in the top 10`].filter(Boolean).join(' / ')}`,
+        ], racer.avatar)
+        if (!timed.length) container.addTextDisplayComponents(text('-# No arcade times yet. Submit one from any arcade event card, or with /submit.'))
+    } else {
+        const events = data.eventsInCategory(category.id)
+        const timed = timedIn(events)
+        const { ranked } = records.cumulative('arcade', events.map(e => e.id))
+        const total = ranked.find(t => t.user == racer.id)
+        header(container, [
+            crumbs('Arcade', 'Timesheet', racer.name),
+            `## ${categoryEmoji(category)} ${category.name}`,
+            [`${timed.length} of ${events.length} events`, medalCounts(timed), total && `Total ${boardTime(total.time)} ${place(total.rank)}`].filter(Boolean).join(' / '),
+        ], racer.avatar)
+        container.addSeparatorComponents(separator())
+        container.addTextDisplayComponents(text(events.map(e => {
+            const r = results[e.id]
+            return r ? `${place(r.rank)} ${boardTime(r.time)} **${e.name}**${r.medal ? ` ${emoji.medal[r.medal]}` : ''}` : `-# ${e.name}: no time yet`
+        }).join('\n')))
+    }
+
+    // Categories, with the racer's stats on each in the description
+    const options = [
+        { label: 'Overview', value: 'all', description: `${timedIn(data.events).length} of ${data.events.length} events`, emoji: emoji.named('stopwatch') },
+        ...data.categories.map(c => {
+            const events = data.eventsInCategory(c.id)
+            const timed = timedIn(events)
+            const medals = ['gold', 'silver', 'bronze'].map(m => [m, timed.filter(r => r.medal == m).length]).filter(([, n]) => n).map(([m, n]) => `${n} ${m}`)
+            return { label: c.name, value: c.id, description: [`${timed.length} of ${events.length} events`, ...medals].join(' / ').slice(0, 100), emoji: categoryEmoji(c) }
+        }),
+    ]
+    return page(container, new Files(), [select(`timesheet_${racer.id}`, 'Pick a category', options, category?.id ?? 'all')])
 }
 
 // --- racer styles ---
@@ -1260,4 +1336,4 @@ function patternInfo(patternId) {
     return page(container, files, [patternClassSelect(c.id), patternSelect(p.class, p.id)])
 }
 
-module.exports = { liveriesOverview, paletteGroupInfo, paletteInfo, patternClassInfo, patternInfo, taleInfo, talesOverview, backerInfo, backersOverview, statusInfo, statusesOverview, mysteryInfo, mysteriesOverview, rivalInfo, rivalsOverview, favorInfo, favorsOverview, vehicleInfo, vehicleClassInfo, vehiclesOverview, abilityInfo, abilitiesOverview, arcadeOverview, arcadeCategory, arcadeEvent, trackInfo, planetInfo, scenarioInfo, styleInfo, partInfo, parseKeywordMask }
+module.exports = { arcadeTimesheet, liveriesOverview, paletteGroupInfo, paletteInfo, patternClassInfo, patternInfo, taleInfo, talesOverview, backerInfo, backersOverview, statusInfo, statusesOverview, mysteryInfo, mysteriesOverview, rivalInfo, rivalsOverview, favorInfo, favorsOverview, vehicleInfo, vehicleClassInfo, vehiclesOverview, abilityInfo, abilitiesOverview, arcadeOverview, arcadeCategory, arcadeEvent, trackInfo, planetInfo, scenarioInfo, styleInfo, partInfo, parseKeywordMask }

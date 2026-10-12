@@ -28,7 +28,7 @@ The reference pages link to each other through select menus and buttons. Whoever
 
 ## Times and feedback
 
-Arcade event and scenario cards have a **⏱️ Submit time** button (time, platform, optional proof link and notes) and three thumbs buttons for feedback, which anyone can use without submitting a time. Each person's best time joins the card's leaderboard. Times are linked to Discord accounts, never names. Server managers, and anyone added with **/submitter add**, can submit for someone else. **/times remove** takes a time back: your own, or anyone's if you can submit for others.
+Arcade event and scenario cards have a **⏱️ Submit time** button (time, platform, optional proof link and notes) and three thumbs buttons for feedback, which anyone can use without submitting a time. Each person's best time joins the card's leaderboard. Times are linked to Discord accounts, never names. Server managers, and anyone added with **/submitter add**, can submit for someone else. **/submit &lt;board&gt; &lt;time&gt; [racer] [platform] [proof] [notes]** is the quick way: pick the arcade event or scenario as you type. An exact repeat (same person, board and time) is never saved twice. **/times remove** takes a time back: your own, or anyone's if you can submit for others.
 
 ## Announcements
 

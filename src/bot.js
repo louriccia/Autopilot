@@ -4,6 +4,7 @@ const { testing } = require('../config.js')
 
 const { test_guilds } = require('./data/discord/guild.js')
 const { log_channel } = require('./data/discord/channel.js')
+const viewer = require('./viewer.js')
 const { errorMessage } = require('./data/flavor/error.js')
 
 const fs = require('fs');
@@ -81,7 +82,7 @@ client.on(Events.InteractionCreate, async interaction => {
             return;
         }
         try {
-            await command.execute(context);
+            await viewer.run(context.member_id, () => command.execute(context));
         } catch (error) {
             reportError(`Command: ${interaction.commandName}`, error);
             try {
@@ -101,7 +102,7 @@ client.on(Events.InteractionCreate, async interaction => {
             return
         }
         try {
-            await button.execute({ ...context, args });
+            await viewer.run(context.member_id, () => button.execute({ ...context, args }));
         } catch (error) {
             reportError(`Button: ${name}`, error);
         }

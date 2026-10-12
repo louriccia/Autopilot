@@ -15,6 +15,7 @@ import argparse
 import csv
 import json
 import math
+import os
 import re
 from pathlib import Path
 
@@ -289,6 +290,31 @@ def input_glyphs(emojis, textures):
     return glyph
 
 
+
+# Leaderboard placements 1-10 (place_1 ... place_10): the game has no numeral icons, so these are drawn like its
+# keyword icons: the numeral in the game's UI font, Moki (FontFace_Moki-Base; needs Moki-Base.otf installed, else
+# Bahnschrift), with the same worn speckle knocked out of it (the UI's distress texture). 1st-3rd are tinted gold,
+# silver, bronze.
+MOKI = Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "Windows" / "Fonts" / "Moki-Base.otf"
+PLACE_TINTS = {1: (226, 183, 72), 2: (196, 202, 212), 3: (196, 128, 74)}
+
+
+def placements(emojis, textures):
+    common = textures / "Griffin" / "Content" / "Griffin" / "UI" / "Library" / "Textures" / "Common"
+    wear = Image.open(common / "T_UI_Distress_Button_Cmn.png").convert("RGBA").getchannel("G").resize((128, 128), Image.LANCZOS)
+    specks = wear.point(lambda v: 255 if v > 205 else 0)
+    for n in range(1, 11):
+        if MOKI.exists():
+            font = ImageFont.truetype(str(MOKI), 100 if n < 10 else 76)
+        else:
+            font = ImageFont.truetype(str(GLYPH_FONT), 104 if n < 10 else 92)
+            font.set_variation_by_name("Bold Condensed" if n >= 10 else "Bold")
+        mask = Image.new("L", (128, 128), 0)
+        ImageDraw.Draw(mask).text((64, 68), str(n), font=font, fill=255, anchor="mm")
+        im = Image.new("RGBA", (128, 128), PLACE_TINTS.get(n, (236, 236, 236)) + (255,))
+        im.putalpha(ImageChops.subtract(mask, specks))
+        emojis.add_image(f"place_{n}", im)
+
 def save_flipbook_gif(datamine, name, dest, *, height):
     """One of the datamine's flipbook animations (tools/make_flipbook_gifs.py), rebuilt smaller.
 
@@ -377,9 +403,15 @@ def main():
     stat_segments(emojis, args.textures)
     rarity_pips(emojis, args.textures)
     input_glyph = input_glyphs(emojis, args.textures)
+    placements(emojis, args.textures)
+    # Platform logos for submitted times (the game's own white set; records.PLATFORMS names them PC / PS5 / Xbox)
+    platform_icons = args.textures / "Griffin" / "Content" / "Griffin" / "UI" / "Library" / "Textures" / "Platform"
+    for name, file in [("PC", "PC"), ("PS5", "Playstation"), ("Xbox", "XBox")]:
+        emojis.add_file(f"platform_{name}", platform_icons / f"T_UI_Platform_{file}.png")
     speed_emoji = emojis.add("stat_Speed", ui_icons / "BuildStats" / "T_UI_BuildStats_Speed_Icn.png")
     emojis.add("lock", ui_icons / "T_UI_Lock_Icn.png")
     emojis.add("reverse", ui_icons / "T_UI_Reverse_Icn.png")
+    emojis.add("stopwatch", ui_icons / "T_UI_LapFastest_Icn.png")  # the Submit time button
     # Inline-icon widget ids that don't match a keyword icon's file name, but have an icon elsewhere in the game
     # Critical Malfunction has no icon of its own: the game shows System Malfunction's
     KEYWORD_ALIASES = {"Surging": "Surge", "Ability": "Abilities", "SysMalfunction": "SystemMalfunction", "CritMalfunction": "SystemMalfunction",
