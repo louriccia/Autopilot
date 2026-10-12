@@ -4,6 +4,7 @@
 //
 // Layout (top-level paths):
 //   feeds/<feed name>   what each announcement feed has already posted (src/feeds/state.js)
+//   streamers/<twitch user id>   recognized streamers { login, name, addedBy, addedAt } (/streamer, src/feeds/twitch.js)
 const { initializeApp, cert } = require('firebase-admin/app')
 const { getDatabase } = require('firebase-admin/database')
 
