@@ -13,6 +13,9 @@ const statuses = require('../data/swgr/statuses.json')
 const sponsors = require('../data/swgr/sponsors.json')
 const tales = require('../data/swgr/tales.json')
 const { palettes, patterns, patinas } = require('../data/swgr/liveries.json')
+const characters = require('../data/swgr/characters.json')
+// A character's emoji: their headshot (the racers) or hologram portrait (everyone else)
+const characterEmojiByName = Object.fromEntries(characters.map(c => [c.name, c.emoji]))
 const styles = require('../data/swgr/styles.json')
 const { keywords: partKeywords, parts } = require('../data/swgr/parts.json')
 // Hand-maintained (not generated): staff times from the community leaderboard sheet, by arcade event id
@@ -74,6 +77,7 @@ module.exports = {
     statuses,
     sponsors,
     tales,
+    characters,
     palettes,
     patterns,
     patinas,
@@ -92,6 +96,8 @@ module.exports = {
     status: id => statusById[id],
     sponsor: id => sponsorById[id],
     tale: id => taleById[id],
+    // "Soren Zaks & Ary Quill" -> Soren's; "Q-33N (Broker backer)" -> Q-33N's
+    characterEmoji: name => { const n = (name ?? '').split(/ & | \(/)[0].trim(); return characterEmojiByName[name] ?? characterEmojiByName[n] ?? null },
     palette: id => paletteById[id],
     pattern: id => patternById[id],
     palettesIn: group => palettes.filter(p => p.group == group),

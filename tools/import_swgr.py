@@ -140,6 +140,17 @@ class Emojis:
             self.save(name, im)
         return name
 
+    def add_file(self, name, src):
+        """The texture as the game has it, byte for byte (no resizing or cropping): for art already emoji-sized."""
+        if not src or not src.exists():
+            return None
+        name = re.sub(r"[^A-Za-z0-9_]", "", name)[:32]
+        self.by_name[name] = src
+        dest = ART_OUT / "emoji" / f"{name}.png"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(src.read_bytes())
+        return name
+
     def add_image(self, name, im):
         self.by_name[name] = name
         self.save(name, im)
@@ -1699,6 +1710,43 @@ def main():
                 yield from walk((o["followUp"] or {}).get("outcomes", []))
         m["favors"] = sorted({o["favor"] for p in m["parts"] for c in p["choices"] for o in walk(c["outcomes"]) if o["favor"]})
 
+    # --- character headshots ---
+    # Each racer's MainIcon (RacerDef, Narrative/CharacterDefs/Racers): a 256px transparent headshot, uploaded unedited
+    # as char_<name>. Sebulba's own def points at his favor patch, so he gets his present-day podracer portrait
+    # (NesodonAged); the "Aged" pilots, the boss-race copy and the test pilot are left out.
+    racer_defs = game / "Narrative" / "CharacterDefs" / "Racers"
+    HEADSHOT_OF = {"Mentor": "NesodonAged"}
+    characters_out = []
+    for path in sorted(racer_defs.glob("*.json")):
+        persona = re.sub(r"^DA_(Plane)?Racer_", "", path.stem)
+        if persona.endswith("Aged") or persona in ("MentorBossRace", "TestPilot", "Nesodon"):
+            continue
+        source = next(racer_defs.glob(f"*_{HEADSHOT_OF.get(persona, persona)}.json"))
+        props = next((o.get("Properties") or {} for o in load_json(source) if (o.get("Properties") or {}).get("MainIcon")), {})
+        icon = texture(args.textures, (props.get("MainIcon") or {}).get("AssetPathName"))
+        name = names_by_persona.get(persona, persona)
+        characters_out.append({"name": name, "persona": persona, "emoji": emojis.add_file(f"char_{camel(name)}", icon)})
+    # The rest of the cast talk to the player as holograms: the first frame of each one's hologram flipbook (the
+    # datamine's holo_<who>), centred on a transparent square, unscaled. Ori & Per have no portrait at all, so theirs
+    # (tools/art/ori-and-per.png) is a render of their model (Characters/Kale) with the datamine's Blender importer:
+    # front view, orthographic, transparent background, cropped square to both heads.
+    import sys
+    sys.path.insert(0, str(args.datamine / "tools"))
+    import make_flipbook_gifs as fb
+    for persona, who in (("Mechanic", "hibi"), ("Promoter", "darius_pax"), ("Sponsor01", "q33n"),
+                         ("Sponsor02", "vranki"), ("Sponsor03", "sidon_ithano")):
+        sheet = next((x for x in fb.SHEETS if x[0] == f"holo_{who}"), None)
+        if not sheet or not Path(sheet[1]).exists():
+            continue
+        frame = next(iter(fb.frames_of(sheet[1], sheet[2], sheet[3], sheet[4], sheet[6])))
+        square = Image.new("RGBA", (max(frame.size),) * 2)
+        square.alpha_composite(frame, ((square.width - frame.width) // 2, (square.height - frame.height) // 2))
+        name = names_by_persona.get(persona, persona)
+        characters_out.append({"name": name, "persona": persona, "emoji": emojis.add_image(f"char_{camel(name)}", square)})
+    characters_out.append({"name": "Ori & Per", "persona": "ExoticVendor",
+                           "emoji": emojis.add_file("char_OriPer", ROOT / "tools" / "art" / "ori-and-per.png")})
+    characters_out.sort(key=lambda c: c["name"].lower())
+
     for name, data in [("planets", planets), ("tracks", tracks),
                        ("arcade", {"categories": categories, "vehicleClasses": vehicle_classes, "events": arcade}),
                        ("scenarios", scenarios_out), ("styles", styles_out), ("parts", {"keywords": keywords_out, "parts": parts_out}),
@@ -1707,7 +1755,8 @@ def main():
                        ("favors", favors_out), ("rivals", rivals_out),
                        ("mysteries", mysteries_out), ("statuses", statuses_out),
                        ("sponsors", sponsors_out), ("tales", tales_out),
-                       ("liveries", {"palettes": palettes_out, "patterns": patterns_out, "patinas": patinas_out})]:
+                       ("liveries", {"palettes": palettes_out, "patterns": patterns_out, "patinas": patinas_out}),
+                       ("characters", characters_out)]:
         (DATA_OUT / f"{name}.json").write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     missing = [f"{e['name']} ({k})" for e in arcade for k in ("tile",) if not e[k]]

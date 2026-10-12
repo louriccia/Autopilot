@@ -9,7 +9,8 @@ const { errorMessage } = require('./data/flavor/error.js')
 const fs = require('fs');
 const { Client, Events, GatewayIntentBits, Collection, MessageFlags } = require('discord.js')
 const client = new Client({
-    intents: [GatewayIntentBits.Guilds],
+    // GuildMembers (privileged: Server Members Intent in the Developer Portal) is for join messages
+    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
 });
 
 //add commands to client
@@ -110,6 +111,12 @@ client.on(Events.InteractionCreate, async interaction => {
 client.once(Events.ClientReady, () => {
     console.log(`Ready! Logged in as ${client.user.tag}${testing ? ' (testing)' : ''}`)
     require('./feeds/index.js').start(client, reportError).catch(error => reportError('Feeds', error))
+})
+
+// Join messages (src/welcome.js)
+client.on(Events.GuildMemberAdd, member => {
+    if (!switchGuard(member.guild.id)) return
+    require('./welcome.js').welcome(member).catch(error => reportError('Welcome', error))
 })
 
 // Global error handling — prevent crashes and report to the log channel when live

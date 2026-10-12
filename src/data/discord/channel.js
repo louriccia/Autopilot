@@ -1,5 +1,7 @@
 module.exports = {
     log_channel: process.env.LOG_CHANNEL_ID,
+    // Join messages (src/welcome.js)
+    welcome_channel: process.env.WELCOME_CHANNEL_ID,
     // Where testing copies post everything the feeds produce
     test_channel: process.env.TEST_CHANNEL_ID,
     // Feed announcements (src/feeds): patches = Steam builds and announcements, videos = YouTube uploads, streams = Twitch

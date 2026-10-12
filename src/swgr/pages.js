@@ -394,6 +394,7 @@ function scenarioInfo(scenarioId) {
 // --- racer styles ---
 
 // Imported text marks the game's inline keyword icons as {emoji:name}
+const face = name => emoji.named(data.characterEmoji(name))
 const emojify = s => (s ?? '').replace(/\{emoji:(\w+)\}/g, (_, name) => emoji.named(name))
 
 function styleSelect(current) {
@@ -780,7 +781,7 @@ function vehicleInfo(vehicleId) {
     if (racers.length || events.length) {
         container.addSeparatorComponents(separator())
         container.addTextDisplayComponents(text([
-            ...(racers.length ? ['### Raced by', `-# ${racers.join(' / ')}`] : []),
+            ...(racers.length ? ['### Raced by', `-# ${racers.map(r => `${face(r)} ${r}`).join(' / ')}`] : []),
             ...(events.length ? ['### Arcade', ...events.map(e => `-# ${emoji.planet[e.planet]} **${e.name}** / ${data.track(e.track).name}`)] : []),
         ].join('\n')))
     }
@@ -807,7 +808,7 @@ function favorsOverview() {
     const container = new ContainerBuilder().setAccentColor(DEFAULT_COLOR)
     header(container, [crumbs('Favors'), '# Favors', `${data.favors.length} favors, each with three ranks. Equip them before a tour; a rank unlocks by completing planets with the one before it equipped.`])
     container.addSeparatorComponents(separator())
-    container.addTextDisplayComponents(text(data.favors.map(f => `${emoji.named(f.emoji)} **${f.name}** / ${f.character}`).join('\n')))
+    container.addTextDisplayComponents(text(data.favors.map(f => `${emoji.named(f.emoji)} **${f.name}** / ${face(f.character)} ${f.character}`).join('\n')))
     return page(container, new Files(), [favorSelect()])
 }
 
@@ -841,7 +842,7 @@ function favorInfo(favorId) {
 
 function rivalSelect(current) {
     return select('rival', 'Pick a rival', data.rivals.map(r => ({
-        label: r.name, value: r.id, emoji: r.favor ? emoji.named(data.favor(r.favor).emoji) : emoji.named(r.livery?.emoji),
+        label: r.name, value: r.id, emoji: face(r.name),
         description: r.champion ? 'Galactic League Champion' : `Favor: ${r.favor ? data.favor(r.favor).name : 'none'}`,
     })), current)
 }
@@ -852,7 +853,7 @@ function rivalsOverview() {
         `${data.rivals.filter(r => !r.champion).length} rivals to challenge to Head-to-Head races over the campaign, and the champion, Kestar Bool.`])
     container.addSeparatorComponents(separator())
     container.addTextDisplayComponents(text(data.rivals.map(r =>
-        `${emoji.named(r.livery?.emoji)} **${r.name}** / ${r.vehicles.map(id => data.vehicle(id)).map(v => `${emoji.vehicle[v.class]} ${v.name}`).join(', ')}`).join('\n')))
+        `${face(r.name)} **${r.name}** / ${r.vehicles.map(id => data.vehicle(id)).map(v => `${emoji.vehicle[v.class]} ${v.name}`).join(', ')}`).join('\n')))
     return page(container, new Files(), [rivalSelect()])
 }
 
@@ -900,7 +901,7 @@ function rivalInfo(rivalId) {
 
 function mysterySelect(current) {
     return select('mystery', 'Pick a mystery encounter', data.mysteries.map(m => ({
-        label: m.title, value: m.id, description: `${m.character} / ${m.parts[0].brief.replace(/\{emoji:\w+\}\s*|\*\*/g, '')}`.slice(0, 100),
+        label: m.title, value: m.id, emoji: face(m.character), description: `${m.character} / ${m.parts[0].brief.replace(/\{emoji:\w+\}\s*|\*\*/g, '')}`.slice(0, 100),
     })), current)
 }
 
@@ -909,7 +910,7 @@ function mysteriesOverview() {
     header(container, [crumbs('Mysteries'), '# Mystery Encounters',
         `${data.mysteries.length} encounters that can turn up on the campaign map. Titles are ours; the game doesn't name them.`])
     container.addSeparatorComponents(separator())
-    container.addTextDisplayComponents(text(data.mysteries.map(m => `**${m.title}** / ${m.character}${m.favors.length ? ` / ${emoji.named('kw_Favor')}` : ''}`).join('\n')))
+    container.addTextDisplayComponents(text(data.mysteries.map(m => `${face(m.character)} **${m.title}** / ${m.character}${m.favors.length ? ` / ${emoji.named('kw_Favor')}` : ''}`).join('\n')))
     return page(container, new Files(), [mysterySelect()])
 }
 
@@ -1116,7 +1117,7 @@ function taleInfo(taleId) {
     container.addSeparatorComponents(separator())
     container.addTextDisplayComponents(text([
         '### To win', ...t.objectives.map(o => `-# ${o}`),
-        '### On the grid', `-# ${t.opponents.map(o => o.vehicle ? `${o.name} (${data.vehicle(o.vehicle).name})` : o.name).join(' / ')}`,
+        '### On the grid', `-# ${t.opponents.map(o => `${face(o.name)} ${o.vehicle ? `${o.name} (${data.vehicle(o.vehicle).name})` : o.name}`).join(' / ')}`,
         ...(t.rewards.length ? ['### Rewards',
             ...won.map(a => `${emoji.named(a.emoji)} **${a.name}**`),
             unlocked.length && `-# Unlocks ${unlocked.map(a => `${emoji.named(a.emoji)} ${a.name}`).join(', ')} in the campaign`,
