@@ -119,7 +119,10 @@ exports.matchScreen = (s, names = []) => {
         return plausible(event, seconds) ? { event, seconds, title: `results screen` } : null
     }
     if (s.screen == 'arcade_event_card' && s.event_name && s.rows.length) {
-        const event = exports.matchTitle(`${s.event_name} 0:00.00`, { anyTime: true })?.event
+        // The medal times identify the event when the card shows them (the model can misread the name, e.g. as the
+        // planet's other event); the name is the fallback
+        const event = MEDALS.get(s.medal_times.map(t => mmss(readTime(t.includes('.') ? t : `${t}.00`) ?? -1)).join(' '))
+            ?? exports.matchTitle(`${s.event_name} 0:00.00`, { anyTime: true })?.event
         const seconds = readTime(rowFor(s.rows, names)?.time)
         return event && plausible(event, seconds) ? { event, seconds, title: `event card` } : null
     }
