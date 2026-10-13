@@ -84,6 +84,10 @@ exports.submit = async ({ kind, target, member, memberId, racer, time: rawTime, 
             if (!duplicate) {
                 earned = await credits.payRun({ timeId, kind, item, user, time, before, after: board, proof, proofHint: proofType, member: racerMember })
                 await credits.payFill({ kind, target, item, before, after: board, user, guild: member?.guild })
+            } else if (updated?.includes('proof')) {
+                // Better proof on a saved run tops its credits up to the new rate
+                const topUp = await credits.upgradeProof(timeId, user, credits.proofType(proof, proofType))
+                if (topUp) earned = { total: topUp, lines: [{ label: `${credits.proofType(proof, proofType)} proof`, amount: topUp }], note: 'better proof' }
             }
             if (!duplicate || updated?.includes('proof')) {
                 won = await credits.claimBounties({ kind, target, user, time, proof, proofHint: proofType, member: racerMember, timeId })

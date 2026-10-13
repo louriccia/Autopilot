@@ -254,25 +254,9 @@ exports.handleMention = async message => {
     const racer = others[0] ?? message.author
     if (racer.id != message.author.id && !records.canSubmitForOthers(message.member)) return reply("You can only submit your own times. Leave out the mention to submit yours.")
 
-    // An event and time written out: "@Autopilot Ramjet Run 1:13.59"
+    // What the run is in: this message, or, when it has nothing of its own, the author's message just before it (sent
+    // within a few seconds): a forward's added message arrives as a separate message right after the forward
     const src = await source(message)
-    const text = message.content.replace(/<@[!&]?\d+>/g, ' ').replace(/https?:\/\/\S+/g, ' ')  // no mentions or links (their digits aren't times)
-    const given = exports.matchClaim(text)
-    if (given) {
-        const video = [...`${message.content} ${src.content}`.matchAll(VIDEO)][0]?.[1]
-        const result = await submit({
-            kind: 'arcade', target: given.event.id, member: message.member, memberId: message.author.id, racer, trusted: true,
-            time: formatTime(given.seconds), proof: video ? `https://youtu.be/${video}` : message.url, date: src.posted,
-            // a typed claim's proof is the message: a screenshot when something's attached, else just the claim
-            proofType: video ? 'video' : message.attachments.size || src.attachments.length ? 'screenshot' : 'claim',
-        })
-        console.log(`[mention] ${message.author.username} for ${racer.username}: "${given.event.name} ${formatTime(given.seconds)}" -> ${result.error ?? result.message}`)
-        if (!result.error) await confirm(message, [result])
-        return reply(result.error ?? result.message)
-    }
-
-    // Otherwise read what's attached. A forward's added message arrives as a separate message right after the forward,
-    // so a mention with nothing of its own reads the author's message just before it (sent within a few seconds)
     const hasOwn = message.attachments.size || message.messageSnapshots?.size || VIDEO.test(message.content)
     VIDEO.lastIndex = 0  // the pattern is global
     let target = message
@@ -281,6 +265,26 @@ exports.handleMention = async message => {
         const prev = [...(earlier?.values() ?? [])].find(m => m.author.id == message.author.id)
         if (prev && message.createdTimestamp - prev.createdTimestamp < 10000) target = prev
     }
+    const tsrc = target == message ? src : await source(target)
+
+    // An event and time written out: "@Autopilot Ramjet Run 1:13.59". The proof is a video in the message (or the one
+    // it goes with), else the message holding the screenshot, else the claim itself.
+    const text = message.content.replace(/<@[!&]?\d+>/g, ' ').replace(/https?:\/\/\S+/g, ' ')  // no mentions or links (their digits aren't times)
+    const given = exports.matchClaim(text)
+    if (given) {
+        const video = [...`${message.content} ${src.content} ${tsrc.content}`.matchAll(VIDEO)][0]?.[1]
+        const shot = message.attachments.size || src.attachments.length ? message : tsrc.attachments.length ? target : null
+        const result = await submit({
+            kind: 'arcade', target: given.event.id, member: message.member, memberId: message.author.id, racer, trusted: true,
+            time: formatTime(given.seconds), proof: video ? `https://youtu.be/${video}` : (shot ?? message).url, date: tsrc.posted,
+            proofType: video ? 'video' : shot ? 'screenshot' : 'claim',
+        })
+        console.log(`[mention] ${message.author.username} for ${racer.username}: "${given.event.name} ${formatTime(given.seconds)}" -> ${result.error ?? result.message}`)
+        if (!result.error) await confirm(message, [result])
+        return reply(result.error ?? result.message)
+    }
+
+    // Otherwise read what's attached
     const results = await exports.handle(target, { anywhere: true, racer })
     const saved = results.filter(r => !r.skipped && !r.error)
     if (saved.length) return reply(saved.map(r => r.message).join('\n'))

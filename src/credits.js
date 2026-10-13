@@ -194,6 +194,22 @@ exports.payFill = async ({ kind, target, item, before, after, user, guild }) => 
     }
 }
 
+// A repeat of a saved run bringing better proof (a video after a screenshot) tops its credits up to the new rate: what
+// the original payout would have been at that rate, less what the run has already been paid. Recorded as part of the
+// run, so removing the time takes it back too. Returns the top-up, or 0.
+exports.upgradeProof = async (timeId, user, type) => {
+    const runs = exports.history(user).filter(e => e.ref == timeId && e.reason == 'run').sort((a, b) => a.date - b.date)
+    if (!runs.length) return 0
+    const original = runs[0], paid = runs.reduce((n, e) => n + e.amount, 0)
+    const from = PROOF[original.proof] ?? PROOF.claim, to = PROOF[type] ?? PROOF.claim
+    const best = Math.max(...runs.map(e => PROOF[e.proof] ?? PROOF.claim))
+    if (to <= best) return 0
+    const topUp = Math.round(original.amount * to / from) - paid
+    if (topUp <= 0) return 0
+    await post(user, topUp, { reason: 'run', ref: timeId, board: original.board, lines: [{ label: `${type} proof`, amount: topUp }], proof: type, backer: original.backer ?? null })
+    return topUp
+}
+
 // Rating a board for the first time pays a little, once
 exports.payRating = async (user, kind, target) => {
     const ref = `rate:${kind}:${target}`
