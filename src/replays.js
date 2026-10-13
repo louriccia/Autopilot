@@ -168,10 +168,10 @@ exports.handle = async (message, { announce = true, anywhere = false, racer: cho
     if (message.author.bot || (!anywhere && message.channelId != (testing ? test_channel : replay_channel))) return []
     const src = await source(message)
     const results = []
-    const save = async (match, { racer, date, proof, youtube, label }) => {
+    const save = async (match, { racer, date, proof, youtube, label, proofType }) => {
         const result = await submit({
             kind: 'arcade', target: match.event.id, member: message.member, memberId: message.author.id, racer, trusted: true,
-            time: formatTime(match.seconds), proof, date, youtube, announce,
+            time: formatTime(match.seconds), proof, date, youtube, announce, proofType,
         })
         results.push({ label, event: match.event.name, time: formatTime(match.seconds), racer: racer.id, ...result })
     }
@@ -215,7 +215,7 @@ exports.handle = async (message, { announce = true, anywhere = false, racer: cho
             }
             if (match && (!racer || racer.bot)) { unclaimed++; results.push({ label: image.name, skipped: true, why: "a run, but whose? (forward without a mention)" }); continue }
             if (!match) { results.push({ label: image.name, skipped: true, why: screen.error?.message ?? screen.screen }); continue }
-            await save(match, { racer, date: src.posted, proof: message.url, label: `${image.name} (${match.title})` })
+            await save(match, { racer, date: src.posted, proof: message.url, proofType: 'screenshot', label: `${image.name} (${match.title})` })
         }
     }
 
@@ -263,6 +263,8 @@ exports.handleMention = async message => {
         const result = await submit({
             kind: 'arcade', target: given.event.id, member: message.member, memberId: message.author.id, racer, trusted: true,
             time: formatTime(given.seconds), proof: video ? `https://youtu.be/${video}` : message.url, date: src.posted,
+            // a typed claim's proof is the message: a screenshot when something's attached, else just the claim
+            proofType: video ? 'video' : message.attachments.size || src.attachments.length ? 'screenshot' : 'claim',
         })
         console.log(`[mention] ${message.author.username} for ${racer.username}: "${given.event.name} ${formatTime(given.seconds)}" -> ${result.error ?? result.message}`)
         if (!result.error) await confirm(message, [result])

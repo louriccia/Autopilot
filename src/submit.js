@@ -4,6 +4,8 @@ const records = require('./records.js')
 const data = require('./swgr/data.js')
 const { database } = require('./firebase.js')
 const progress = require('./progress.js')
+const credits = require('./credits.js')
+const emoji = require('./data/discord/emoji.js')
 
 const BOARDS = {
     arcade: { item: data.event },
@@ -25,7 +27,9 @@ exports.formatTime = s => {
 // trusted: the racer was worked out by the bot (src/replays.js), so no permission is needed to credit them.
 // date: when the run happened, if known; youtube: the proof video's channel id. keepPlatform: leave an empty platform
 // empty instead of filling in the racer's usual one (imports).
-exports.submit = async ({ kind, target, member, memberId, racer, time: rawTime, platform, proof, notes, trusted, date, youtube, keepPlatform, announce = true }) => {
+// proofType: 'video' | 'screenshot' | 'claim' when the caller knows better than the proof link (a typed claim's proof is
+// its message link; a screenshot post's too). pay: false skips credits (backfills that pay separately).
+exports.submit = async ({ kind, target, member, memberId, racer, time: rawTime, platform, proof, notes, trusted, date, youtube, keepPlatform, announce = true, proofType, pay = true }) => {
     if (!database) return { error: "Times can't be saved right now (no database)." }
     const item = exports.board(kind, target)
     if (!item) return { error: "That isn't an arcade event or scenario." }
@@ -61,24 +65,47 @@ exports.submit = async ({ kind, target, member, memberId, racer, time: rawTime, 
     const existing = records.allTimes().find(t => t.kind == kind && t.target == target && t.user == user && t.time == time)
     if (existing?.platform && !picked) platform = ''
     const before = records.leaderboard(kind, target)
-    const { duplicate, updated } = await records.addTime({ kind, target, user, submittedBy: memberId, time, platform, proof, notes: exports.clean(notes).slice(0, 120), date, youtube })
+    const { id: timeId, duplicate, updated } = await records.addTime({ kind, target, user, submittedBy: memberId, time, platform, proof, notes: exports.clean(notes).slice(0, 120), date, youtube })
     const board = records.leaderboard(kind, target)
     const rank = board.findIndex(t => t.user == user) + 1
     const best = board[rank - 1]
     const whose = user == memberId ? 'Your' : `<@${user}>'s`
     const history = records.allTimes().filter(t => t.kind == kind && t.target == target && t.user == user).sort((a, b) => a.date - b.date)
-    const receipt = progress.receipt({ item, kind, user, forSelf: user == memberId, time, platform, before, after: board, history, duplicate, updated })
+    let receipt = progress.receipt({ item, kind, user, forSelf: user == memberId, time, platform, before, after: board, history, duplicate, updated })
     if (!duplicate && announce && member?.client) {
         await progress.announce(member.client, progress.podium({ kind, item, user, time, proof, before, after: board })).catch(error => console.error('[podium]', error))
     }
+
+    // Credits (src/credits.js): what the run earns, the podium of a board it fills, and any bounty it wins (also when a
+    // repeat brings the proof a bounty needs)
+    let earned = null, won = []
+    if (pay) {
+        try {
+            if (!duplicate) {
+                earned = await credits.payRun({ timeId, kind, item, user, time, before, after: board, proof, proofHint: proofType, member: racerMember })
+                await credits.payFill({ kind, target, item, before, after: board, user, guild: member?.guild })
+            }
+            if (!duplicate || updated?.includes('proof')) {
+                won = await credits.claimBounties({ kind, target, user, time, proof, proofHint: proofType, member: racerMember, timeId })
+                for (const b of won) await progress.announceBounty(member?.client, { kind, item, user, time, proof, ...b }).catch(error => console.error('[bounty]', error))
+            }
+        } catch (error) { console.error('[credits]', error) }
+    }
+    const creditLine = [
+        earned && `${emoji.named('credits')} **+${earned.total.toLocaleString('en-US')}** credits: ${earned.lines.map(l => `${l.label} ${l.amount > 0 ? '+' : ''}${l.amount}`).join(', ')} (${earned.note})`,
+        ...won.map(b => `${emoji.named('credits')} **+${b.paid.toLocaleString('en-US')}** bounty won (under ${exports.formatTime(b.under)})${b.paid > b.pot ? ', the Pirate adds a quarter' : ''}`),
+    ].filter(Boolean)
+    if (creditLine.length) receipt += `\n${creditLine.join('\n')}`
+    const creditNote = [earned && `+${earned.total} credits`, ...won.map(b => `+${b.paid} bounty`)].filter(Boolean).join(', ')
+
     // first: this very time is #1 on the board (reactions show the crown for it)
     const first = rank == 1 && best.time == time
-    if (duplicate && updated.length) return { message: `${whose} ${exports.formatTime(time)} on ${item.name} was already saved (#${rank}); updated its ${updated.length > 1 ? `${updated.slice(0, -1).join(', ')} and ${updated.at(-1)}` : updated[0]}.`, receipt, duplicate, updated, first }
+    if (duplicate && updated.length) return { message: `${whose} ${exports.formatTime(time)} on ${item.name} was already saved (#${rank}); updated its ${updated.length > 1 ? `${updated.slice(0, -1).join(', ')} and ${updated.at(-1)}` : updated[0]}.${creditNote ? ` ${creditNote}.` : ''}`, receipt, duplicate, updated, first }
     if (duplicate) return { message: `${whose} ${exports.formatTime(time)} on ${item.name} is already saved (#${rank}), with the same details.`, receipt, duplicate, updated, first }
     return {
-        receipt, first,
-        message: best.time < time
+        receipt, first, earned,
+        message: (best.time < time
             ? `Saved ${exports.formatTime(time)} on ${item.name}. ${whose} best is still ${exports.formatTime(best.time)} (#${rank}).`
-            : `Saved! ${whose} ${exports.formatTime(time)} is #${rank} on ${item.name}.`,
+            : `Saved! ${whose} ${exports.formatTime(time)} is #${rank} on ${item.name}.`) + (creditNote ? ` ${creditNote}.` : ''),
     }
 }

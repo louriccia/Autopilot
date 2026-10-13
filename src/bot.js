@@ -15,7 +15,7 @@ const client = new Client({
     // GuildMessageReactions (with the partials, so reactions on messages from before a restart arrive too): a ⏱️
     // reaction asks for a message to be read as a run
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent, GatewayIntentBits.GuildMessageReactions],
-    partials: [Partials.Message, Partials.Reaction, Partials.User],
+    partials: [Partials.Message, Partials.Reaction, Partials.User, Partials.GuildMember],  // GuildMember: role changes (backers) for uncached members
 });
 
 //add commands to client
@@ -117,6 +117,20 @@ client.once(Events.ClientReady, () => {
     console.log(`Ready! Logged in as ${client.user.tag}${testing ? ' (testing)' : ''}`)
     require('./feeds/index.js').start(client, reportError).catch(error => reportError('Feeds', error))
     require('./records.js').listen()
+    // Credits (src/credits.js), and an hourly sweep that returns expired bounties to their funders
+    const credits = require('./credits.js')
+    credits.listen()
+    const { main_guild, test_guild } = require('./data/discord/guild.js')
+    setInterval(() => credits.expireBounties(client.guilds.cache.get(testing ? test_guild : main_guild))
+        .catch(error => reportError('Bounties', error)), 60 * 60 * 1000)
+})
+
+// Switching backer (onboarding roles) restarts the day before the new backer counts for credits (src/credits.js)
+client.on(Events.GuildMemberUpdate, (before, after) => {
+    if (!switchGuard(after.guild.id)) return
+    const credits = require('./credits.js')
+    const now = credits.backerFromRoles(after), record = credits.backerRecord(after.id)
+    if ((record?.backer ?? null) != now) credits.setBacker(after.id, now).catch(error => reportError('Backer', error))
 })
 
 // Runs posted as videos in the replay channel (src/replays.js)

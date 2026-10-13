@@ -174,9 +174,13 @@ exports.updateTime = async (id, changes) => {
     times[id] = { ...times[id], ...changes }
 }
 
+// Called with (id, the removed time) after a removal (src/credits.js takes back what the time earned)
+exports.onRemove = []
 exports.removeTime = async id => {
+    const removed = times[id]
     await database.ref(`times/${id}`).remove()
     delete times[id]
+    for (const fn of exports.onRemove) await fn(id, removed)
 }
 
 // Staff times for an arcade event, from the community leaderboard sheet's highlighted staff entries

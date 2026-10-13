@@ -92,6 +92,20 @@ exports.podium = ({ kind, item, user, time, proof, before, after }) => {
     }
 }
 
+// A bounty claimed by a save, announced like a podium change
+exports.announceBounty = async (client, b) => {
+    const channelId = testing ? test_channel : announce_channel
+    const channel = client && channelId && await client.channels.fetch(channelId).catch(() => null)
+    if (!channel) return
+    const time = b.proof ? `[**\`${fmt(b.time)}\`**](<${b.proof}>)` : `**\`${fmt(b.time)}\`**`
+    await channel.send({
+        content: `${emoji.named('credits')} <@${b.user}> claims the **${b.paid.toLocaleString('en-US')}** credit bounty on **${b.item.name}** with ${time}, under ${fmt(b.under)}`,
+        allowedMentions: { parse: [] },
+        components: [new ActionRowBuilder().addComponents(new ButtonBuilder()
+            .setCustomId(b.kind == 'arcade' ? `arcade_event_${b.item.id}` : `scenario_${b.item.id}`).setLabel('View board').setStyle(ButtonStyle.Secondary))],
+    })
+}
+
 exports.announce = async (client, p) => {
     const channelId = testing ? test_channel : announce_channel
     if (!p || !channelId) return

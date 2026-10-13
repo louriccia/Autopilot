@@ -8,6 +8,7 @@ const {
 const data = require('./data.js')
 const records = require('../records.js')
 const viewer = require('../viewer.js')
+const credits = require('../credits.js')
 const emoji = require('../data/discord/emoji.js')
 
 const ROOT = path.join(__dirname, '../..')
@@ -85,6 +86,9 @@ const place = rank => rank <= 10 ? emoji.named(`place_${rank}`) : `**#${rank}**`
 const platformMark = p => !p ? '' : records.PLATFORMS.includes(p) ? ` ${emoji.named(`platform_${p}`)}` : ` / ${p}`
 // The viewer's declared rival (/times rival) gets the rival marker
 const timeLine = (t, rank) => `${place(rank)} ${t.proof ? `[${boardTime(t.time)}](<${t.proof}>)` : boardTime(t.time)} <@${t.user}>${platformMark(t.platform)}${t.user == records.rivalOf(viewer.id()) ? ` ${emoji.named('rival')}` : ''}`
+// A board's open bounties (/bounty): the pot, the time to beat and when it ends
+const bountyLines = (kind, target) => credits.openBounties(kind, target).map(b =>
+    `${emoji.named('credits')} **${b.pot.toLocaleString('en-US')}** bounty for under ${boardTime(b.under)} / ends <t:${Math.floor(b.expires / 1000)}:R>`)
 // A board's community times as shown: the top 5, plus whoever is looking (src/viewer.js) and their rival if they're
 // further down
 const shownTimes = (kind, target) => {
@@ -300,7 +304,7 @@ function arcadeEvent(eventId) {
         ...records.staffTimes(e.id).map(s => ({ seconds: s.seconds, line: `${emoji.named(s.from == 'publisher' ? 'publisher' : 'staff')} ${boardTime(s.seconds)} ${s.user ? `<@${s.user}>` : s.name}` })),
         ...shownTimes('arcade', e.id).map(t => ({ seconds: t.time, line: timeLine(t, t.rank) })),
     ].sort((a, b) => a.seconds - b.seconds)
-    container.addTextDisplayComponents(text(board.map(b => b.line).join('\n')))
+    container.addTextDisplayComponents(text([...board.map(b => b.line), ...bountyLines('arcade', e.id)].join('\n')))
 
     return page(container, files, [
         categorySelect(e.category),
@@ -434,12 +438,55 @@ function scenarioInfo(scenarioId) {
         lines.push(timeLine(t, t.rank))
     }
     container.addSeparatorComponents(separator())
-    container.addTextDisplayComponents(text(['### Times', ...(lines.length ? lines : ['-# No times yet. Be the first to submit one!'])].join('\n')))
+    container.addTextDisplayComponents(text(['### Times', ...(lines.length ? lines : ['-# No times yet. Be the first to submit one!']), ...bountyLines('scenario', sc.id)].join('\n')))
 
     return page(container, files, [
         scenarioSelect(sc.id),
         recordButtons('scenario', sc.id),
     ])
+}
+
+// --- credits ---
+
+// "Credits 12,345 / [Hutt] The Hutt" (with when a new backer starts counting)
+function creditsLine(user) {
+    const rec = credits.backerRecord(user), b = rec && credits.BACKERS[rec.backer]
+    const counts = rec && rec.since + 24 * 60 * 60 * 1000
+    return `**Credits** ${emoji.named('credits')} ${credits.balance(user).toLocaleString('en-US')}${b ? ` / ${emoji.named(b.emoji)} ${b.name}${counts > Date.now() ? ` (counts <t:${Math.floor(counts / 1000)}:R>)` : ''}` : ''}`
+}
+
+// A ledger entry as one line: "+640 personal best, gold medal on Acid Ringer"
+function ledgerLine(e) {
+    const board = e.board && (e.board.startsWith('arcade:') ? data.event(e.board.slice(7)) : data.scenario(e.board.slice(9)))
+    const what = e.reason == 'run' ? (e.lines ?? []).filter(l => l.amount > 0).map(l => l.label).join(', ') : e.reason
+    return `-# <t:${Math.floor(e.date / 1000)}:d> **${e.amount > 0 ? '+' : ''}${e.amount.toLocaleString('en-US')}** ${what}${board ? ` on ${board.name}` : ''}`
+}
+
+// A racer's credits: balance, backer and their last ten entries. racer: { id, name, avatar }
+function creditsCard(racer) {
+    const container = new ContainerBuilder().setAccentColor(DEFAULT_COLOR)
+    header(container, [crumbs('Credits'), `# ${racer.name}`, creditsLine(racer.id)], racer.avatar)
+    const recent = credits.history(racer.id).slice(0, 10)
+    container.addSeparatorComponents(separator())
+    container.addTextDisplayComponents(text(recent.length ? recent.map(ledgerLine).join('\n')
+        : '-# No credits yet. Save runs to earn them: personal bests, medals, bops, podiums; video proof pays the most.'))
+    return page(container, new Files(), [])
+}
+
+// The richest racers, and the backer standings (credits earned by each side)
+function creditsTop() {
+    const container = new ContainerBuilder().setAccentColor(DEFAULT_COLOR)
+    header(container, [crumbs('Credits'), '## Leaderboard'])
+    const top = credits.balances().filter(b => b.amount > 0).slice(0, 10)
+    container.addSeparatorComponents(separator())
+    container.addTextDisplayComponents(text(top.length ? top.map((b, i) => {
+        const rec = credits.backerRecord(b.user)
+        return `${place(i + 1)} ${emoji.named('credits')} **${b.amount.toLocaleString('en-US')}** <@${b.user}>${rec ? ` ${emoji.named(credits.BACKERS[rec.backer].emoji)}` : ''}`
+    }).join('\n') : '-# No one has credits yet.'))
+    container.addSeparatorComponents(separator())
+    container.addTextDisplayComponents(text(['### Backers', ...credits.standings().map(s =>
+        `${emoji.named(credits.BACKERS[s.backer].emoji)} **${credits.BACKERS[s.backer].name}** ${s.amount.toLocaleString('en-US')} earned`)].join('\n')))
+    return page(container, new Files(), [])
 }
 
 // --- timesheets ---
@@ -493,6 +540,7 @@ function arcadeTimesheet(racer, categoryId) {
             crumbs('Arcade', 'Timesheet'),
             `# ${racer.name}`,
             `**Progress** ${bar(mainTimed.length, main.length)} ${mainTimed.length}/${main.length} events / ${emoji.medal.gold} ${mainTimed.filter(r => r.medal == 'gold').length}/${main.length}`,
+            creditsLine(racer.id),
             mainTimed.length && `**Total** ${boardTime(total)}${overall ? ` ${place(overall.rank)} on all ${main.length}` : ` over ${mainTimed.length} event${mainTimed.length == 1 ? '' : 's'} so far`}`,
             timed.length && `**Medals** ${medalCounts(timed) || 'none yet'}`,
             (places.length || topTen) && `**Placements** ${[...places.map(([n, c]) => `${place(n)} ${c}`), topTen && `${topTen} more in the top 10`].filter(Boolean).join(' / ')}`,
@@ -1370,4 +1418,4 @@ function patternInfo(patternId) {
     return page(container, files, [patternClassSelect(c.id), patternSelect(p.class, p.id)])
 }
 
-module.exports = { arcadeTimesheet, liveriesOverview, paletteGroupInfo, paletteInfo, patternClassInfo, patternInfo, taleInfo, talesOverview, backerInfo, backersOverview, statusInfo, statusesOverview, mysteryInfo, mysteriesOverview, rivalInfo, rivalsOverview, favorInfo, favorsOverview, vehicleInfo, vehicleClassInfo, vehiclesOverview, abilityInfo, abilitiesOverview, arcadeOverview, arcadeCategory, arcadeEvent, trackInfo, planetInfo, scenarioInfo, styleInfo, partInfo, parseKeywordMask }
+module.exports = { creditsCard, creditsTop, arcadeTimesheet, liveriesOverview, paletteGroupInfo, paletteInfo, patternClassInfo, patternInfo, taleInfo, talesOverview, backerInfo, backersOverview, statusInfo, statusesOverview, mysteryInfo, mysteriesOverview, rivalInfo, rivalsOverview, favorInfo, favorsOverview, vehicleInfo, vehicleClassInfo, vehiclesOverview, abilityInfo, abilitiesOverview, arcadeOverview, arcadeCategory, arcadeEvent, trackInfo, planetInfo, scenarioInfo, styleInfo, partInfo, parseKeywordMask }
