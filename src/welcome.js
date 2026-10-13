@@ -8,9 +8,13 @@ const lines = require('./data/flavor/welcome.js')
 const emoji = require('./data/discord/emoji.js')
 const data = require('./swgr/data.js')
 
+// The line goes inside one pair of italics, so its own emphasis can't nest: a stage direction like "*laughs*" becomes
+// "(laughs)", and any other markdown character is escaped
+const italicSafe = line => line.replace(/\*([^*]+)\*/g, '($1)').replace(/[*_~`|]/g, c => `\\${c}`)
+
 exports.welcomeMessage = (member, pick = lines[Math.floor(Math.random() * lines.length)]) => ({
     // One line: the speaker's headshot, then what they say
-    content: `${emoji.named(data.characterEmoji(pick.speaker))} *${pick.line.replaceAll('{user}', `<@${member.id}>`)}*`.trim(),
+    content: `${emoji.named(data.characterEmoji(pick.speaker))} *${italicSafe(pick.line).replaceAll('{user}', `<@${member.id}>`)}*`.trim(),
     flags: MessageFlags.SuppressNotifications,
     allowedMentions: { users: [member.id] },
 })

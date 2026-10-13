@@ -153,6 +153,9 @@ exports.videos = videos
 exports.readScreen = readScreen
 exports.VIDEO = VIDEO
 
+// The reaction that confirms saved runs: the game's crown when one of them is #1 on its board, else the stopwatch
+const confirm = (message, saved) => message.react(emoji.named(saved.some(r => r.first) ? 'crown' : 'stopwatch').replace(/^<a?:|>$/g, '')).catch(() => { })
+
 // Saves every run found in a message; returns what happened to each, for logs and backfills
 // announce: false for backfills of old posts, so they don't announce podium changes. anywhere: a message outside the
 // replay channel that someone asked for (a ⏱️ reaction or an @Autopilot mention, bot.js). racer: the user an
@@ -174,7 +177,7 @@ exports.handle = async (message, { announce = true, anywhere = false, racer: cho
     // bot isn't in)
     const mentioned = [...message.mentions.users.values()].filter(u => !u.bot)
     const named = chosen ?? (mentioned.length == 1 && records.canSubmitForOthers(message.member) ? mentioned[0] : null)
-    let unclaimed = 0  // runs found without a racer to credit (answered with ❓)
+    let unclaimed = 0  // runs found without a racer to credit (answered with the game's "?" marker)
 
     // Videos: credited to the channel's owner; an unlinked channel is linked to the racer named, else the original poster
     const ids = [...new Set([...src.content.matchAll(VIDEO)].map(m => m[1]))]
@@ -212,8 +215,9 @@ exports.handle = async (message, { announce = true, anywhere = false, racer: cho
         }
     }
 
-    if (results.some(r => !r.skipped && !r.error)) await message.react(emoji.named('stopwatch').replace(/^<a?:|>$/g, '')).catch(() => { })
-    else if (unclaimed) await message.react('❓').catch(() => { })
+    const saved = results.filter(r => !r.skipped && !r.error)
+    if (saved.length) await confirm(message, saved)
+    else if (unclaimed) await message.react(emoji.named('unknown').replace(/^<a?:|>$/g, '') || '❓').catch(() => { })  // the game's "?" marker
     for (const r of results) console.log(`[replays] ${message.author.username}${src.forward ? ' (forward)' : ''}: "${r.label}" -> ${r.skipped ? `skipped${r.why ? ` (${r.why})` : ''}` : r.error ?? `${r.message}`}`)
     return results
 }
@@ -257,7 +261,7 @@ exports.handleMention = async message => {
             time: formatTime(given.seconds), proof: video ? `https://youtu.be/${video}` : message.url, date: src.posted,
         })
         console.log(`[mention] ${message.author.username} for ${racer.username}: "${given.event.name} ${formatTime(given.seconds)}" -> ${result.error ?? result.message}`)
-        if (!result.error) await message.react(emoji.named('stopwatch').replace(/^<a?:|>$/g, '')).catch(() => { })
+        if (!result.error) await confirm(message, [result])
         return reply(result.error ?? result.message)
     }
 

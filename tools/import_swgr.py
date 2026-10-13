@@ -413,6 +413,8 @@ def main():
     emojis.add("reverse", ui_icons / "T_UI_Reverse_Icn.png")
     emojis.add("stopwatch", ui_icons / "T_UI_LapFastest_Icn.png")  # the Submit time button
     emojis.add("rival", ui_icons / "T_UI_Risk_Target_Icn.png")  # declared rivals (timesheets, receipts): the game's target marker
+    emojis.add("crown", ui_icons / "Map" / "T_UI_Map_ChampionEvent_Icn.png")  # a saved run that is #1 (reaction instead of the stopwatch)
+    emojis.add("unknown", ui_icons / "Map" / "T_UI_Map_Unknown_Icn.png")  # a run found but not whose (reaction)
     # Inline-icon widget ids that don't match a keyword icon's file name, but have an icon elsewhere in the game
     # Critical Malfunction has no icon of its own: the game shows System Malfunction's
     KEYWORD_ALIASES = {"Surging": "Surge", "Ability": "Abilities", "SysMalfunction": "SystemMalfunction", "CritMalfunction": "SystemMalfunction",

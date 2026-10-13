@@ -71,10 +71,12 @@ exports.submit = async ({ kind, target, member, memberId, racer, time: rawTime, 
     if (!duplicate && announce && member?.client) {
         await progress.announce(member.client, progress.podium({ kind, item, user, time, proof, before, after: board })).catch(error => console.error('[podium]', error))
     }
-    if (duplicate && updated.length) return { message: `${whose} ${exports.formatTime(time)} on ${item.name} was already saved (#${rank}); updated its ${updated.length > 1 ? `${updated.slice(0, -1).join(', ')} and ${updated.at(-1)}` : updated[0]}.`, receipt, duplicate, updated }
-    if (duplicate) return { message: `${whose} ${exports.formatTime(time)} on ${item.name} is already saved (#${rank}), with the same details.`, receipt, duplicate, updated }
+    // first: this very time is #1 on the board (reactions show the crown for it)
+    const first = rank == 1 && best.time == time
+    if (duplicate && updated.length) return { message: `${whose} ${exports.formatTime(time)} on ${item.name} was already saved (#${rank}); updated its ${updated.length > 1 ? `${updated.slice(0, -1).join(', ')} and ${updated.at(-1)}` : updated[0]}.`, receipt, duplicate, updated, first }
+    if (duplicate) return { message: `${whose} ${exports.formatTime(time)} on ${item.name} is already saved (#${rank}), with the same details.`, receipt, duplicate, updated, first }
     return {
-        receipt,
+        receipt, first,
         message: best.time < time
             ? `Saved ${exports.formatTime(time)} on ${item.name}. ${whose} best is still ${exports.formatTime(best.time)} (#${rank}).`
             : `Saved! ${whose} ${exports.formatTime(time)} is #${rank} on ${item.name}.`,
