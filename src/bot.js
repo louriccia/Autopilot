@@ -122,7 +122,10 @@ client.once(Events.ClientReady, () => {
 // Runs posted as videos in the replay channel (src/replays.js)
 client.on(Events.MessageCreate, message => {
     if (!message.guildId || !switchGuard(message.guildId)) return
-    require('./replays.js').handle(message).catch(error => reportError('Replays', error))
+    // In a submit channel (SUBMIT_CHANNEL_IDS, #autopilot), posts by people who can submit for others count too
+    const { submit_channels } = require('./data/discord/channel.js')
+    const anywhere = submit_channels.includes(message.channelId) && require('./records.js').canSubmitForOthers(message.member)
+    require('./replays.js').handle(message, { anywhere }).catch(error => reportError('Replays', error))
 })
 
 // A ⏱️ reaction on any message reads it like a replay-channel post (src/replays.js), from people who can submit for

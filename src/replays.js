@@ -12,6 +12,7 @@
 // Forwarded messages count too: their links and images are read from the forwarded copy, and the original message
 // is looked up for its author and time. Anything else (campaign runs, chat, a title naming no event or two) is left
 // alone. Needs the GuildMessages and Message Content (privileged) intents.
+const { SnowflakeUtil } = require('discord.js')
 const { testing } = require('../config.js')
 const { replay_channel, test_channel } = require('./data/discord/channel.js')
 const data = require('./swgr/data.js')
@@ -140,7 +141,8 @@ async function source(message) {
         message,
         author: original?.author ?? null,  // unknown when the original isn't visible to the bot
         member: original?.member ?? null,
-        posted: original?.createdTimestamp ?? snapshot.createdTimestamp ?? message.createdTimestamp,
+        // When the original was posted: its id encodes it, even when the bot can't open it
+        posted: original?.createdTimestamp ?? (ref?.messageId ? SnowflakeUtil.timestampFrom(ref.messageId) : message.createdTimestamp),
         content: snapshot.content ?? '',
         attachments: [...(snapshot.attachments?.values() ?? [])],
         forward: true,
@@ -166,7 +168,14 @@ exports.handle = async (message, { announce = true, anywhere = false } = {}) => 
         results.push({ label, event: match.event.name, time: formatTime(match.seconds), racer: racer.id, ...result })
     }
 
-    // Videos: credited to the channel's owner; an unlinked channel is linked to the original poster
+    // The one person a submitter's message mentions names the racer: for a screenshot, and for a forward whose author
+    // the bot can't see (Discord doesn't say who wrote a forwarded message, and the original may be in a server the
+    // bot isn't in)
+    const mentioned = [...message.mentions.users.values()].filter(u => !u.bot)
+    const named = mentioned.length == 1 && records.canSubmitForOthers(message.member) ? mentioned[0] : null
+    let unclaimed = 0  // runs found without a racer to credit (answered with ❓)
+
+    // Videos: credited to the channel's owner; an unlinked channel is linked to the racer named, else the original poster
     const ids = [...new Set([...src.content.matchAll(VIDEO)].map(m => m[1]))]
     const info = await videos(ids)
     for (const id of ids) {
@@ -174,34 +183,36 @@ exports.handle = async (message, { announce = true, anywhere = false } = {}) => 
         const match = v?.title && exports.matchTitle(v.title)
         if (!match) { results.push({ label: v?.title ?? id, skipped: true }); continue }
         let owner = v.channelId && records.youtubeOwner(v.channelId)
-        if (!owner && src.author && !src.author.bot) {
-            owner = src.author.id
+        const claimant = named ?? (src.author && !src.author.bot ? src.author : null)
+        if (!owner && claimant) {
+            owner = claimant.id
             if (v.channelId) await records.linkYoutube(v.channelId, { user: owner, name: v.channelName, by: message.author.id })
         }
-        if (!owner) { results.push({ label: v.title, skipped: true, why: "can't tell whose run it is" }); continue }
+        if (!owner) { unclaimed++; results.push({ label: v.title, skipped: true, why: "can't tell whose run it is" }); continue }
         await save(match, { racer: { id: owner, bot: false }, date: Math.min(v.uploaded ?? Infinity, src.posted), proof: `https://youtu.be/${id}`, youtube: v.channelId, label: v.title })
     }
 
     // Screenshots: credited to the poster, or to the one person a submitter mentions
     const images = src.attachments.filter(a => a.contentType?.startsWith('image/'))
     if (images.length && process.env.OPENAI_API_KEY) {
-        const mentioned = [...message.mentions.users.values()].filter(u => !u.bot)
-        const racer = mentioned.length == 1 && records.canSubmitForOthers(message.member) ? mentioned[0] : src.author
+        const racer = named ?? src.author
         for (const image of images) {
             // The model now and then misses a row on an arcade screen; one more read usually gets it
             const names = racer ? [racer.username, racer.globalName, racer.id == src.author?.id ? src.member?.displayName : null] : []
             let screen = await readScreen(image.url).catch(error => ({ error }))
-            let match = !screen.error && racer && exports.matchScreen(screen, names)
-            if (!match && racer && screen.screen?.startsWith('arcade')) {
+            let match = !screen.error && exports.matchScreen(screen, names)
+            if (!match && screen.screen?.startsWith('arcade')) {
                 screen = await readScreen(image.url).catch(error => ({ error }))
                 match = !screen.error && exports.matchScreen(screen, names)
             }
-            if (!match || !racer || racer.bot) { results.push({ label: image.name, skipped: true, why: screen.error?.message ?? screen.screen }); continue }
+            if (match && (!racer || racer.bot)) { unclaimed++; results.push({ label: image.name, skipped: true, why: "a run, but whose? (forward without a mention)" }); continue }
+            if (!match) { results.push({ label: image.name, skipped: true, why: screen.error?.message ?? screen.screen }); continue }
             await save(match, { racer, date: src.posted, proof: message.url, label: `${image.name} (${match.title})` })
         }
     }
 
     if (results.some(r => !r.skipped && !r.error)) await message.react(emoji.named('stopwatch').replace(/^<a?:|>$/g, '')).catch(() => { })
+    else if (unclaimed) await message.react('❓').catch(() => { })
     for (const r of results) console.log(`[replays] ${message.author.username}${src.forward ? ' (forward)' : ''}: "${r.label}" -> ${r.skipped ? `skipped${r.why ? ` (${r.why})` : ''}` : r.error ?? `${r.message}`}`)
     return results
 }

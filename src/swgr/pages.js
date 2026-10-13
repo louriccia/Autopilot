@@ -196,16 +196,36 @@ function trackSelect(tracks, current) {
 
 // --- arcade ---
 
+// The main arcade set: every event but the Deluxe pack's (paid extras not everyone has)
+const MAIN_EVENTS = () => data.events.filter(e => e.category != 'Deluxe')
+
+// A cumulative leaderboard over some events: the summed medal times, then everyone with a time on all of them by their
+// summed bests (top 5, the viewer and their rival), fastest first; plus how many have them all, and the viewer's count
+function cumulativeBoard(events) {
+    const { ranked, done } = records.cumulative('arcade', events.map(e => e.id))
+    const me = viewer.id(), rival = records.rivalOf(me)
+    const board = [
+        ...['gold', 'silver', 'bronze'].map(m => {
+            const seconds = events.reduce((n, e) => n + e.medals[m].seconds, 0)
+            return { seconds, line: `${emoji.medal[m]} ${boardTime(seconds)} ${m[0].toUpperCase() + m.slice(1)} medals` }
+        }),
+        ...ranked.filter(t => t.rank <= 5 || t.user == me || t.user == rival).map(t => ({ seconds: t.time, line: timeLine(t, t.rank) })),
+    ].sort((a, b) => a.seconds - b.seconds)
+    return [
+        ...board.map(b => b.line),
+        ranked.length ? `-# ${ranked.length} racer${ranked.length == 1 ? ' has' : 's have'} a time on all ${events.length}.` : `-# No one has a time on all ${events.length} yet.`,
+        me && done[me] != null && done[me] < events.length && `-# You have times on ${done[me]} of ${events.length}.`,
+    ].filter(Boolean).join('\n')
+}
+
+// The arcade's front page: the all-events leaderboard over the main set; the categories are in the menu
 function arcadeOverview() {
     const files = new Files()
     const container = new ContainerBuilder().setAccentColor(DEFAULT_COLOR)
-    header(container, ['## Arcade', `${data.events.length} events across ${data.categories.length} categories.`])
+    const events = MAIN_EVENTS()
+    header(container, ['## Arcade', `Total time across all ${events.length} events (the Deluxe pack aside), for everyone with a time on each of them.`])
     container.addSeparatorComponents(separator())
-    container.addTextDisplayComponents(text(data.categories.map(c => {
-        const events = data.eventsInCategory(c.id)
-        const classes = [...new Set(events.map(e => e.vehicleClass))].map(cls).join('')
-        return `${categoryEmoji(c)} **${c.name}** — ${events.length} events ${classes}`
-    }).join('\n')))
+    container.addTextDisplayComponents(text(cumulativeBoard(events)))
     return page(container, files, [categorySelect()])
 }
 
@@ -220,23 +240,9 @@ function arcadeCategory(categoryId) {
         `Total time across all ${events.length} events, for everyone with a time on each of them.`,
     ], files.add(category.icon))
 
-    // The cumulative leaderboard: summed medal times, then each racer's summed bests (top 5 and the viewer), fastest
-    // first; someone still missing events sees how many they have
-    const { ranked, done } = records.cumulative('arcade', events.map(e => e.id))
-    const me = viewer.id()
-    const board = [
-        ...['gold', 'silver', 'bronze'].map(m => {
-            const seconds = events.reduce((n, e) => n + e.medals[m].seconds, 0)
-            return { seconds, line: `${emoji.medal[m]} ${boardTime(seconds)} ${m[0].toUpperCase() + m.slice(1)} medals` }
-        }),
-        ...ranked.filter(t => t.rank <= 5 || t.user == me).map(t => ({ seconds: t.time, line: timeLine(t, t.rank) })),
-    ].sort((a, b) => a.seconds - b.seconds)
+    // The cumulative leaderboard (cumulativeBoard): summed medal times and each racer's summed bests
     container.addSeparatorComponents(separator())
-    container.addTextDisplayComponents(text([
-        ...board.map(b => b.line),
-        !ranked.length && '-# No one has a time on every event yet.',
-        me && done[me] != null && done[me] < events.length && `-# You have times on ${done[me]} of ${events.length} events.`,
-    ].filter(Boolean).join('\n')))
+    container.addTextDisplayComponents(text(cumulativeBoard(events)))
     return page(container, files, [categorySelect(categoryId), eventSelect(events)])
 }
 
@@ -477,14 +483,22 @@ function arcadeTimesheet(racer, categoryId) {
         const timed = timedIn(data.events)
         const places = [1, 2, 3].map(n => [n, timed.filter(r => r.rank == n).length]).filter(([, c]) => c)
         const topTen = timed.filter(r => r.rank > 3 && r.rank <= 10).length
+        // Progress over the main set (events with a time, and golds) as bars; the summed bests, with their place on the
+        // all-events leaderboard once they have every one
+        const main = MAIN_EVENTS(), mainTimed = timedIn(main)
+        const bar = (n, of) => '▰'.repeat(Math.round(n / of * 10)) + '▱'.repeat(10 - Math.round(n / of * 10))
+        const total = mainTimed.reduce((n, r) => n + r.time, 0)
+        const overall = records.cumulative('arcade', main.map(e => e.id)).ranked.find(t => t.user == racer.id)
         header(container, [
             crumbs('Arcade', 'Timesheet'),
             `# ${racer.name}`,
-            `Times on ${timed.length} of ${data.events.length} events`,
+            `**Progress** ${bar(mainTimed.length, main.length)} ${mainTimed.length}/${main.length} events / ${emoji.medal.gold} ${mainTimed.filter(r => r.medal == 'gold').length}/${main.length}`,
+            mainTimed.length && `**Total** ${boardTime(total)}${overall ? ` ${place(overall.rank)} on all ${main.length}` : ` over ${mainTimed.length} event${mainTimed.length == 1 ? '' : 's'} so far`}`,
             timed.length && `**Medals** ${medalCounts(timed) || 'none yet'}`,
             (places.length || topTen) && `**Placements** ${[...places.map(([n, c]) => `${place(n)} ${c}`), topTen && `${topTen} more in the top 10`].filter(Boolean).join(' / ')}`,
             rival && rivalLine(headToHead(data.events, results, rivalResults), rival, own),
         ], racer.avatar)
+        if (timed.length > mainTimed.length) container.addTextDisplayComponents(text(`-# Plus ${timed.length - mainTimed.length} Deluxe event${timed.length - mainTimed.length == 1 ? '' : 's'}.`))
         if (!timed.length) container.addTextDisplayComponents(text('-# No arcade times yet. Submit one from any arcade event card, or with /submit.'))
     } else {
         const events = data.eventsInCategory(category.id)
