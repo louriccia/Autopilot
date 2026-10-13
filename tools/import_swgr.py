@@ -416,6 +416,7 @@ def main():
     emojis.add("crown", ui_icons / "Map" / "T_UI_Map_ChampionEvent_Icn.png")  # a saved run that is #1 (reaction instead of the stopwatch)
     emojis.add("unknown", ui_icons / "Map" / "T_UI_Map_Unknown_Icn.png")  # a run found but not whose (reaction)
     emojis.add("credits", ui_icons / "T_UI_CreditCurrency_Icn.png")  # the credits currency
+    emojis.add("bounty", ui_icons / "T_UI_Risk_Targeted_Icn.png")  # bounties: the game's targeted marker
     # Inline-icon widget ids that don't match a keyword icon's file name, but have an icon elsewhere in the game
     # Critical Malfunction has no icon of its own: the game shows System Malfunction's
     KEYWORD_ALIASES = {"Surging": "Surge", "Ability": "Abilities", "SysMalfunction": "SystemMalfunction", "CritMalfunction": "SystemMalfunction",

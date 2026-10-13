@@ -87,8 +87,20 @@ const platformMark = p => !p ? '' : records.PLATFORMS.includes(p) ? ` ${emoji.na
 // The viewer's declared rival (/times rival) gets the rival marker
 const timeLine = (t, rank) => `${place(rank)} ${t.proof ? `[${boardTime(t.time)}](<${t.proof}>)` : boardTime(t.time)} <@${t.user}>${platformMark(t.platform)}${t.user == records.rivalOf(viewer.id()) ? ` ${emoji.named('rival')}` : ''}`
 // A board's open bounties (/bounty): the pot, the time to beat and when it ends
+// (at the top of its leaderboard): "[bounty] 54.00 [credits] 100 / expires in 14 days"
 const bountyLines = (kind, target) => credits.openBounties(kind, target).map(b =>
-    `${emoji.named('credits')} **${b.pot.toLocaleString('en-US')}** bounty for under ${boardTime(b.under)} / ends <t:${Math.floor(b.expires / 1000)}:R>`)
+    `${emoji.named('bounty')} ${boardTime(b.under)} ${emoji.named('credits')} **${b.pot.toLocaleString('en-US')}** / expires <t:${Math.floor(b.expires / 1000)}:R>`)
+
+// The public message for a newly posted bounty (the card's "Set a bounty" and /bounty post)
+function bountyPosted(b) {
+    const item = b.kind == 'arcade' ? data.event(b.target) : data.scenario(b.target)
+    return {
+        content: [`**${emoji.named('bounty')} Bounty posted**`,
+            `**${emoji.named('credits')} ${b.pot.toLocaleString('en-US')}** for the first run under ${boardTime(b.under)} on **${emoji.planet[item.planet] ?? ''} ${item.name}** with a screenshot or video`.replace('  ', ' '),
+            `-# expires <t:${Math.floor(b.expires / 1000)}:R>`].join('\n'),
+        allowedMentions: { parse: [] },
+    }
+}
 // A board's community times as shown: the top 5, plus whoever is looking (src/viewer.js) and their rival if they're
 // further down
 const shownTimes = (kind, target) => {
@@ -100,9 +112,16 @@ const shownTimes = (kind, target) => {
 function recordButtons(kind, target) {
     const counts = records.feedbackCounts(kind, target)
     return new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`time_open_${kind}_${target}`).setLabel('Submit time').setEmoji(emoji.named('stopwatch')).setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId(`time_open_${kind}_${target}`).setLabel('Submit').setEmoji(emoji.named('stopwatch')).setStyle(ButtonStyle.Primary),
         ...[['up', emoji.thumbsUp], ['neutral', emoji.thumbsNeutral], ['down', emoji.thumbsDown]].map(([r, e]) =>
             new ButtonBuilder().setCustomId(`rate_${kind}_${target}_${r}`).setLabel(String(counts[r])).setEmoji(emoji.component(e)).setStyle(ButtonStyle.Secondary)))
+}
+// A board's leaderboard text with "Set a bounty" beside it (like the track button beside an event's details), which
+// posts a bounty on the board from your credits (interactions/bounty.js)
+function addLeaderboard(container, kind, target, content) {
+    container.addSectionComponents(new SectionBuilder()
+        .addTextDisplayComponents(text(content))
+        .setButtonAccessory(new ButtonBuilder().setCustomId(`bounty_open_${kind}_${target}`).setLabel('Set a bounty').setEmoji(emoji.component(emoji.named('bounty'))).setStyle(ButtonStyle.Secondary)))
 }
 
 const text = content => new TextDisplayBuilder().setContent(content)
@@ -252,14 +271,27 @@ function arcadeCategory(categoryId) {
 
 // A build section (arcade events and scenarios): vehicle and speed as a heading, the six upgrade stats as bare bars
 // (icon + segments), max energy, abilities, with the class's animation on the right; then the parts.
-function addBuild(container, files, b, title) {
+// Whether a card message currently shows its build's details (its button offers to hide them), so a redraw of the
+// same card (a rating, a submission, a bounty) keeps them as they were
+const buildExpanded = message => /"details_[^"]*_hide"/.test(JSON.stringify(message?.components?.map(c => c.toJSON?.() ?? c) ?? []))
+
+// The build starts condensed: one line (vehicle, speed, how many parts and abilities) with "Show details" beside it,
+// like the track line; shown (expanded), the line gets "Hide details" and the full build follows. The state lives in
+// the button (details_<kind>_<target>_<show|hide>) and survives redraws of the same card (buildExpanded).
+function addBuild(container, files, b, title, { kind, target, expanded = false } = {}) {
+    const parts = b.parts.length, abilities = abilitiesOf(b).length
+    container.addSectionComponents(new SectionBuilder()
+        .addTextDisplayComponents(text([`${cls(b.vehicleClass)} **${title}**`, `${emoji.named(b.speed.emoji)} ${b.speed.value} km/h`,
+            [parts && `${parts} part${parts == 1 ? '' : 's'}`, abilities && `${abilities} abilit${abilities == 1 ? 'y' : 'ies'}`].filter(Boolean).join(', ')].filter(Boolean).join(' / ')))
+        .setButtonAccessory(new ButtonBuilder().setCustomId(`details_${kind}_${target}_${expanded ? 'hide' : 'show'}`)
+            .setLabel(expanded ? 'Hide details' : 'Show details').setStyle(ButtonStyle.Secondary)))
+    if (!expanded) return
     // Stats in two columns, in the game's order down each: Cornering / Afterburner / Resilience, then Ramjet /
     // Battery / Advanced. As small text (-#), which shrinks the emojis, so both columns fit beside the thumbnail on
     // a phone; one en space between them.
     const stat = s => `${emoji.named(s.emoji)}${segments(s.level)}`
     const half = Math.ceil(b.build.length / 2)
     const lines = [
-        `## ${cls(b.vehicleClass)} ${title} · ${emoji.named(b.speed.emoji)} ${b.speed.value}`,
         ...b.build.slice(0, half).map((s, i) => `-# ${[stat(s), b.build[half + i] && stat(b.build[half + i])].filter(Boolean).join(' ')}`),
         `*Max Energy* ${'●'.repeat(b.maxEnergy)}${'○'.repeat(Math.max(0, MAX_ENERGY - b.maxEnergy))}`,
     ]
@@ -272,7 +304,8 @@ function addBuild(container, files, b, title) {
     if (options.length) container.addActionRowComponents(select('goto', 'View parts and abilities', options))
 }
 
-function arcadeEvent(eventId) {
+// expanded: the build's details shown (addBuild)
+function arcadeEvent(eventId, { expanded = false } = {}) {
     const e = data.event(eventId)
     const category = data.category(e.category)
     const track = data.track(e.track)
@@ -294,7 +327,7 @@ function arcadeEvent(eventId) {
     if (e.unlock) container.addTextDisplayComponents(text(unlockLine(e.unlock)))
 
     container.addSeparatorComponents(separator())
-    addBuild(container, files, e, e.vehicle)
+    addBuild(container, files, e, e.vehicle, { kind: 'arcade', target: e.id, expanded })
 
     // Leaderboard, fastest first: the medal rivals, staff times (Fuse's logo, or the publisher's), the community's
     // top 5 and the viewer's own best
@@ -304,7 +337,7 @@ function arcadeEvent(eventId) {
         ...records.staffTimes(e.id).map(s => ({ seconds: s.seconds, line: `${emoji.named(s.from == 'publisher' ? 'publisher' : 'staff')} ${boardTime(s.seconds)} ${s.user ? `<@${s.user}>` : s.name}` })),
         ...shownTimes('arcade', e.id).map(t => ({ seconds: t.time, line: timeLine(t, t.rank) })),
     ].sort((a, b) => a.seconds - b.seconds)
-    container.addTextDisplayComponents(text([...board.map(b => b.line), ...bountyLines('arcade', e.id)].join('\n')))
+    addLeaderboard(container, 'arcade', e.id, [...bountyLines('arcade', e.id), ...board.map(b => b.line)].join('\n'))
 
     return page(container, files, [
         categorySelect(e.category),
@@ -397,7 +430,7 @@ function poolTrack(t, { laps: showLaps = false } = {}) {
         showLaps && track.format != 'Point-to-point' && laps(track.defaultLaps)].filter(Boolean).join(' / ')
 }
 
-function scenarioInfo(scenarioId) {
+function scenarioInfo(scenarioId, { expanded = false } = {}) {
     const sc = data.scenario(scenarioId)
     const planet = data.planet(sc.planet)
     const files = new Files()
@@ -421,7 +454,7 @@ function scenarioInfo(scenarioId) {
     }
 
     container.addSeparatorComponents(separator())
-    addBuild(container, files, sc, sc.vehicleClass)
+    addBuild(container, files, sc, sc.vehicleClass, { kind: 'scenario', target: sc.id, expanded })
 
     // The schedule: each run of days with its event and the tracks it can draw
     container.addSeparatorComponents(separator())
@@ -438,7 +471,7 @@ function scenarioInfo(scenarioId) {
         lines.push(timeLine(t, t.rank))
     }
     container.addSeparatorComponents(separator())
-    container.addTextDisplayComponents(text(['### Times', ...(lines.length ? lines : ['-# No times yet. Be the first to submit one!']), ...bountyLines('scenario', sc.id)].join('\n')))
+    addLeaderboard(container, 'scenario', sc.id, ['### Times', ...bountyLines('scenario', sc.id), ...(lines.length ? lines : ['-# No times yet. Be the first to submit one!'])].join('\n'))
 
     return page(container, files, [
         scenarioSelect(sc.id),
@@ -1418,4 +1451,4 @@ function patternInfo(patternId) {
     return page(container, files, [patternClassSelect(c.id), patternSelect(p.class, p.id)])
 }
 
-module.exports = { creditsCard, creditsTop, arcadeTimesheet, liveriesOverview, paletteGroupInfo, paletteInfo, patternClassInfo, patternInfo, taleInfo, talesOverview, backerInfo, backersOverview, statusInfo, statusesOverview, mysteryInfo, mysteriesOverview, rivalInfo, rivalsOverview, favorInfo, favorsOverview, vehicleInfo, vehicleClassInfo, vehiclesOverview, abilityInfo, abilitiesOverview, arcadeOverview, arcadeCategory, arcadeEvent, trackInfo, planetInfo, scenarioInfo, styleInfo, partInfo, parseKeywordMask }
+module.exports = { bountyPosted, buildExpanded, creditsCard, creditsTop, arcadeTimesheet, liveriesOverview, paletteGroupInfo, paletteInfo, patternClassInfo, patternInfo, taleInfo, talesOverview, backerInfo, backersOverview, statusInfo, statusesOverview, mysteryInfo, mysteriesOverview, rivalInfo, rivalsOverview, favorInfo, favorsOverview, vehicleInfo, vehicleClassInfo, vehiclesOverview, abilityInfo, abilitiesOverview, arcadeOverview, arcadeCategory, arcadeEvent, trackInfo, planetInfo, scenarioInfo, styleInfo, partInfo, parseKeywordMask }

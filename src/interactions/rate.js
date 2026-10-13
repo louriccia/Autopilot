@@ -18,6 +18,6 @@ module.exports = {
         if (!database) return interaction.reply({ content: "Feedback can't be saved right now (no database).", flags: MessageFlags.Ephemeral })
         // A first rating of a board pays a few credits, once (src/credits.js)
         if (await records.rate(kind, target, member_id, rating)) await require('../credits.js').payRating(member_id, kind, target).catch(error => console.error('[credits]', error))
-        await interaction.update({ ...viewer.run(interaction.user.id, () => page(target)), attachments: [] })
+        await interaction.update({ ...viewer.run(interaction.user.id, () => page(target, { expanded: pages.buildExpanded(interaction.message) })), attachments: [] })
     },
 }

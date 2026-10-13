@@ -99,7 +99,7 @@ exports.announceBounty = async (client, b) => {
     if (!channel) return
     const time = b.proof ? `[**\`${fmt(b.time)}\`**](<${b.proof}>)` : `**\`${fmt(b.time)}\`**`
     await channel.send({
-        content: `${emoji.named('credits')} <@${b.user}> claims the **${b.paid.toLocaleString('en-US')}** credit bounty on **${b.item.name}** with ${time}, under ${fmt(b.under)}`,
+        content: `${emoji.named('bounty')} <@${b.user}> claims the **${b.paid.toLocaleString('en-US')}** credit bounty on **${b.item.name}** with ${time}, under ${fmt(b.under)}`,
         allowedMentions: { parse: [] },
         components: [new ActionRowBuilder().addComponents(new ButtonBuilder()
             .setCustomId(b.kind == 'arcade' ? `arcade_event_${b.item.id}` : `scenario_${b.item.id}`).setLabel('View board').setStyle(ButtonStyle.Secondary))],

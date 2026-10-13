@@ -10,7 +10,7 @@ const { formatTime } = require('../submit.js')
 // screenshot or video as proof. They end after 14 days and go back to their funders, minus a 5% fee.
 const reply = (interaction, content, ephemeral = true) => interaction.reply({ content, allowedMentions: { parse: [] }, ...(ephemeral ? { flags: MessageFlags.Ephemeral } : {}) })
 const boardName = (kind, target) => (kind == 'arcade' ? data.event(target) : data.scenario(target))?.name ?? target
-const line = b => `${emoji.named('credits')} **${b.pot.toLocaleString('en-US')}** on **${boardName(b.kind, b.target)}** for under **\`${formatTime(b.under)}\`** / ends <t:${Math.floor(b.expires / 1000)}:R>`
+const line = b => `${emoji.named('bounty')} **${b.pot.toLocaleString('en-US')}** on **${boardName(b.kind, b.target)}** for under **\`${formatTime(b.under)}\`** / ends <t:${Math.floor(b.expires / 1000)}:R>`
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -43,7 +43,7 @@ module.exports = {
         if (under == null) return reply(interaction, "That isn't a time. Use minutes:seconds like 1:08.50, or just the digits like 10850.")
         const r = await credits.postBounty({ user: member_id, kind, target, under, amount: interaction.options.getInteger('credits') })
         if (r.error) return reply(interaction, r.error)
-        return reply(interaction, `<@${member_id}> posted a bounty: ${line(credits.bounty(r.id))}`, false)
+        return interaction.reply(require('../swgr/pages.js').bountyPosted(credits.bounty(r.id)))
     },
     async autocomplete(interaction) {
         const focused = interaction.options.getFocused(true), q = focused.value.toLowerCase()
