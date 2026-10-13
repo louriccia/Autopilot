@@ -152,9 +152,10 @@ exports.readScreen = readScreen
 exports.VIDEO = VIDEO
 
 // Saves every run found in a message; returns what happened to each, for logs and backfills
-// announce: false for backfills of old posts, so they don't announce podium changes
-exports.handle = async (message, { announce = true } = {}) => {
-    if (message.author.bot || message.channelId != (testing ? test_channel : replay_channel)) return []
+// announce: false for backfills of old posts, so they don't announce podium changes. anywhere: a message outside the
+// replay channel that someone asked for with a ⏱️ reaction (bot.js)
+exports.handle = async (message, { announce = true, anywhere = false } = {}) => {
+    if (message.author.bot || (!anywhere && message.channelId != (testing ? test_channel : replay_channel))) return []
     const src = await source(message)
     const results = []
     const save = async (match, { racer, date, proof, youtube, label }) => {

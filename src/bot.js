@@ -8,11 +8,14 @@ const viewer = require('./viewer.js')
 const { errorMessage } = require('./data/flavor/error.js')
 
 const fs = require('fs');
-const { Client, Events, GatewayIntentBits, Collection, MessageFlags } = require('discord.js')
+const { Client, Events, GatewayIntentBits, Collection, MessageFlags, Partials } = require('discord.js')
 const client = new Client({
     // GuildMembers (privileged: Server Members Intent in the Developer Portal) is for join messages; GuildMessages and
     // MessageContent (privileged: Message Content Intent) for runs posted in the replay channel (src/replays.js)
-    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
+    // GuildMessageReactions (with the partials, so reactions on messages from before a restart arrive too): a ⏱️
+    // reaction asks for a message to be read as a run
+    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent, GatewayIntentBits.GuildMessageReactions],
+    partials: [Partials.Message, Partials.Reaction, Partials.User],
 });
 
 //add commands to client
@@ -120,6 +123,21 @@ client.once(Events.ClientReady, () => {
 client.on(Events.MessageCreate, message => {
     if (!message.guildId || !switchGuard(message.guildId)) return
     require('./replays.js').handle(message).catch(error => reportError('Replays', error))
+})
+
+// A ⏱️ reaction on any message reads it like a replay-channel post (src/replays.js), from people who can submit for
+// others or from the message's own author; the bot's own stopwatch reaction confirms a saved run
+client.on(Events.MessageReactionAdd, async (reaction, user) => {
+    try {
+        if (user.bot || !reaction.emoji.name?.startsWith('⏱')) return
+        if (reaction.partial) await reaction.fetch()
+        const message = reaction.message.partial ? await reaction.message.fetch() : reaction.message
+        if (!message.guildId || !switchGuard(message.guildId)) return
+        const member = await message.guild.members.fetch(user.id).catch(() => null)
+        if (user.id != message.author.id && !require('./records.js').canSubmitForOthers(member)) return
+        console.log(`reaction ⏱️ on ${message.url} by ${user.username}`)
+        await require('./replays.js').handle(message, { anywhere: true })
+    } catch (error) { reportError('Stopwatch reaction', error) }
 })
 
 // Join messages (src/welcome.js)
