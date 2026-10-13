@@ -27,7 +27,11 @@ const words = s => ` ${s.toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]
 const EVENTS = data.events.map(e => ({ event: e, key: words(e.name) })).sort((a, b) => b.key.length - a.key.length)
 // An event's medal times as the results screen shows them, bronze to gold: "3:01 2:22 2:14"
 const mmss = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
-const MEDALS = new Map(data.events.map(e => [['bronze', 'silver', 'gold'].map(m => mmss(e.medals[m].seconds)).join(' '), e]))
+// keyed by the three medal times fastest first, so the order a screen lists them in doesn't matter (results screens go
+// bronze to gold, event cards gold to bronze)
+const medalKey = seconds => [...seconds].sort((a, b) => a - b).map(mmss).join(' ')
+const MEDALS = new Map(data.events.map(e => [medalKey(['bronze', 'silver', 'gold'].map(m => e.medals[m].seconds)), e]))
+const readMedals = times => medalKey(times.map(t => readTime(t.includes('.') ? t : `${t}.00`) ?? -1))
 
 // A time is plausible for an event between 60% of gold and 1.5x bronze, which keeps out other games' tracks that
 // share a name and misreads
@@ -111,7 +115,7 @@ const rowFor = (rows, names) => rows.length == 1 ? rows[0] : rows.find(r => name
 // A read screen -> { event, seconds, title } or null. names: the racer's Discord names, to pick their row.
 exports.matchScreen = (s, names = []) => {
     if (s.screen == 'arcade_results') {
-        const event = MEDALS.get(s.medal_times.map(t => mmss(readTime(t.includes('.') ? t : `${t}.00`) ?? -1)).join(' '))
+        const event = MEDALS.get(readMedals(s.medal_times))
         if (!event) return null
         // The leaderboard row for this run: the one within a hundredth or two of the SUCCESS time, else the only one
         const success = readTime(s.success_time)
@@ -122,7 +126,7 @@ exports.matchScreen = (s, names = []) => {
     if (s.screen == 'arcade_event_card' && s.event_name && s.rows.length) {
         // The medal times identify the event when the card shows them (the model can misread the name, e.g. as the
         // planet's other event); the name is the fallback
-        const event = MEDALS.get(s.medal_times.map(t => mmss(readTime(t.includes('.') ? t : `${t}.00`) ?? -1)).join(' '))
+        const event = MEDALS.get(readMedals(s.medal_times))
             ?? exports.matchTitle(`${s.event_name} 0:00.00`, { anyTime: true })?.event
         const seconds = readTime(rowFor(s.rows, names)?.time)
         return event && plausible(event, seconds) ? { event, seconds, title: `event card` } : null
@@ -265,12 +269,21 @@ exports.handleMention = async message => {
         return reply(result.error ?? result.message)
     }
 
-    // Otherwise read what's attached
-    const results = await exports.handle(message, { anywhere: true, racer })
+    // Otherwise read what's attached. A forward's added message arrives as a separate message right after the forward,
+    // so a mention with nothing of its own reads the author's message just before it (sent within a few seconds)
+    const hasOwn = message.attachments.size || message.messageSnapshots?.size || VIDEO.test(message.content)
+    VIDEO.lastIndex = 0  // the pattern is global
+    let target = message
+    if (!hasOwn) {
+        const earlier = await message.channel.messages.fetch({ before: message.id, limit: 3 }).catch(() => null)
+        const prev = [...(earlier?.values() ?? [])].find(m => m.author.id == message.author.id)
+        if (prev && message.createdTimestamp - prev.createdTimestamp < 10000) target = prev
+    }
+    const results = await exports.handle(target, { anywhere: true, racer })
     const saved = results.filter(r => !r.skipped && !r.error)
     if (saved.length) return reply(saved.map(r => r.message).join('\n'))
     if (results.some(r => r.error)) return reply(results.find(r => r.error).error)
-    return reply(src.content || src.attachments.length
+    return reply(target != message || src.content || src.attachments.length
         ? "I couldn't find an arcade run in that. Add the event and time, like `@Autopilot Ramjet Run 1:13.59`."
         : 'Mention me with an event and a time (`@Autopilot Ramjet Run 1:13.59`), or with a screenshot or YouTube link of the run.')
 }
