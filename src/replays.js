@@ -236,7 +236,11 @@ exports.matchClaim = text => {
 // forward's too) is read as above. Answers with a short reply, without pinging anyone.
 exports.handleMention = async message => {
     const me = message.client.user
-    const others = [...message.mentions.users.values()].filter(u => !u.bot && u.id != me.id)
+    // Mentions from the text itself: Discord only lists mentioned users who are members of the server, and a racer from
+    // elsewhere (a forward from the official server) is mentioned by id
+    const ids = [...new Set([...message.content.matchAll(/<@!?(\d+)>/g)].map(m => m[1]))].filter(id => id != me.id)
+    const others = (await Promise.all(ids.map(id => message.mentions.users.get(id) ?? message.client.users.fetch(id).catch(() => null))))
+        .filter(u => u && !u.bot)
     const reply = content => message.reply({ content, allowedMentions: { parse: [], repliedUser: false }, flags: MessageFlags.SuppressNotifications }).catch(() => { })
     if (others.length > 1) return reply('Mention one racer at a time.')
     const racer = others[0] ?? message.author
@@ -252,6 +256,7 @@ exports.handleMention = async message => {
             kind: 'arcade', target: given.event.id, member: message.member, memberId: message.author.id, racer, trusted: true,
             time: formatTime(given.seconds), proof: video ? `https://youtu.be/${video}` : message.url, date: src.posted,
         })
+        console.log(`[mention] ${message.author.username} for ${racer.username}: "${given.event.name} ${formatTime(given.seconds)}" -> ${result.error ?? result.message}`)
         if (!result.error) await message.react(emoji.named('stopwatch').replace(/^<a?:|>$/g, '')).catch(() => { })
         return reply(result.error ?? result.message)
     }
