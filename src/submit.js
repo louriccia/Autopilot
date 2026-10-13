@@ -96,11 +96,11 @@ exports.submit = async ({ kind, target, member, memberId, racer, time: rawTime, 
         } catch (error) { console.error('[credits]', error) }
     }
     const creditLine = [
-        earned && `${emoji.named('credits')} **+${earned.total.toLocaleString('en-US')}** credits: ${earned.lines.map(l => `${l.label} ${l.amount > 0 ? '+' : ''}${l.amount}`).join(', ')} (${earned.note})`,
-        ...won.map(b => `${emoji.named('bounty')} **+${b.paid.toLocaleString('en-US')}** bounty won (under ${exports.formatTime(b.under)})${b.paid > b.pot ? ', the Pirate adds a quarter' : ''}`),
+        earned && `${emoji.named('credits')} **+${earned.total.toLocaleString('en-US')}**: ${earned.lines.map(l => `${l.label} ${l.amount > 0 ? '+' : ''}${l.amount}`).join(', ')} (${earned.note})`,
+        ...won.map(b => `${emoji.named('bounty')} ${emoji.named('credits')} **+${b.paid.toLocaleString('en-US')}** bounty won (under ${exports.formatTime(b.under)})${b.paid > b.pot ? ', the Pirate adds a quarter' : ''}`),
     ].filter(Boolean)
     if (creditLine.length) receipt += `\n${creditLine.join('\n')}`
-    const creditNote = [earned && `+${earned.total} credits`, ...won.map(b => `+${b.paid} bounty`)].filter(Boolean).join(', ')
+    const creditNote = [earned && `${emoji.named('credits')} +${earned.total.toLocaleString('en-US')}`, ...won.map(b => `${emoji.named('credits')} +${b.paid.toLocaleString('en-US')} bounty`)].filter(Boolean).join(', ')
 
     // first: this very time is #1 on the board (reactions show the crown for it)
     const first = rank == 1 && best.time == time

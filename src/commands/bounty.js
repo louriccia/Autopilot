@@ -9,13 +9,13 @@ const { formatTime } = require('../submit.js')
 // Bounties (src/credits.js): credits held from your balance for the first run under a time on a board, with a
 // screenshot or video as proof. They end after 14 days and go back to their funders, minus a 5% fee.
 const reply = (interaction, content, ephemeral = true) => interaction.reply({ content, allowedMentions: { parse: [] }, ...(ephemeral ? { flags: MessageFlags.Ephemeral } : {}) })
-const boardName = (kind, target) => (kind == 'arcade' ? data.event(target) : data.scenario(target))?.name ?? target
-const line = b => `${emoji.named('bounty')} **${b.pot.toLocaleString('en-US')}** on **${boardName(b.kind, b.target)}** for under **\`${formatTime(b.under)}\`** / ends <t:${Math.floor(b.expires / 1000)}:R>`
+const boardName = credits.boardName
+const line = b => `${emoji.named('bounty')} **\`${formatTime(b.under)}\`** ${emoji.named('credits')} **${b.pot.toLocaleString('en-US')}** on **${boardName(b.kind, b.target)}** (expires <t:${Math.floor(b.expires / 1000)}:R>)`
 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('bounty')
-        .setDescription('put credits on a board for the first run under a time')
+        .setDescription('put credits on a board (an event, a scenario or a total) for the first time under a target')
         .addSubcommand(sub => sub.setName('post').setDescription('post a bounty from your credits')
             .addStringOption(o => o.setName('board').setDescription('the arcade event or scenario').setRequired(true).setAutocomplete(true))
             .addStringOption(o => o.setName('under').setDescription('the time to beat, e.g. 1:08.50').setRequired(true))
@@ -38,7 +38,8 @@ module.exports = {
         }
         // post
         const [kind, target] = interaction.options.getString('board').split(':')
-        if (!target || !(kind == 'arcade' ? data.event(target) : data.scenario(target))) return reply(interaction, 'Pick an arcade event or scenario from the list.')
+        const exists = kind == 'aggregate' ? target == 'main' || data.category(target) : kind == 'arcade' ? data.event(target) : data.scenario(target)
+        if (!target || !exists) return reply(interaction, 'Pick a board from the list.')
         const under = records.parseTime(interaction.options.getString('under'))
         if (under == null) return reply(interaction, "That isn't a time. Use minutes:seconds like 1:08.50, or just the digits like 10850.")
         const r = await credits.postBounty({ user: member_id, kind, target, under, amount: interaction.options.getInteger('credits') })
@@ -51,6 +52,9 @@ module.exports = {
             return interaction.respond(credits.openBounties().map(b => ({ name: `${b.pot} credits: ${boardName(b.kind, b.target)} under ${formatTime(b.under)}`.slice(0, 100), value: b.id }))
                 .filter(o => o.name.toLowerCase().includes(q)).slice(0, 25))
         }
-        await interaction.respond(boards().filter(b => b.name.toLowerCase().includes(q)).slice(0, 25))
+        // Every board a bounty can go on: the cumulative ones (all 50, each category) and each event and scenario
+        const aggregate = [{ value: 'aggregate:main', name: 'All 50 events (total time)' },
+            ...data.categories.map(c => ({ value: `aggregate:${c.id}`, name: `All of ${c.name} (total time)` }))]
+        await interaction.respond([...aggregate, ...boards()].filter(b => b.name.toLowerCase().includes(q)).slice(0, 25))
     },
 }

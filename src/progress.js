@@ -97,12 +97,14 @@ exports.announceBounty = async (client, b) => {
     const channelId = testing ? test_channel : announce_channel
     const channel = client && channelId && await client.channels.fetch(channelId).catch(() => null)
     if (!channel) return
-    const time = b.proof ? `[**\`${fmt(b.time)}\`**](<${b.proof}>)` : `**\`${fmt(b.time)}\`**`
+    // A cumulative board's bounty is won by a total, which has no single proof to link
+    const aggregate = b.kind == 'aggregate'
+    const time = b.proof && !aggregate ? `[**\`${fmt(b.time)}\`**](<${b.proof}>)` : `**\`${fmt(b.time)}\`**`
+    const view = aggregate ? `arcade_category_${b.target == 'main' ? 'overview' : b.target}` : b.kind == 'arcade' ? `arcade_event_${b.target}` : `scenario_${b.target}`
     await channel.send({
-        content: `${emoji.named('bounty')} <@${b.user}> claims the **${b.paid.toLocaleString('en-US')}** credit bounty on **${b.item.name}** with ${time}, under ${fmt(b.under)}`,
+        content: `${emoji.named('bounty')} <@${b.user}> claims the ${emoji.named('credits')} **${b.paid.toLocaleString('en-US')}** bounty on **${b.name ?? b.item.name}** with ${aggregate ? 'a total of ' : ''}${time}, under ${fmt(b.under)}`,
         allowedMentions: { parse: [] },
-        components: [new ActionRowBuilder().addComponents(new ButtonBuilder()
-            .setCustomId(b.kind == 'arcade' ? `arcade_event_${b.item.id}` : `scenario_${b.item.id}`).setLabel('View board').setStyle(ButtonStyle.Secondary))],
+        components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(view).setLabel('View board').setStyle(ButtonStyle.Secondary))],
     })
 }
 

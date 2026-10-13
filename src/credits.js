@@ -11,6 +11,8 @@
 const { database } = require('./firebase.js')
 const records = require('./records.js')
 const data = require('./swgr/data.js')
+const emoji = require('./data/discord/emoji.js')
+const cr = n => `${emoji.named('credits')} ${Math.round(n).toLocaleString('en-US')}`  // never the word: the emoji before the number
 
 const RATES = {
     firstBoard: 100, pbBase: 50, pbPerTenth: 10, pbCap: 500,
@@ -152,7 +154,7 @@ exports.apply = (items, { proof = 'claim', backer = null } = {}) => {
     // The Hutt keeps a tenth of everything but the podium
     if (backer == 'hutt') {
         const cut = Math.round(lines.filter(l => l.kind != 'podium').reduce((n, l) => n + l.amount, 0) * 0.1)
-        if (cut) { lines.push({ label: 'Vranki keeps', amount: -cut, kind: 'cut' }); note += `, the Hutt keeps ${cut}` }
+        if (cut) { lines.push({ label: 'Vranki keeps', amount: -cut, kind: 'cut' }); note += `, the Hutt keeps ${cr(cut)}` }
     }
     lines = lines.filter(l => l.amount)
     return { lines, total: lines.reduce((n, l) => n + l.amount, 0), note }
@@ -232,13 +234,24 @@ exports.openBounties = (kind, target) => Object.entries(bounties).map(([id, b]) 
 exports.bounty = id => bounties[id] ? { id, ...bounties[id] } : null
 const BOUNTY_DAYS = 14, BOUNTY_FEE = 0.05, BOUNTY_MIN = 100
 
+// Bounty boards: an arcade event or scenario (kind arcade | scenario, target its id), or a cumulative leaderboard
+// (kind aggregate, target 'main' for all the main events or a category id), won by a racer's total across its events
+exports.aggregateEvents = target => target == 'main' ? MAIN() : data.eventsInCategory(target)
+exports.boardName = (kind, target) => kind == 'aggregate'
+    ? (target == 'main' ? `all ${MAIN().length} events` : `all of ${data.category(target)?.name ?? target}`)
+    : (kind == 'arcade' ? data.event(target) : data.scenario(target))?.name ?? target
+// The best time (or total) on a bounty board so far
+exports.bestOn = (kind, target) => kind == 'aggregate'
+    ? records.cumulative('arcade', exports.aggregateEvents(target).map(e => e.id)).ranked[0]?.time ?? null
+    : records.leaderboard(kind, target)[0]?.time ?? null
+
 // Posts a bounty for a time under `under` on a board, held from the poster's balance. Returns { id } or { error }.
 exports.postBounty = async ({ user, kind, target, under, amount }) => {
-    if (!Number.isInteger(amount) || amount < BOUNTY_MIN) return { error: `A bounty is at least ${BOUNTY_MIN} credits.` }
-    const best = records.leaderboard(kind, target)[0]
-    if (best && best.time <= under) return { error: `${fmt(best.time)} is already saved there; set the target under it.` }
+    if (!Number.isInteger(amount) || amount < BOUNTY_MIN) return { error: `A bounty is at least ${cr(BOUNTY_MIN)}.` }
+    const best = exports.bestOn(kind, target)
+    if (best != null && best <= under) return { error: `${fmt(best)} is already saved there; set the target under it.` }
     const ref = database.ref('bounties').push()
-    if (!await post(user, -amount, { reason: 'bounty posted', ref: ref.key }, { mustCover: true })) return { error: `You have ${exports.balance(user)} credits; that's not enough.` }
+    if (!await post(user, -amount, { reason: 'bounty posted', ref: ref.key }, { mustCover: true })) return { error: `You have ${cr(exports.balance(user))}; that's not enough.` }
     const value = { kind, target, under, pot: amount, funders: { [user]: amount }, postedBy: user, postedAt: Date.now(), expires: Date.now() + BOUNTY_DAYS * DAY, status: 'open' }
     await ref.set(value)
     bounties[ref.key] = value
@@ -249,31 +262,38 @@ exports.addToBounty = async ({ user, id, amount }) => {
     const b = bounties[id]
     if (!b || b.status != 'open') return { error: "That bounty isn't open." }
     if (!Number.isInteger(amount) || amount < 1) return { error: 'Add a whole number of credits.' }
-    if (!await post(user, -amount, { reason: 'bounty added to', ref: id }, { mustCover: true })) return { error: `You have ${exports.balance(user)} credits; that's not enough.` }
+    if (!await post(user, -amount, { reason: 'bounty added to', ref: id }, { mustCover: true })) return { error: `You have ${cr(exports.balance(user))}; that's not enough.` }
     await database.ref(`bounties/${id}`).transaction(v => v && v.status == 'open' ? { ...v, pot: v.pot + amount, funders: { ...v.funders, [user]: (v.funders?.[user] ?? 0) + amount } } : v)
     return { pot: (bounties[id]?.pot ?? b.pot) }
 }
 
 // A save that beats an open bounty's target with proof (screenshot or video) wins it, unless the racer funded it.
-// Returns the bounties won: [{ id, pot, paid }]
+// Returns the bounties won: [{ id, kind, target, name, pot, paid, under, time (the winning time or total) }]
 exports.claimBounties = async ({ kind, target, user, time, proof, proofHint, member, timeId }) => {
     const type = exports.proofType(proof, proofHint)
     if (type == 'claim') return []
     const won = []
-    for (const b of exports.openBounties(kind, target)) {
-        if (time >= b.under || b.funders?.[user]) continue
+    // The board's own bounties, by this time; and, for an arcade event, the cumulative boards it belongs to, by the
+    // racer's total across them once they have every one
+    const aggregate = kind == 'arcade' ? exports.openBounties().filter(b => b.kind == 'aggregate' && exports.aggregateEvents(b.target).some(e => e.id == target)) : []
+    const candidates = [
+        ...exports.openBounties(kind, target).map(b => ({ b, score: time })),
+        ...aggregate.map(b => ({ b, score: records.cumulative('arcade', exports.aggregateEvents(b.target).map(e => e.id)).ranked.find(t => t.user == user)?.time })),
+    ]
+    for (const { b, score } of candidates) {
+        if (score == null || score >= b.under || b.funders?.[user]) continue
         // Claim it atomically, so two saves can't both win it
         let claimed = false
         await database.ref(`bounties/${b.id}`).transaction(v => {
             if (!v || v.status != 'open') return v
             claimed = true
-            return { ...v, status: 'won', winner: user, time, wonAt: Date.now(), timeId: timeId ?? null }
+            return { ...v, status: 'won', winner: user, time: score, wonAt: Date.now(), timeId: timeId ?? null }
         })
         if (!claimed) continue
         const backer = exports.backerOf(user, member)
         const paid = Math.round(b.pot * (backer == 'pirate' ? 1.25 : 1))
-        await post(user, paid, { reason: 'bounty won', ref: b.id, board: `${kind}:${target}`, backer })
-        won.push({ id: b.id, pot: b.pot, paid, under: b.under })
+        await post(user, paid, { reason: 'bounty won', ref: b.id, board: `${b.kind}:${b.target}`, backer })
+        won.push({ id: b.id, kind: b.kind, target: b.target, name: exports.boardName(b.kind, b.target), pot: b.pot, paid, under: b.under, time: score })
     }
     return won
 }

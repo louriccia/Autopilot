@@ -26,7 +26,7 @@ module.exports = {
         }
         if (event) return interaction.reply(arcadeEvent(event))
         if (category) return interaction.reply(arcadeCategory(category))
-        return interaction.reply(arcadeOverview())
+        return interaction.reply(arcadeOverview(await require('./timesheet.js').racerOf(interaction, interaction.user.id)))
     },
     async autocomplete(interaction) {
         const query = interaction.options.getFocused()

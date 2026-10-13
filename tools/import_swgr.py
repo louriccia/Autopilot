@@ -417,6 +417,7 @@ def main():
     emojis.add("unknown", ui_icons / "Map" / "T_UI_Map_Unknown_Icn.png")  # a run found but not whose (reaction)
     emojis.add("credits", ui_icons / "T_UI_CreditCurrency_Icn.png")  # the credits currency
     emojis.add("bounty", ui_icons / "T_UI_Risk_Targeted_Icn.png")  # bounties: the game's targeted marker
+    emojis.add("tick", ui_icons / "T_UI_Tick_Icn.png")  # a board you have a time on, but outside the top 10 (event menus)
     # Show / hide details: the game's worn filled triangle (it points left), turned to point down and up
     chevron = Image.open(ui_icons / "T_UI_Arrow_Icn.png").convert("RGBA")
     chevron = chevron.crop(chevron.getbbox())
