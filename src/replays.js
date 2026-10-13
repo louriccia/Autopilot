@@ -14,7 +14,7 @@
 // alone. Needs the GuildMessages and Message Content (privileged) intents.
 const { SnowflakeUtil, MessageFlags } = require('discord.js')
 const { testing } = require('../config.js')
-const { replay_channel, test_channel } = require('./data/discord/channel.js')
+const { replay_channels, test_channel } = require('./data/discord/channel.js')
 const data = require('./swgr/data.js')
 const emoji = require('./data/discord/emoji.js')
 const { submit, formatTime } = require('./submit.js')
@@ -166,7 +166,7 @@ const confirm = (message, saved) => message.react(emoji.named(saved.some(r => r.
 // replay channel that someone asked for (a ⏱️ reaction or an @Autopilot mention, bot.js). racer: the user an
 // @Autopilot mention names, who gets every run found (over a video channel's owner too)
 exports.handle = async (message, { announce = true, anywhere = false, racer: chosen = null } = {}) => {
-    if (message.author.bot || (!anywhere && message.channelId != (testing ? test_channel : replay_channel))) return []
+    if (message.author.bot || (!anywhere && !(testing ? [test_channel] : replay_channels).includes(message.channelId))) return []
     const src = await source(message)
     const results = []
     const save = async (match, { racer, date, proof, youtube, label, proofType }) => {
