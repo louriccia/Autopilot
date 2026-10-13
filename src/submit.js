@@ -39,6 +39,19 @@ exports.submit = async ({ kind, target, member, memberId, racer, time: rawTime, 
         if (racer.bot) return { error: "Bots don't race." }
         user = racer.id
     }
+    // Staff (anyone with a staff time linked to their Discord id) keep their arcade runs as staff times, shown with the
+    // developer's or publisher's logo instead of on the community board; a slower run doesn't replace a faster one
+    const staffer = kind == 'arcade' && records.staffOf(user)
+    if (staffer) {
+        const current = records.staffTimes(target).find(s => s.user == user || s.name == staffer.name)
+        const faster = !current || time < current.seconds
+        if (faster) await records.setStaffTime(target, staffer.name, time, staffer.from, user)
+        const message = faster
+            ? `Saved ${exports.formatTime(time)} on ${item.name} as ${staffer.name}'s ${staffer.from} staff time${current ? ` (was ${exports.formatTime(current.seconds)})` : ''}.`
+            : `${staffer.name}'s ${staffer.from} staff time on ${item.name} is already ${exports.formatTime(current.seconds)}, faster than ${exports.formatTime(time)}.`
+        return { message, receipt: message, duplicate: !faster, updated: [], staff: true }
+    }
+
     // Left empty: the racer's last platform, else their console role (fetched when it's someone else). Only a picked
     // platform replaces the one on a resubmitted time.
     const picked = records.PLATFORMS.includes(platform)

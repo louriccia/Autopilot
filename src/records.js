@@ -182,6 +182,12 @@ exports.removeTime = async id => {
 // Staff times for an arcade event, from the community leaderboard sheet's highlighted staff entries
 exports.staffTimes = event => Object.entries(staff[event] ?? {}).map(([key, s]) => ({ name: s.name ?? key, ...s }))
 
+// Who a Discord id is as staff ({ name, from }), from any staff time linked to them; null for everyone else
+exports.staffOf = user => {
+    for (const event of Object.values(staff)) for (const s of Object.values(event)) if (s.user == user) return { name: s.name, from: s.from }
+    return null
+}
+
 // Firebase keys can't hold . # $ [ ] /
 const staffKey = name => name.replace(/[.#$\[\]/]/g, '_')
 // user: their Discord id, when known (the card then shows them as a mention instead of the name)

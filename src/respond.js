@@ -1,19 +1,11 @@
 const { MessageFlags } = require('discord.js')
 
-// Answer a select/button on a public message: the person who ran the command navigates in place, anyone
-// else gets their own private copy so they can browse without changing what everyone else is looking at. A message
-// the bot posted on its own (a podium announcement) has no owner, so everyone gets a private copy.
+// Answer a select/button on a card by redrawing it in place, for whoever used it: anyone can move any card along, and
+// the page shows their view (their own time and rival, src/viewer.js). A message the bot posted on its own (a podium
+// announcement's View board button) isn't a card, so the page opens as a private copy instead.
 exports.navigate = async function (interaction, payload) {
-    const owner = interaction.message.interactionMetadata?.user?.id
-    const ephemeral = interaction.message.flags.has(MessageFlags.Ephemeral)
-    if (ephemeral || (owner && owner == interaction.user.id)) {
-        // `attachments: []` drops the previous page's images; `files` uploads this page's.
-        await interaction.update({ ...payload, attachments: [] })
-    } else {
-        // Redraw the public message unchanged first: otherwise their Discord keeps showing the option they picked in
-        // its menu, so the card looks like the page they chose while its buttons (Submit time) still act on the old
-        // one. Then their page follows as a private message.
-        await interaction.update({ components: interaction.message.components })
-        await interaction.followUp({ ...payload, flags: (payload.flags ?? 0) | MessageFlags.Ephemeral })
-    }
+    const card = interaction.message.interactionMetadata || interaction.message.flags.has(MessageFlags.Ephemeral)
+    // `attachments: []` drops the previous page's images; `files` uploads this page's.
+    if (card) return interaction.update({ ...payload, attachments: [] })
+    await interaction.reply({ ...payload, flags: (payload.flags ?? 0) | MessageFlags.Ephemeral })
 }
