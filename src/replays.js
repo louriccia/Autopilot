@@ -12,7 +12,7 @@
 // Forwarded messages count too: their links and images are read from the forwarded copy, and the original message
 // is looked up for its author and time. Anything else (campaign runs, chat, a title naming no event or two) is left
 // alone. Needs the GuildMessages and Message Content (privileged) intents.
-const { SnowflakeUtil } = require('discord.js')
+const { SnowflakeUtil, MessageFlags } = require('discord.js')
 const { testing } = require('../config.js')
 const { replay_channel, test_channel } = require('./data/discord/channel.js')
 const data = require('./swgr/data.js')
@@ -155,8 +155,9 @@ exports.VIDEO = VIDEO
 
 // Saves every run found in a message; returns what happened to each, for logs and backfills
 // announce: false for backfills of old posts, so they don't announce podium changes. anywhere: a message outside the
-// replay channel that someone asked for with a ⏱️ reaction (bot.js)
-exports.handle = async (message, { announce = true, anywhere = false } = {}) => {
+// replay channel that someone asked for (a ⏱️ reaction or an @Autopilot mention, bot.js). racer: the user an
+// @Autopilot mention names, who gets every run found (over a video channel's owner too)
+exports.handle = async (message, { announce = true, anywhere = false, racer: chosen = null } = {}) => {
     if (message.author.bot || (!anywhere && message.channelId != (testing ? test_channel : replay_channel))) return []
     const src = await source(message)
     const results = []
@@ -172,7 +173,7 @@ exports.handle = async (message, { announce = true, anywhere = false } = {}) => 
     // the bot can't see (Discord doesn't say who wrote a forwarded message, and the original may be in a server the
     // bot isn't in)
     const mentioned = [...message.mentions.users.values()].filter(u => !u.bot)
-    const named = mentioned.length == 1 && records.canSubmitForOthers(message.member) ? mentioned[0] : null
+    const named = chosen ?? (mentioned.length == 1 && records.canSubmitForOthers(message.member) ? mentioned[0] : null)
     let unclaimed = 0  // runs found without a racer to credit (answered with ❓)
 
     // Videos: credited to the channel's owner; an unlinked channel is linked to the racer named, else the original poster
@@ -182,7 +183,7 @@ exports.handle = async (message, { announce = true, anywhere = false } = {}) => 
         const v = info[id]
         const match = v?.title && exports.matchTitle(v.title)
         if (!match) { results.push({ label: v?.title ?? id, skipped: true }); continue }
-        let owner = v.channelId && records.youtubeOwner(v.channelId)
+        let owner = chosen?.id ?? (v.channelId && records.youtubeOwner(v.channelId))
         const claimant = named ?? (src.author && !src.author.bot ? src.author : null)
         if (!owner && claimant) {
             owner = claimant.id
@@ -215,4 +216,52 @@ exports.handle = async (message, { announce = true, anywhere = false } = {}) => 
     else if (unclaimed) await message.react('❓').catch(() => { })
     for (const r of results) console.log(`[replays] ${message.author.username}${src.forward ? ' (forward)' : ''}: "${r.label}" -> ${r.skipped ? `skipped${r.why ? ` (${r.why})` : ''}` : r.error ?? `${r.message}`}`)
     return results
+}
+
+// A typed claim: one event name and a time in any form /submit takes ("1:13.59", "10892", "55.1", "1:10:00"), the
+// first number that reads as a plausible time for that event
+exports.matchClaim = text => {
+    const event = exports.matchTitle(`${text} 0:00.00`, { anyTime: true })?.event
+    if (!event) return null
+    for (const token of text.match(/\d[\d:.]*\d|\d/g) ?? []) {
+        const seconds = readTime(token)
+        if (plausible(event, seconds)) return { event, seconds }
+    }
+    return null
+}
+
+// "@Autopilot [@racer] [event time]" anywhere (bot.js): submits a run on the spot. The racer is the one other person
+// mentioned (people who can submit for others only), else the author. An event and a time in the text are saved as
+// given, with the message's link, video or attachment as proof; otherwise the attached screenshot or YouTube link (a
+// forward's too) is read as above. Answers with a short reply, without pinging anyone.
+exports.handleMention = async message => {
+    const me = message.client.user
+    const others = [...message.mentions.users.values()].filter(u => !u.bot && u.id != me.id)
+    const reply = content => message.reply({ content, allowedMentions: { parse: [], repliedUser: false }, flags: MessageFlags.SuppressNotifications }).catch(() => { })
+    if (others.length > 1) return reply('Mention one racer at a time.')
+    const racer = others[0] ?? message.author
+    if (racer.id != message.author.id && !records.canSubmitForOthers(message.member)) return reply("You can only submit your own times. Leave out the mention to submit yours.")
+
+    // An event and time written out: "@Autopilot Ramjet Run 1:13.59"
+    const src = await source(message)
+    const text = message.content.replace(/<@[!&]?\d+>/g, ' ').replace(/https?:\/\/\S+/g, ' ')  // no mentions or links (their digits aren't times)
+    const given = exports.matchClaim(text)
+    if (given) {
+        const video = [...`${message.content} ${src.content}`.matchAll(VIDEO)][0]?.[1]
+        const result = await submit({
+            kind: 'arcade', target: given.event.id, member: message.member, memberId: message.author.id, racer, trusted: true,
+            time: formatTime(given.seconds), proof: video ? `https://youtu.be/${video}` : message.url, date: src.posted,
+        })
+        if (!result.error) await message.react(emoji.named('stopwatch').replace(/^<a?:|>$/g, '')).catch(() => { })
+        return reply(result.error ?? result.message)
+    }
+
+    // Otherwise read what's attached
+    const results = await exports.handle(message, { anywhere: true, racer })
+    const saved = results.filter(r => !r.skipped && !r.error)
+    if (saved.length) return reply(saved.map(r => r.message).join('\n'))
+    if (results.some(r => r.error)) return reply(results.find(r => r.error).error)
+    return reply(src.content || src.attachments.length
+        ? "I couldn't find an arcade run in that. Add the event and time, like `@Autopilot Ramjet Run 1:13.59`."
+        : 'Mention me with an event and a time (`@Autopilot Ramjet Run 1:13.59`), or with a screenshot or YouTube link of the run.')
 }

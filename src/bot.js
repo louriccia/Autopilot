@@ -122,10 +122,14 @@ client.once(Events.ClientReady, () => {
 // Runs posted as videos in the replay channel (src/replays.js)
 client.on(Events.MessageCreate, message => {
     if (!message.guildId || !switchGuard(message.guildId)) return
-    // In a submit channel (SUBMIT_CHANNEL_IDS, #autopilot), posts by people who can submit for others count too
-    const { submit_channels } = require('./data/discord/channel.js')
-    const anywhere = submit_channels.includes(message.channelId) && require('./records.js').canSubmitForOthers(message.member)
-    require('./replays.js').handle(message, { anywhere }).catch(error => reportError('Replays', error))
+    // "@Autopilot ..." anywhere submits a run (src/replays.js handleMention): the bot's own mention, or its role's (Discord
+    // offers both in the picker). Replying to the bot isn't a mention of it here.
+    const role = message.guild.members.me?.roles.botRole?.id
+    const replays = require('./replays.js')
+    if (!message.author.bot && new RegExp(`<@!?${client.user.id}>${role ? `|<@&${role}>` : ''}`).test(message.content)) {
+        return replays.handleMention(message).catch(error => reportError('Mention', error))
+    }
+    replays.handle(message).catch(error => reportError('Replays', error))
 })
 
 // A ⏱️ reaction on any message reads it like a replay-channel post (src/replays.js), from people who can submit for
