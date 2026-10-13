@@ -87,9 +87,9 @@ const platformMark = p => !p ? '' : records.PLATFORMS.includes(p) ? ` ${emoji.na
 // The viewer's declared rival (/times rival) gets the rival marker
 const timeLine = (t, rank) => `${place(rank)} ${t.proof ? `[${boardTime(t.time)}](<${t.proof}>)` : boardTime(t.time)} <@${t.user}>${platformMark(t.platform)}${t.user == records.rivalOf(viewer.id()) ? ` ${emoji.named('rival')}` : ''}`
 // A board's open bounties (/bounty): the pot, the time to beat and when it ends
-// (at the top of its leaderboard): "[bounty] 54.00 [credits] 100 / expires in 14 days"
+// (at the top of its leaderboard): "[bounty] 54.00 [credits] 100 (expires in 14 days)"
 const bountyLines = (kind, target) => credits.openBounties(kind, target).map(b =>
-    `${emoji.named('bounty')} ${boardTime(b.under)} ${emoji.named('credits')} **${b.pot.toLocaleString('en-US')}** / expires <t:${Math.floor(b.expires / 1000)}:R>`)
+    `${emoji.named('bounty')} ${boardTime(b.under)} ${emoji.named('credits')} **${b.pot.toLocaleString('en-US')}** (expires <t:${Math.floor(b.expires / 1000)}:R>)`)
 
 // The public message for a newly posted bounty (the card's "Set a bounty" and /bounty post)
 function bountyPosted(b) {
@@ -121,7 +121,7 @@ function recordButtons(kind, target) {
 function addLeaderboard(container, kind, target, content) {
     container.addSectionComponents(new SectionBuilder()
         .addTextDisplayComponents(text(content))
-        .setButtonAccessory(new ButtonBuilder().setCustomId(`bounty_open_${kind}_${target}`).setLabel('Set a bounty').setEmoji(emoji.component(emoji.named('bounty'))).setStyle(ButtonStyle.Secondary)))
+        .setButtonAccessory(new ButtonBuilder().setCustomId(`bounty_open_${kind}_${target}`).setEmoji(emoji.component(emoji.named('bounty'))).setStyle(ButtonStyle.Secondary)))
 }
 
 const text = content => new TextDisplayBuilder().setContent(content)
@@ -173,14 +173,19 @@ function categorySelect(current) {
         data.categories.map(c => ({ label: c.name, value: c.id, description: `${data.eventsInCategory(c.id).length} events`, emoji: categoryEmoji(c) })), current)
 }
 
+// Each event shows the viewer's place on its board as its emoji (place_1 to place_10), else its vehicle class
 function eventSelect(events, current) {
+    const me = viewer.id()
     return select('arcade_event', 'Pick an event',
-        events.map(e => ({
-            label: e.name,
-            value: e.id,
-            description: `${data.track(e.track).name} · ${e.vehicle} · Gold ${e.medals.gold.time}`.slice(0, 100),
-            emoji: emoji.vehicle[e.vehicleClass],
-        })), current)
+        events.map(e => {
+            const rank = me ? records.leaderboard('arcade', e.id).findIndex(t => t.user == me) + 1 : 0
+            return {
+                label: e.name,
+                value: e.id,
+                description: `${data.track(e.track).name} · ${e.vehicle} · Gold ${e.medals.gold.time}`.slice(0, 100),
+                emoji: rank && rank <= 10 ? emoji.named(`place_${rank}`) : emoji.vehicle[e.vehicleClass],
+            }
+        }), current)
 }
 
 function planetSelect(current) {
@@ -284,7 +289,8 @@ function addBuild(container, files, b, title, { kind, target, expanded = false }
         .addTextDisplayComponents(text([`${cls(b.vehicleClass)} **${title}**`, `${emoji.named(b.speed.emoji)} ${b.speed.value} km/h`,
             [parts && `${parts} part${parts == 1 ? '' : 's'}`, abilities && `${abilities} abilit${abilities == 1 ? 'y' : 'ies'}`].filter(Boolean).join(', ')].filter(Boolean).join(' / ')))
         .setButtonAccessory(new ButtonBuilder().setCustomId(`details_${kind}_${target}_${expanded ? 'hide' : 'show'}`)
-            .setLabel(expanded ? 'Hide details' : 'Show details').setStyle(ButtonStyle.Secondary)))
+            .setEmoji(emoji.component(emoji.named(expanded ? 'chevron_up' : 'chevron_down')))
+            .setStyle(ButtonStyle.Secondary)))
     if (!expanded) return
     // Stats in two columns, in the game's order down each: Cornering / Afterburner / Resilience, then Ramjet /
     // Battery / Advanced. As small text (-#), which shrinks the emojis, so both columns fit beside the thumbnail on

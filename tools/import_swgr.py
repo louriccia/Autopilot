@@ -417,6 +417,19 @@ def main():
     emojis.add("unknown", ui_icons / "Map" / "T_UI_Map_Unknown_Icn.png")  # a run found but not whose (reaction)
     emojis.add("credits", ui_icons / "T_UI_CreditCurrency_Icn.png")  # the credits currency
     emojis.add("bounty", ui_icons / "T_UI_Risk_Targeted_Icn.png")  # bounties: the game's targeted marker
+    # Show / hide details: the game's worn filled triangle (it points left), turned to point down and up
+    chevron = Image.open(ui_icons / "T_UI_Arrow_Icn.png").convert("RGBA")
+    chevron = chevron.crop(chevron.getbbox())
+    # Discord draws button emojis at a fixed size, so the triangle sits small in a transparent square (about half its
+    # width) rather than filling it
+    def small(im, size=128, scale=0.5):
+        im = im.copy()
+        im.thumbnail((int(size * scale), int(size * scale)), Image.LANCZOS)
+        out = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+        out.alpha_composite(im, ((size - im.width) // 2, (size - im.height) // 2))
+        return out
+    emojis.add_image("chevron_down", small(chevron.rotate(90, expand=True)))
+    emojis.add_image("chevron_up", small(chevron.rotate(-90, expand=True)))
     # Inline-icon widget ids that don't match a keyword icon's file name, but have an icon elsewhere in the game
     # Critical Malfunction has no icon of its own: the game shows System Malfunction's
     KEYWORD_ALIASES = {"Surging": "Surge", "Ability": "Abilities", "SysMalfunction": "SystemMalfunction", "CritMalfunction": "SystemMalfunction",

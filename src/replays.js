@@ -23,7 +23,8 @@ const records = require('./records.js')
 const VIDEO = /(?:youtube\.com\/(?:watch\?(?:\S*?&)?v=|shorts\/|live\/)|youtu\.be\/)([\w-]{11})/g
 const VISION_MODEL = process.env.OPENAI_MODEL || 'gpt-5.4-mini'
 // Lowercase words separated by single spaces, padded so names only match whole words
-const words = s => ` ${s.toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').trim()} `
+// (apostrophes dropped, so "Scrappers Run" matches "Scrapper's Run")
+const words = s => ` ${s.toLowerCase().replace(/['’`]/g, '').replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').trim()} `
 const EVENTS = data.events.map(e => ({ event: e, key: words(e.name) })).sort((a, b) => b.key.length - a.key.length)
 // An event's medal times as the results screen shows them, bronze to gold: "3:01 2:22 2:14"
 const mmss = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
