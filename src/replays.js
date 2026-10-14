@@ -242,6 +242,16 @@ exports.handle = async (message, { announce = true, anywhere = false, racer: cho
         }
     }
 
+    // A video file attached, with the event and time written in the post ("Speeder Bike Ace 1:20.39"): the video file is
+    // the proof (its CDN link, which opens the video itself). Credited like a screenshot.
+    const clips = src.attachments.filter(a => a.contentType?.startsWith('video/'))
+    const claim = clips.length && exports.matchClaim(src.content.replace(/<@[!&]?\d+>/g, ' ').replace(/https?:\/\/\S+/g, ' '))
+    if (claim) {
+        const racer = named ?? src.author
+        if (!racer || racer.bot) { unclaimed++; results.push({ label: clips[0].name, skipped: true, why: 'a run, but whose? (forward without a mention)' }) }
+        else await save(claim, { racer, date: src.posted, proof: clips[0].url, proofType: 'video', label: `${clips[0].name} ("${src.content.slice(0, 60)}")` })
+    }
+
     const saved = results.filter(r => !r.skipped && !r.error)
     if (saved.length) await confirm(message, saved)
     else if (unclaimed) await message.react(emoji.named('unknown').replace(/^<a?:|>$/g, '') || '❓').catch(() => { })  // the game's "?" marker
@@ -298,10 +308,12 @@ exports.handleMention = async message => {
     if (given) {
         const video = [...`${message.content} ${src.content} ${tsrc.content}`.matchAll(VIDEO)][0]?.[1]
         const shot = message.attachments.size || src.attachments.length ? message : tsrc.attachments.length ? target : null
+        // an attached video file is video proof, like a YouTube link, and its own link is the proof
+        const clip = [...message.attachments.values(), ...src.attachments, ...tsrc.attachments].find(a => a.contentType?.startsWith('video/'))
         const result = await submit({
             kind: 'arcade', target: given.event.id, member: message.member, memberId: message.author.id, racer, trusted: true,
-            time: formatTime(given.seconds), proof: video ? `https://youtu.be/${video}` : (shot ?? message).url, date: tsrc.posted,
-            proofType: video ? 'video' : shot ? 'screenshot' : 'claim',
+            time: formatTime(given.seconds), proof: video ? `https://youtu.be/${video}` : clip ? clip.url : (shot ?? message).url, date: tsrc.posted,
+            proofType: video || clip ? 'video' : shot ? 'screenshot' : 'claim',
         })
         console.log(`[mention] ${message.author.username} for ${racer.username}: "${given.event.name} ${formatTime(given.seconds)}" -> ${result.error ?? result.message}`)
         if (!result.error) await confirm(message, [result])
