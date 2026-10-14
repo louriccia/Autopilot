@@ -238,7 +238,7 @@ exports.handle = async (message, { announce = true, anywhere = false, racer: cho
             }
             if (match && (!racer || racer.bot)) { unclaimed++; results.push({ label: image.name, skipped: true, why: "a run, but whose? (forward without a mention)" }); continue }
             if (!match) { results.push({ label: image.name, skipped: true, why: screen.error?.message ?? screen.screen }); continue }
-            await save(match, { racer, date: src.posted, proof: message.url, proofType: 'screenshot', label: `${image.name} (${match.title})` })
+            await save(match, { racer, date: src.posted, proof: image.url, proofType: 'screenshot', label: `${image.name} (${match.title})` })
         }
     }
 
@@ -274,7 +274,7 @@ exports.matchClaim = text => {
 
 // "@Autopilot [@racer] [event time]" anywhere (bot.js): submits a run on the spot. The racer is the one other person
 // mentioned (people who can submit for others only), else the author. An event and a time in the text are saved as
-// given, with the message's link, video or attachment as proof; otherwise the attached screenshot or YouTube link (a
+// given, with the message's video link or attached file (else the message itself) as proof; otherwise the attached screenshot or YouTube link (a
 // forward's too) is read as above. Answers with a short reply, without pinging anyone.
 exports.handleMention = async message => {
     const me = message.client.user
@@ -308,11 +308,13 @@ exports.handleMention = async message => {
     if (given) {
         const video = [...`${message.content} ${src.content} ${tsrc.content}`.matchAll(VIDEO)][0]?.[1]
         const shot = message.attachments.size || src.attachments.length ? message : tsrc.attachments.length ? target : null
-        // an attached video file is video proof, like a YouTube link, and its own link is the proof
-        const clip = [...message.attachments.values(), ...src.attachments, ...tsrc.attachments].find(a => a.contentType?.startsWith('video/'))
+        // an attached video file is video proof, like a YouTube link; a file's own link is the proof (the post's when
+        // it's some other file)
+        const files = [...message.attachments.values(), ...src.attachments, ...tsrc.attachments]
+        const clip = files.find(a => a.contentType?.startsWith('video/')), image = files.find(a => a.contentType?.startsWith('image/'))
         const result = await submit({
             kind: 'arcade', target: given.event.id, member: message.member, memberId: message.author.id, racer, trusted: true,
-            time: formatTime(given.seconds), proof: video ? `https://youtu.be/${video}` : clip ? clip.url : (shot ?? message).url, date: tsrc.posted,
+            time: formatTime(given.seconds), proof: video ? `https://youtu.be/${video}` : (clip ?? image)?.url ?? (shot ?? message).url, date: tsrc.posted,
             proofType: video || clip ? 'video' : shot ? 'screenshot' : 'claim',
         })
         console.log(`[mention] ${message.author.username} for ${racer.username}: "${given.event.name} ${formatTime(given.seconds)}" -> ${result.error ?? result.message}`)
