@@ -158,6 +158,18 @@ exports.videos = videos
 exports.readScreen = readScreen
 exports.VIDEO = VIDEO
 
+// Whether the author mentions the bot right after a message (within a few seconds): the mention handles that message
+async function mentionFollows(message, wait = 4000) {
+    await new Promise(r => setTimeout(r, wait))
+    const after = await message.channel.messages.fetch({ after: message.id, limit: 5 }).catch(() => null)
+    const me = message.client.user.id
+    return [...(after?.values() ?? [])].some(m => m.author.id == message.author.id && m.createdTimestamp - message.createdTimestamp < 10000
+        && new RegExp(`<@!?${me}>`).test(m.content))
+}
+
+// Takes back the bot's "?" (whose run?) from a message, once a mention has named the racer
+const unmarkUnknown = message => message.reactions.cache.find(r => r.me && (r.emoji.name == 'unknown' || r.emoji.name == '❓'))?.users.remove(message.client.user.id).catch(() => { })
+
 // The reaction that confirms saved runs: the game's crown when one of them is #1 on its board, else the stopwatch
 const confirm = (message, saved) => message.react(emoji.named(saved.some(r => r.first) ? 'crown' : 'stopwatch').replace(/^<a?:|>$/g, '')).catch(() => { })
 
@@ -168,6 +180,10 @@ const confirm = (message, saved) => message.react(emoji.named(saved.some(r => r.
 exports.handle = async (message, { announce = true, anywhere = false, racer: chosen = null } = {}) => {
     if (message.author.bot || (!anywhere && !(testing ? [test_channel] : replay_channels).includes(message.channelId))) return []
     const src = await source(message)
+    // A forward whose author the bot can't see is usually followed by "@Autopilot @racer" a moment later, which reads
+    // it with the racer named; read on its own, it would only get a "?" (whose run?) beside that save. So wait a few
+    // seconds and leave it to the mention if one comes.
+    if (!anywhere && src.forward && !src.author && await mentionFollows(message)) return []
     const results = []
     const save = async (match, { racer, date, proof, youtube, label, proofType }) => {
         const result = await submit({
@@ -288,6 +304,7 @@ exports.handleMention = async message => {
     // Otherwise read what's attached
     const results = await exports.handle(target, { anywhere: true, racer })
     const saved = results.filter(r => !r.skipped && !r.error)
+    if (saved.length && target != message) await unmarkUnknown(target)
     if (saved.length) return reply(saved.map(r => r.message).join('\n'))
     if (results.some(r => r.error)) return reply(results.find(r => r.error).error)
     return reply(target != message || src.content || src.attachments.length
