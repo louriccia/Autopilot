@@ -28,10 +28,17 @@ async function run(client, feed, report) {
             console.log(`[feeds] ${feed.name}: primed (${messages.length} existing item(s) not posted)`)
         }
         await state.save(feed.name)
+        if (feed.failures >= REPORT_AFTER) console.log(`[feeds] ${feed.name}: working again after ${feed.failures} failed checks`)
+        feed.failures = 0
     } catch (error) {
-        report(`Feed: ${feed.name}`, error)
+        // A feed's source failing once (a timeout, a 500) usually fixes itself by the next check, so only a run of
+        // failures is reported to the log channel, once per run; every failure still goes to the console
+        feed.failures = (feed.failures ?? 0) + 1
+        if (feed.failures == REPORT_AFTER) report(`Feed: ${feed.name} (failing ${REPORT_AFTER} checks in a row)`, error)
+        else console.error(`[feeds] ${feed.name} failed (${feed.failures} in a row):`, error.message)
     }
 }
+const REPORT_AFTER = 3
 
 exports.start = async function (client, report) {
     await state.load()

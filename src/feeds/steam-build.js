@@ -28,7 +28,16 @@ module.exports = {
     every: 5 * 60 * 1000,
     async check(seen, { preview = false } = {}) {
         await login()
-        const { apps } = await steam.getProductInfo([APP], [], true)
+        let apps
+        try {
+            ({ apps } = await steam.getProductInfo([APP], [], true))
+        } catch (error) {
+            // A session can go stale without an error (every request then times out), so a failed request drops it
+            // and the next check logs in afresh
+            try { steam?.logOff() } catch { }
+            steam = null
+            throw error
+        }
         const depots = apps[APP].appinfo.depots
         const build = depots.branches.public
         const manifest = depots[DEPOT]?.manifests?.public ?? {}
