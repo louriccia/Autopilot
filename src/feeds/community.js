@@ -1,7 +1,7 @@
 // What people post about the game around the internet, for #community (COMMUNITY_CHANNEL_ID): the subreddit's top
 // posts of the day, YouTube videos about the game that catch on, popular Twitch clips and news articles. Four feeds
 // sharing one channel; each posts an item once (seen.posted) and at most MAX_PER_CHECK at a time.
-const { card, when } = require('./card.js')
+const { EmbedBuilder } = require('discord.js')
 const { CHANNELS: OFFICIAL } = require('./youtube.js')
 const twitch = require('./twitch.js')
 
@@ -20,6 +20,18 @@ const unescape = s => (s ?? '').replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').rep
     .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&#32;/g, ' ').replace(/&amp;/g, '&')
 const truncate = (s, n) => !s ? '' : s.length <= n ? s : `${s.slice(0, n - 1)}…`
 const seconds = date => Math.floor(Date.parse(date) / 1000)
+
+// A classic embed, styled like the preview Discord makes for a posted link: who posted it as the author line, the
+// title linking out, a line of text, the picture, and the site and date in the footer
+function embed({ author, title, url, text, image, thumbnail, site, published, color }) {
+    const e = new EmbedBuilder().setColor(color).setTitle(truncate(title, 256)).setURL(url).setFooter({ text: site })
+    if (author) e.setAuthor({ name: truncate(author, 256) })
+    if (text) e.setDescription(truncate(text, 300))
+    if (image) e.setImage(image)
+    if (thumbnail) e.setThumbnail(thumbnail)
+    if (published) e.setTimestamp(published * 1000)
+    return { embeds: [e] }
+}
 
 // The new ones among what a feed found (all of them for a preview), remembering everything it found
 function fresh(seen, items, preview) {
@@ -52,12 +64,14 @@ const reddit = {
                     .replace(/submitted by[\s\S]*$/, '').replace(/\[link\]|\[comments\]/g, '').trim(),
             }
         })
-        return fresh(seen, posts, preview).map(p => card({
-            source: `Reddit / r/${SUBREDDIT} / ${p.author} / ${when(p.published, 'R')}`,
-            title: truncate(p.title, 200),
-            lines: [truncate(p.text.split('\n').find(l => l.trim()), 300)],
+        return fresh(seen, posts, preview).map(p => embed({
+            author: `${p.author} in r/${SUBREDDIT}`,
+            title: p.title,
+            url: p.link,
+            text: p.text.split('\n').find(l => l.trim()),
             thumbnail: p.image,
-            links: [['Read on Reddit', p.link]],
+            site: 'Reddit',
+            published: p.published,
             color: 0xff4500,
         }))
     },
@@ -88,12 +102,14 @@ const youtube = {
             .map(v => ({ id: v.id, title: v.snippet.title, channel: v.snippet.channelTitle, published: seconds(v.snippet.publishedAt), views: Number(v.statistics.viewCount ?? 0) }))
             .sort((a, b) => b.views - a.views)
         const popular = preview ? videos : videos.filter(v => v.views >= YOUTUBE_MIN_VIEWS)
-        return fresh(seen, popular, preview).map(v => card({
-            source: `YouTube / ${v.channel} / ${when(v.published, 'R')}`,
-            title: truncate(v.title, 200),
-            lines: [`-# ${v.views.toLocaleString('en-US')} views`],
+        return fresh(seen, popular, preview).map(v => embed({
+            author: v.channel,
+            title: v.title,
+            url: `https://www.youtube.com/watch?v=${v.id}`,
+            text: `${v.views.toLocaleString('en-US')} views`,
             image: `https://i.ytimg.com/vi/${v.id}/hqdefault.jpg`,
-            links: [['Watch on YouTube', `https://www.youtube.com/watch?v=${v.id}`]],
+            site: 'YouTube',
+            published: v.published,
             color: 0xff0000,
         }))
     },
@@ -110,12 +126,14 @@ const clips = {
         const found = (await twitch.helix(`clips?game_id=${twitch.GAME}&started_at=${since}&first=20`))
             .filter(c => preview || c.view_count >= CLIP_MIN_VIEWS)
             .sort((a, b) => b.view_count - a.view_count)
-        return fresh(seen, found, preview).map(c => card({
-            source: `Twitch clip / ${c.broadcaster_name}${c.creator_name && c.creator_name != c.broadcaster_name ? ` / clipped by ${c.creator_name}` : ''} / ${when(seconds(c.created_at), 'R')}`,
-            title: truncate(c.title || 'Untitled clip', 200),
-            lines: [`-# ${c.view_count.toLocaleString('en-US')} views`],
+        return fresh(seen, found, preview).map(c => embed({
+            author: c.broadcaster_name,
+            title: c.title || 'Untitled clip',
+            url: c.url,
+            text: [`${c.view_count.toLocaleString('en-US')} views`, c.creator_name && c.creator_name != c.broadcaster_name && `clipped by ${c.creator_name}`].filter(Boolean).join(' · '),
             image: c.thumbnail_url,
-            links: [['Watch on Twitch', c.url]],
+            site: 'Twitch clip',
+            published: seconds(c.created_at),
             color: 0x6440a5,
         }))
     },
@@ -142,10 +160,12 @@ const news = {
                 published: seconds(tag(i, 'pubDate')),
             }
         }).filter(a => a.published * 1000 > Date.now() - NEWS_WINDOW).sort((a, b) => b.published - a.published)
-        return fresh(seen, articles, preview).map(a => card({
-            source: `News / ${a.outlet} / ${when(a.published, 'R')}`,
-            title: truncate(a.title, 200),
-            links: [['Read the article', a.link]],
+        return fresh(seen, articles, preview).map(a => embed({
+            author: a.outlet,
+            title: a.title,
+            url: a.link,
+            site: 'News',
+            published: a.published,
             color: 0x4285f4,
         }))
     },
