@@ -81,3 +81,4 @@ module.exports = {
 }
 module.exports.helix = helix  // for the community clips feed
 module.exports.GAME = GAME
+module.exports.LANGUAGES = LANGUAGES
