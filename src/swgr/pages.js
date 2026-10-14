@@ -186,18 +186,21 @@ function categorySelect(current = 'overview') {
 // Each event's emoji is how the viewer stands on it: the best medal their time beats, upgraded to their place
 // (place_1 to place_10) once it's gold and in the top 10 (a "1st" on a thin board with a silver time would oversell
 // it); the game's tick for a time below bronze; with no time, its vehicle class
+const standingEmoji = (e, time, rank) => {
+    const medal = ['gold', 'silver', 'bronze'].find(m => time <= e.medals[m].seconds)
+    return medal == 'gold' && rank <= 10 ? emoji.named(`place_${rank}`) : medal ? emoji.medal[medal] : emoji.named('tick')
+}
 function eventSelect(events, current) {
     const me = viewer.id()
     return select('arcade_event', 'Pick an event',
         events.map(e => {
             const board = me ? records.leaderboard('arcade', e.id) : []
             const rank = board.findIndex(t => t.user == me) + 1
-            const medal = rank && ['gold', 'silver', 'bronze'].find(m => board[rank - 1].time <= e.medals[m].seconds)
             return {
                 label: e.name,
                 value: e.id,
                 description: `${data.track(e.track).name} · ${e.vehicle} · Gold ${e.medals.gold.time}`.slice(0, 100),
-                emoji: !rank ? emoji.vehicle[e.vehicleClass] : medal == 'gold' && rank <= 10 ? emoji.named(`place_${rank}`) : medal ? emoji.medal[medal] : emoji.named('tick'),
+                emoji: rank ? standingEmoji(e, board[rank - 1].time, rank) : emoji.vehicle[e.vehicleClass],
             }
         }), current)
 }
@@ -286,7 +289,38 @@ function arcadeOverview(racer) {
     }
     container.addSeparatorComponents(separator())
     addLeaderboard(container, 'aggregate', 'main', cumulativeBoard(events, 'main'))
-    return page(container, files, [categorySelect()])
+    const recent = racer && recentSelect(racer.id)
+    return page(container, files, [categorySelect(), recent].filter(Boolean))
+}
+
+// "3 hours ago" (menus can't show Discord's live timestamps, so this is as of the card's drawing)
+const ago = ms => {
+    const units = [['year', 365 * 864e5], ['month', 30 * 864e5], ['day', 864e5], ['hour', 36e5], ['minute', 6e4]]
+    const [unit, size] = units.find(([, size]) => Date.now() - ms >= size) ?? []
+    if (!unit) return 'just now'
+    const n = Math.floor((Date.now() - ms) / size)
+    return `${n} ${unit}${n == 1 ? '' : 's'} ago`
+}
+
+// A racer's latest arcade runs (up to 25, newest first) as a menu that opens each one's board: the event and time, then
+// where it places on the board now, what it took off their previous best there (or that it was their first), and when
+// it happened. Values carry the run's position (<event>:<n>), since one event can appear more than once; arcade.js
+// drops it.
+function recentSelect(userId) {
+    const mine = records.allTimes().filter(t => t.kind == 'arcade' && t.user == userId && data.event(t.target))
+    if (!mine.length) return null
+    return select('arcade_event_recent', 'See recent runs', mine.slice(0, 25).map((t, i) => {
+        const e = data.event(t.target)
+        const before = Math.min(...mine.filter(o => o.target == t.target && o.date < t.date).map(o => o.time))
+        const gain = before == Infinity ? 'first time' : t.time < before ? `−${formatTime(before - t.time)}` : null
+        const rank = records.leaderboard('arcade', t.target).filter(o => o.user != userId && o.time < t.time).length + 1
+        return {
+            label: `${e.name} ${formatTime(t.time)}`,
+            value: `${e.id}:${i}`,
+            description: [ordinal(rank), gain, ago(t.date)].filter(Boolean).join(' · '),
+            emoji: standingEmoji(e, t.time, rank),  // as in the event menus, for this run's time and place
+        }
+    }))
 }
 
 function arcadeCategory(categoryId) {
