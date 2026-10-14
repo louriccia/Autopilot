@@ -79,3 +79,5 @@ module.exports = {
         return fresh.map(s => streamCard(s, users[s.user_id], !!recognized[s.user_id]))
     },
 }
+module.exports.helix = helix  // for the community clips feed
+module.exports.GAME = GAME

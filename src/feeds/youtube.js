@@ -38,6 +38,7 @@ async function videos(channelId) {
 }
 
 module.exports = {
+    CHANNELS,  // the community feed (youtube-community.js) leaves these to this one
     name: 'youtube',
     channel: 'videos',
     every: 10 * 60 * 1000,

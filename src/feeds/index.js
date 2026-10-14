@@ -8,7 +8,7 @@ const { testing } = require('../../config.js')
 const { feedChannels, test_channel } = require('../data/discord/channel.js')
 const state = require('./state.js')
 
-const FEEDS = [require('./steam-build.js'), require('./steam-news.js'), require('./youtube.js'), require('./twitch.js')]
+const FEEDS = [require('./steam-build.js'), require('./steam-news.js'), require('./youtube.js'), require('./twitch.js'), ...require('./community.js')]
 
 async function post(client, channelId, payload) {
     const channel = await client.channels.fetch(channelId)
