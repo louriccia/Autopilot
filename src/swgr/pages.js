@@ -557,22 +557,43 @@ function creditsLine(user) {
     return `${emoji.named('credits')} **${credits.balance(user).toLocaleString('en-US')}**${b ? ` / ${emoji.named(b.emoji)} ${b.name}${counts > Date.now() ? ` (counts <t:${Math.floor(counts / 1000)}:R>)` : ''}` : ''}`
 }
 
-// A ledger entry as one line: "+640 personal best, gold medal on Acid Ringer"
-function ledgerLine(e) {
-    const board = e.board && (e.board.startsWith('arcade:') ? data.event(e.board.slice(7)) : data.scenario(e.board.slice(9)))
-    const what = e.reason == 'run' ? (e.lines ?? []).filter(l => l.amount > 0).map(l => l.label).join(', ') : e.reason
-    return `-# <t:${Math.floor(e.date / 1000)}:d> **${e.amount > 0 ? '+' : ''}${e.amount.toLocaleString('en-US')}** ${what}${board ? ` on ${board.name}` : ''}`
+// The board a ledger entry is about ('arcade:<id>', 'scenario:<id>', 'aggregate:<main | category>'), if any: runs and
+// bounty wins carry it, bounty postings and expiries through their bounty, ratings in their ref (rate:<kind>:<target>)
+const ledgerBoard = e => e.board
+    ?? (e.ref?.startsWith('rate:') ? e.ref.slice(5) : null)
+    ?? (b => b && `${b.kind}:${b.target}`)(e.reason?.startsWith('bounty') && credits.bounty(e.ref))
+
+// A racer's last 25 ledger entries as a menu: the amount and the board, then what it was for and how long ago; picking
+// one opens its board (ledger_<racer>, values <board | ->:<n>)
+function ledgerSelect(userId) {
+    const recent = credits.history(userId).slice(0, 25)
+    if (!recent.length) return null
+    return select(`ledger_${userId}`, 'Recent transactions', recent.map((e, i) => {
+        const board = ledgerBoard(e)
+        const [kind, target] = board ? [board.slice(0, board.indexOf(':')), board.slice(board.indexOf(':') + 1)] : []
+        const item = kind == 'arcade' ? data.event(target) : kind == 'scenario' ? data.scenario(target) : null
+        const name = board && credits.boardName(kind, target)
+        // a run's lines, without the board's name the label already gives ("first time on Salt Mines" -> "first time")
+        const what = e.reason == 'run' ? (e.lines ?? []).filter(l => l.amount > 0).map(l => l.label.replace(` on ${name}`, '')).join(', ') || 'run' : e.reason
+        return {
+            label: `${e.amount > 0 ? '+' : e.amount < 0 ? '−' : ''}${Math.abs(e.amount).toLocaleString('en-US')}${name ? ` ${name}` : ''}`.slice(0, 100),
+            value: `${board ?? '-'}:${i}`,
+            description: [ago(e.date), what].filter(Boolean).join(' · ').slice(0, 100),
+            emoji: e.reason?.startsWith('bounty') ? emoji.named('bounty') : item?.planet ? emoji.planet[item.planet] : emoji.named('credits'),
+        }
+    }))
 }
 
-// A racer's credits: balance, backer and their last ten entries. racer: { id, name, avatar }
+// A racer's credits: balance and backer, with their recent transactions in a menu. racer: { id, name, avatar }
 function creditsCard(racer) {
     const container = new ContainerBuilder().setAccentColor(DEFAULT_COLOR)
     header(container, [crumbs('Credits'), `# ${racer.name}`, creditsLine(racer.id)], racer.avatar)
-    const recent = credits.history(racer.id).slice(0, 10)
-    container.addSeparatorComponents(separator())
-    container.addTextDisplayComponents(text(recent.length ? recent.map(ledgerLine).join('\n')
-        : '-# No credits yet. Save runs to earn them: personal bests, medals, bops, podiums; video proof pays the most.'))
-    return page(container, new Files(), [])
+    const ledger = ledgerSelect(racer.id)
+    if (!ledger) {
+        container.addSeparatorComponents(separator())
+        container.addTextDisplayComponents(text('-# No credits yet. Save runs to earn them: personal bests, medals, bops, podiums; video proof pays the most.'))
+    }
+    return page(container, new Files(), [ledger].filter(Boolean))
 }
 
 // The richest racers, and the backer standings (credits earned by each side)

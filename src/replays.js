@@ -24,7 +24,12 @@ const VIDEO = /(?:youtube\.com\/(?:watch\?(?:\S*?&)?v=|shorts\/|live\/)|youtu\.b
 const VISION_MODEL = process.env.OPENAI_MODEL || 'gpt-5.4-mini'
 // Lowercase words separated by single spaces, padded so names only match whole words
 // (apostrophes dropped, so "Scrappers Run" matches "Scrapper's Run")
-const words = s => ` ${s.toLowerCase().replace(/['’`]/g, '').replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').trim()} `
+// and short forms people use spelled out ("speeder bike champ")
+const SHORT = { champ: 'champion', champs: 'champion' }
+const words = s => ` ${s.toLowerCase().replace(/['’`]/g, '').replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').trim()
+    .split(' ').map(w => SHORT[w] ?? w).join(' ')} `
+// Times spelled with units, as the game's m:ss.hh: "1m 43s 35", "1m43s35", "1m 43.35s" -> "1:43.35"
+const unitTimes = s => s.replace(/\b(\d{1,2})\s*m(?:in)?\s*(\d{1,2})(?:\s*s(?:ec)?\s*|\s*[.,]\s*)(\d{2})(?:\s*s(?:ec)?)?\b/gi, '$1:$2.$3')
 const EVENTS = data.events.map(e => ({ event: e, key: words(e.name) })).sort((a, b) => b.key.length - a.key.length)
 // An event's medal times as the results screen shows them, bronze to gold: "3:01 2:22 2:14"
 const mmss = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
@@ -43,6 +48,7 @@ const readTime = s => records.parseTime(String(s ?? '').trim().replace(/^(\d{1,2
 // A video title -> { event, seconds } or null. Exactly one event name (longest names first, each match taken out so
 // a shorter name inside it doesn't count again) and a plausible time.
 exports.matchTitle = (title, { anyTime = false } = {}) => {
+    title = unitTimes(title)
     let rest = words(title)
     const found = []
     for (const { event, key } of EVENTS) {
@@ -246,6 +252,7 @@ exports.handle = async (message, { announce = true, anywhere = false, racer: cho
 // A typed claim: one event name and a time in any form /submit takes ("1:13.59", "10892", "55.1", "1:10:00"), the
 // first number that reads as a plausible time for that event
 exports.matchClaim = text => {
+    text = unitTimes(text)
     const event = exports.matchTitle(`${text} 0:00.00`, { anyTime: true })?.event
     if (!event) return null
     for (const token of text.match(/\d[\d:.]*\d|\d/g) ?? []) {
