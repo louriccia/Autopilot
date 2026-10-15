@@ -178,9 +178,23 @@ function categorySelect(current = 'overview') {
     const mine = new Set(me ? records.allTimes().filter(t => t.user == me && t.kind == 'arcade').map(t => t.target) : [])
     const count = events => me ? `${events.filter(e => mine.has(e.id)).length}/${events.length} events` : `${events.length} events`
     return select('arcade_category', 'Browse a category', [
-        { label: 'Overview', value: 'overview', description: `${count(MAIN_EVENTS())}: the cumulative leaderboard`, emoji: emoji.named('stopwatch') },
-        ...data.categories.map(c => ({ label: c.name, value: c.id, description: count(data.eventsInCategory(c.id)), emoji: categoryEmoji(c) })),
+        { label: 'Overview', value: 'overview', description: `${count(MAIN_EVENTS())}: the cumulative leaderboard`, emoji: setEmoji(MAIN_EVENTS(), me) ?? emoji.named('stopwatch') },
+        ...data.categories.map(c => ({ label: c.name, value: c.id, description: count(data.eventsInCategory(c.id)), emoji: setEmoji(data.eventsInCategory(c.id), me) ?? categoryEmoji(c) })),
     ], current)
+}
+
+// How the viewer stands on a whole set of events once they have a time on every one, like standingEmoji for one event:
+// their worst medal across the set (the tick if any is below bronze), upgraded to their place on the set's cumulative
+// leaderboard when that's gold and in the top 10. null until the set is complete.
+function setEmoji(events, me) {
+    if (!me) return null
+    const bests = events.map(e => records.leaderboard('arcade', e.id).find(t => t.user == me))
+    if (bests.some(t => !t)) return null
+    const medals = ['gold', 'silver', 'bronze']
+    const worst = Math.max(...events.map((e, i) => { const m = medals.findIndex(m => bests[i].time <= e.medals[m].seconds); return m < 0 ? 3 : m }))
+    if (worst == 3) return emoji.named('tick')
+    const rank = records.cumulative('arcade', events.map(e => e.id)).ranked.find(t => t.user == me)?.rank
+    return worst == 0 && rank <= 10 ? emoji.named(`place_${rank}`) : emoji.medal[medals[worst]]
 }
 
 // Each event's emoji is how the viewer stands on it: the best medal their time beats, upgraded to their place
