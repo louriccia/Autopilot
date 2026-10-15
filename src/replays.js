@@ -164,13 +164,19 @@ exports.videos = videos
 exports.readScreen = readScreen
 exports.VIDEO = VIDEO
 
+// Whether a message mentions the bot ("@Autopilot"): the bot's own mention, or its role's (Discord offers both in the
+// picker). Replying to the bot isn't a mention of it here.
+exports.mentionsMe = message => {
+    const role = message.guild?.members.me?.roles.botRole?.id
+    return new RegExp(`<@!?${message.client.user.id}>${role ? `|<@&${role}>` : ''}`).test(message.content)
+}
+
 // Whether the author mentions the bot right after a message (within a few seconds): the mention handles that message
 async function mentionFollows(message, wait = 4000) {
     await new Promise(r => setTimeout(r, wait))
     const after = await message.channel.messages.fetch({ after: message.id, limit: 5 }).catch(() => null)
-    const me = message.client.user.id
     return [...(after?.values() ?? [])].some(m => m.author.id == message.author.id && m.createdTimestamp - message.createdTimestamp < 10000
-        && new RegExp(`<@!?${me}>`).test(m.content))
+        && exports.mentionsMe(m))
 }
 
 // Takes back the bot's "?" (whose run?) from a message, once a mention has named the racer

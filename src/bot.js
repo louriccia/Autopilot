@@ -136,11 +136,9 @@ client.on(Events.GuildMemberUpdate, (before, after) => {
 // Runs posted as videos in the replay channel (src/replays.js)
 client.on(Events.MessageCreate, message => {
     if (!message.guildId || !switchGuard(message.guildId)) return
-    // "@Autopilot ..." anywhere submits a run (src/replays.js handleMention): the bot's own mention, or its role's (Discord
-    // offers both in the picker). Replying to the bot isn't a mention of it here.
-    const role = message.guild.members.me?.roles.botRole?.id
+    // "@Autopilot ..." anywhere submits a run (src/replays.js handleMention): the bot's own mention or its role's
     const replays = require('./replays.js')
-    if (!message.author.bot && new RegExp(`<@!?${client.user.id}>${role ? `|<@&${role}>` : ''}`).test(message.content)) {
+    if (!message.author.bot && replays.mentionsMe(message)) {
         return replays.handleMention(message).catch(error => reportError('Mention', error))
     }
     replays.handle(message).catch(error => reportError('Replays', error))
