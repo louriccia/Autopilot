@@ -956,8 +956,15 @@ def main():
         tj = game_json(ref_path)
         props = next((o["Properties"] for o in tj if o.get("Type") == "CharacterTrait"), {})
         name = (props.get("PlayerFacingName") or {}).get("LocalizedString", "")
-        icon = texture(args.textures, (props.get("Icon") or {}).get("AssetPathName"))
-        return {"name": name, "description": fill_params((props.get("PlayerFacingDescription") or {}).get("LocalizedString", ""), props),
+        icon_path = (props.get("Icon") or {}).get("AssetPathName") or ""
+        icon = texture(args.textures, icon_path)
+        description = fill_params((props.get("PlayerFacingDescription") or {}).get("LocalizedString", ""), props)
+        # A few traits ship with the magenta "FPO" placeholder (UI/Library/Textures/Placeholders); those take the first
+        # keyword icon in their own description instead, as the game does for others (Frozen Ramjet uses Ramjet's)
+        kw = re.search(r"\{emoji:kw_(\w+)\}", description)
+        if "/Placeholders/" in icon_path and kw:
+            icon = ui_icons / "Keywords" / f"T_UI_Keyword_{kw.group(1)}_Icn.png"
+        return {"name": name, "description": description,
                 "emoji": emojis.add("trait_" + camel(re.sub(r"\s+[IVX]+$", "", name)), icon) if name else None}
 
     styles_out = []
