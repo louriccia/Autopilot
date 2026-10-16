@@ -16,7 +16,7 @@ src/
   bot.js              # Entry point: loads handlers, dispatches interactions, error reporting
   commands/           # One slash command per file: { data: SlashCommandBuilder, execute, autocomplete? }
   interactions/       # Component/modal handlers: { name, execute }, routed by customId prefix
-  respond.js          # navigate(): redraws the card in place for whoever used it (anyone can move any card; a plain announcement's View board, not being a Components V2 card, opens a private copy)
+  respond.js          # navigate(): redraws the card in place for whoever used it (anyone can move any card; a plain announcement's View board, not being a Components V2 card, posts the board as a public reply)
   firebase.js         # Realtime Database (Firebase project autopilot-swgr) via firebase-admin; `database` is null without FIREBASE_* in .env
   feeds/              # Announcement feeds polled on a timer: steam-build (new Steam builds, via steam-user's anonymous
                       #   product info), steam-news (official announcements; patch notes in full), youtube (channel RSS),
