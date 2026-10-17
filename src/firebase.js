@@ -10,6 +10,11 @@
 //   times/<push id>     community times { kind, target, user, submittedBy, time, platform, proof, notes, date } (src/records.js)
 //   feedback/<kind>/<target>/<discord id>   thumbs up / neutral / down on an arcade event or scenario (src/records.js)
 //   submitters/<discord id>   may submit times for others (/submitter)
+//   staff/<event id>/<name>   staff times (src/records.js); profiles/<discord id> { name, avatar } for the website (src/profiles.js)
+//   credits/, balances/, backers/, bounties/, fills/   the credits economy (src/credits.js)
+// Access (database.rules.json, `firebase deploy --only database`): the bot's service account bypasses the rules; anyone
+// may read times, staff, profiles, balances, credits, backers, bounties, feedback and rivals (for the community website,
+// documented in DATABASE.md); nothing else is readable and nothing is writable from outside.
 const { initializeApp, cert } = require('firebase-admin/app')
 const { getDatabase } = require('firebase-admin/database')
 

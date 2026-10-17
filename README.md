@@ -41,6 +41,10 @@ The bot also posts on its own:
 * **Streams** (`STREAM_CHANNEL_ID`) - someone is live on Twitch in the game's category with at least `TWITCH_MIN_VIEWERS` watching (default 100) in English (`TWITCH_LANGUAGES` to change), at most once per streamer every 8 hours (every 3 minutes; needs `TWITCH_ID` / `TWITCH_SECRET`). Recognized streamers skip the minimum and get a bigger card: server managers add them with **/streamer add &lt;twitch&gt;** (also `remove` and `list`)
 
 While testing, everything goes to `TEST_CHANNEL_ID`. `node src/scripts/preview-feeds.js` posts the latest of each there to check the cards.
+## Data for other sites
+
+The leaderboards, credits and bounties are readable by anyone (read-only) from the bot's Firebase database: see [DATABASE.md](DATABASE.md).
+
 ## Game data
 
 The game content the bot shows (`src/data/swgr/*.json`, the art in `assets/`, and the dialogue in `src/data/flavor/welcome.js`) is git-ignored and never published. It's generated from a local datamine of the game (`swgr-datamine`, expected next to this repo) by:

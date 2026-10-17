@@ -123,6 +123,13 @@ client.once(Events.ClientReady, () => {
     const { main_guild, test_guild } = require('./data/discord/guild.js')
     setInterval(() => credits.expireBounties(client.guilds.cache.get(testing ? test_guild : main_guild))
         .catch(error => reportError('Bounties', error)), 60 * 60 * 1000)
+    // Racers' names and avatars for the website (src/profiles.js): once the times and balances have loaded, then hourly
+    if (!testing) {
+        const profiles = () => require('./profiles.js').refresh(client, client.guilds.cache.get(main_guild))
+            .then(n => n && console.log(`[profiles] updated ${n}`)).catch(error => reportError('Profiles', error))
+        setTimeout(profiles, 30 * 1000)
+        setInterval(profiles, 60 * 60 * 1000)
+    }
 })
 
 // Switching backer (onboarding roles) restarts the day before the new backer counts for credits (src/credits.js)

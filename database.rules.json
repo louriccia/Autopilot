@@ -1,6 +1,15 @@
 {
   "rules": {
     ".read": false,
-    ".write": false
+    ".write": false,
+    "times": { ".read": true, ".indexOn": ["user", "target", "kind"] },
+    "staff": { ".read": true },
+    "profiles": { ".read": true },
+    "balances": { ".read": true },
+    "credits": { ".read": true },
+    "backers": { ".read": true },
+    "bounties": { ".read": true },
+    "feedback": { ".read": true },
+    "rivals": { ".read": true }
   }
 }
