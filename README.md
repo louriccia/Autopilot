@@ -1,6 +1,8 @@
 # Autopilot
 
-A Discord bot for the Star Wars: Galactic Racer server. Its command and interaction handlers follow the pattern used by [Botto](https://github.com/louriccia/Botto).
+A Discord bot for the Star Wars: Galactic Racer community server: a searchable reference for the game, community leaderboards for arcade events and scenarios, and announcements for patches, videos and streams. Its command and interaction handlers follow the pattern used by [Botto](https://github.com/louriccia/Botto).
+
+> **Fan project.** Autopilot is not affiliated with or endorsed by Lucasfilm, Disney, Fuse Games or Secret Mode. STAR WARS: Galactic Racer and everything in it belong to their owners. The game's art, text and dialogue are **not** included in this repository (see [Game data](#game-data)).
 
 ## Commands
 
@@ -23,7 +25,7 @@ A Discord bot for the Star Wars: Galactic Racer server. Its command and interact
 * **/help** - list of Autopilot's commands
 * **/ping** - check that Autopilot is online and its response time
 
-The reference pages link to each other through select menus and buttons. Whoever ran the command navigates in place; anyone else who clicks gets a private copy.
+The reference pages link to each other through select menus and buttons, and anyone can move a card along in place. A plain announcement's **View board** button posts the board as a reply.
 
 
 ## Times and feedback
@@ -41,7 +43,7 @@ The bot also posts on its own:
 While testing, everything goes to `TEST_CHANNEL_ID`. `node src/scripts/preview-feeds.js` posts the latest of each there to check the cards.
 ## Game data
 
-`src/data/swgr/*.json` and `assets/` are generated from the `swgr-datamine` outputs (expected next to this repo) by:
+The game content the bot shows (`src/data/swgr/*.json`, the art in `assets/`, and the dialogue in `src/data/flavor/welcome.js`) is git-ignored and never published. It's generated from a local datamine of the game (`swgr-datamine`, expected next to this repo) by:
 
 ```
 python tools/import_swgr.py
@@ -68,7 +70,21 @@ node src/scripts/upload-emojis.js
 
 When it's ready to go live, deploy globally with `npm run deploy -- --global` and run with `TESTING=false`.
 
+## Deploying
+
+The live bot runs on Heroku as a `worker` dyno. Since the game content isn't in git, deploy with:
+
+```
+npm run ship
+```
+
+which force-pushes the current commit plus the game content (as a one-off commit built in a separate index; your branch and working tree are untouched) to the `heroku` remote.
+
 ## Adding things
 
 * **Slash command** - copy `src/templates/command.js` into `src/commands/`, then redeploy commands.
 * **Button / select / modal** - copy `src/templates/interaction.js` into `src/interactions/`. A component's `customId` is split on `_`; the first piece picks the handler by `name` and the rest arrive as `args`.
+
+## License
+
+The code is MIT licensed (see [LICENSE](LICENSE)). That covers this repository's code only, not the game or its content.

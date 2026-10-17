@@ -6,7 +6,7 @@ Discord.js v14 bot for the Star Wars: Galactic Racer server. Its command/interac
 
 - **Runtime**: Node.js 18+
 - **Framework**: discord.js v14
-- **Deployment**: Heroku app `autopilot-swgr` (same account as Botto's `swe1rbotto`), one Basic `worker` dyno from the Procfile (no HTTP surface, unlike Botto's `web` dyno; web stays at 0). Deploy with `git push heroku main`; settings are Heroku config vars mirroring .env, with `TESTING=false` and no `TESTING_GUILDS` / `TEST_CHANNEL_ID`. Logs: `heroku logs -a autopilot-swgr --tail`.
+- **Deployment**: Heroku app `autopilot-swgr` (same account as Botto's `swe1rbotto`), one Basic `worker` dyno from the Procfile (no HTTP surface, unlike Botto's `web` dyno; web stays at 0). The repo is public (MIT) without the game content: assets/, src/data/swgr/ and src/data/flavor/welcome.js are git-ignored and were removed from history, so deploy with `npm run ship` (src/scripts/deploy-heroku.js: HEAD plus that content as a one-off commit, force-pushed to heroku main), never `git push heroku main`; settings are Heroku config vars mirroring .env, with `TESTING=false` and no `TESTING_GUILDS` / `TEST_CHANNEL_ID`. Logs: `heroku logs -a autopilot-swgr --tail`.
 
 ## Project Structure
 
@@ -39,7 +39,7 @@ tools/import_swgr.py  # Builds data/swgr + assets from ../swgr-datamine/out and 
 
 ## Game data
 
-The game is STAR WARS Galactic Racer (codename "Griffin"; planets have dog codenames: Mastiff=Jakku, Dalmatian=Lantaana, Corgi=Ando Prime, Husky=Sentinel I, Spaniel=Crait, Whippet=Derven Acos, Beagle=Tatooine). Never hand-edit `src/data/swgr/` or `assets/` — change the importer and re-run it. Ids are slugs of the display name (`the-giants-graveyard`).
+The game is STAR WARS Galactic Racer (codename "Griffin"; planets have dog codenames: Mastiff=Jakku, Dalmatian=Lantaana, Corgi=Ando Prime, Husky=Sentinel I, Spaniel=Crait, Whippet=Derven Acos, Beagle=Tatooine). Never hand-edit `src/data/swgr/` or `assets/` — change the importer and re-run it. Both are git-ignored (game content stays out of the public repo); a fresh clone needs the datamine to generate them. Ids are slugs of the display name (`the-giants-graveyard`).
 
 ## Key Concepts
 

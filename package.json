@@ -8,10 +8,11 @@
   "main": "src/bot.js",
   "scripts": {
     "start": "node src/bot.js",
-    "deploy": "node src/scripts/deploy-commands.js"
+    "deploy": "node src/scripts/deploy-commands.js",
+    "ship": "node src/scripts/deploy-heroku.js"
   },
-  "author": "",
-  "license": "ISC",
+  "author": "lightningpirate",
+  "license": "MIT",
   "dependencies": {
     "discord.js": "^14.26.3",
     "dotenv": "^16.4.5",
