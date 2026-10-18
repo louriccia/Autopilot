@@ -26,11 +26,25 @@ const VISION_MODEL = process.env.OPENAI_MODEL || 'gpt-5.4-mini'
 // (apostrophes dropped, so "Scrappers Run" matches "Scrapper's Run")
 // and short forms people use spelled out ("speeder bike champ")
 const SHORT = { champ: 'champion', champs: 'champion' }
-const words = s => ` ${s.toLowerCase().replace(/['’`]/g, '').replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').trim()
-    .split(' ').map(w => SHORT[w] ?? w).join(' ')} `
+// Accents are dropped and any script's letters kept, so translated titles compare the same way ("Ás" = "as")
+const words = s => ` ${s.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replace(/['’`]/g, '').replace(/&/g, ' and ')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ').trim().split(' ').map(w => SHORT[w] ?? w).join(' ')} `
 // Times spelled with units, as the game's m:ss.hh: "1m 43s 35", "1m43s35", "1m 43.35s" -> "1:43.35"
 const unitTimes = s => s.replace(/\b(\d{1,2})\s*m(?:in)?\s*(\d{1,2})(?:\s*s(?:ec)?\s*|\s*[.,]\s*)(\d{2})(?:\s*s(?:ec)?)?\b/gi, '$1:$2.$3')
-const EVENTS = data.events.map(e => ({ event: e, key: words(e.name) })).sort((a, b) => b.key.length - a.key.length)
+// Chinese, Japanese and Korean titles often run words (and the time) together, so their names match anywhere
+const UNSPACED = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u
+// Every event under its English name and the game's translations (event.names, from tools/import_swgr.py), longest
+// first; a name shared by two events in any language (none today) is left out rather than risk the wrong board
+const EVENTS = (() => {
+    const owners = new Map()
+    for (const e of data.events) for (const name of [e.name, ...Object.values(e.names ?? {})]) {
+        const key = words(name)
+        if (key.trim()) owners.set(key, (owners.get(key) ?? new Set()).add(e))
+    }
+    return [...owners].filter(([, events]) => events.size == 1)
+        .map(([key, events]) => ({ event: [...events][0], key: UNSPACED.test(key) ? key.trim() : key }))
+        .sort((a, b) => b.key.length - a.key.length)
+})()
 // An event's medal times as the results screen shows them, bronze to gold: "3:01 2:22 2:14"
 const mmss = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
 // keyed by the three medal times fastest first, so the order a screen lists them in doesn't matter (results screens go
@@ -52,7 +66,7 @@ exports.matchTitle = (title, { anyTime = false } = {}) => {
     let rest = words(title)
     const found = []
     for (const { event, key } of EVENTS) {
-        if (rest.includes(key)) { found.push(event); rest = rest.replace(key, ' ') }
+        if (rest.includes(key)) { if (!found.includes(event)) found.push(event); rest = rest.replace(key, ' ') }
     }
     if (found.length != 1) return null
     const m = title.match(/(?<![\d:.])(?:\d{1,2}:)?\d{1,2}[.:]\d{2}(?![\d:.])/)

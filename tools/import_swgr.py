@@ -593,6 +593,12 @@ def main():
         return base_energy + battery_energy[num(r["Battery lvl"]) or 0]
 
     arcade = []
+    # Event titles in the game's other languages (out/loc_<culture>.json, from SwgrDump loc <culture>), so runs posted with
+    # a translated title still match (src/replays.js); en-GB and es-MX only where they differ
+    def flat_loc(p):
+        return {k.lower(): v for ns in json.loads(p.read_text(encoding="utf-8")).values() for k, v in ns.items()}  # keys vary in case
+    other_locs = {p.stem[4:]: flat_loc(p) for p in sorted(out.glob("loc_*.json")) if p.stem != "loc_en"}
+
     for r in rows(out / "arcade_events.csv"):
         ej = load_json(event_json.get(r["Asset"].lower(), Path("-")))
         props = next((o["Properties"] for o in ej if o.get("Type") == "ArcadeEventDef"), {})
@@ -607,6 +613,7 @@ def main():
             "id": eid,
             "order": int(r["Order"]),
             "name": r["Event"],
+            "names": {c: t for c, loc in other_locs.items() if (t := loc.get(f"{r['Asset']}_title".lower())) and t != r["Event"]},
             "description": rich_text((props.get("PlayerFacingDescription") or {}).get("LocalizedString")),
             "category": r["Category"],
             "mode": MODES.get(r["Mode"], r["Mode"]),
