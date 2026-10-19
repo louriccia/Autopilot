@@ -1185,6 +1185,17 @@ function charactersOverview() {
     return page(container, new Files(), [characterSelect()])
 }
 
+// Text with a button to another card beside it (like an arcade event's track button); plain text without one.
+// button: [customId, label, emoji]
+function sectionWithButton(container, lines, button) {
+    const content = lines.filter(Boolean).join('\n')
+    if (!button) return container.addTextDisplayComponents(text(content))
+    const [customId, label, e] = button
+    container.addSectionComponents(new SectionBuilder()
+        .addTextDisplayComponents(text(content))
+        .setButtonAccessory(new ButtonBuilder().setCustomId(customId).setLabel(label.slice(0, 80)).setEmoji(emoji.component(e)).setStyle(ButtonStyle.Secondary)))
+}
+
 // A character's card: their racer style (with its build), favor and speeder, each under its own name. The style's
 // modes are named only when they differ between modes (the podracer pilots: their pod in Quick Podrace, a racer
 // style in Podracing Tour). Of the rivalry, only an Act III rival's gate is worth saying.
@@ -1203,13 +1214,15 @@ function characterInfo(racerId) {
 
     for (const { modes, style: st, build } of r.styles) {
         container.addSeparatorComponents(separator())
-        container.addTextDisplayComponents(text([
+        // beside it, a button to its card: the racer style's, or for a podracer pilot's pod, the vehicle's
+        const card = data.styles.find(x => x.name == st.name), pod = !card && data.vehicleByName(st.name)
+        sectionWithButton(container, [
             `### ${styleName(st)}`,
             r.styles.length > 1 && `-# ${modes.join(' / ')}`,
             st.description && `*${st.description}*`,
             st.abilities.length && st.abilities.map(a => `${emoji.named(a.emoji)} ${a.name}`).join('   '),
             ...st.traits.map(t => `-# ${[emoji.named(t.emoji), `**${t.name}**`].filter(Boolean).join(' ')}: ${emojify(t.description)}`),
-        ].filter(Boolean).join('\n')))
+        ], card ? [`style_${card.id}`, card.name, emoji.named(card.emoji)] : pod ? [`vehicle_${pod.id}`, pod.name, emoji.vehicle[pod.class]] : null)
         if (build) {
             container.addTextDisplayComponents(text([
                 build.speeds.map(s => `${cls(s.vehicleClass)} ${emoji.named(s.emoji)} ${s.value} km/h`).join(' / '),
@@ -1221,7 +1234,8 @@ function characterInfo(racerId) {
     const favors = r.favors.map(data.favor)
     for (const f of favors) {
         container.addSeparatorComponents(separator())
-        container.addTextDisplayComponents(text([`### ${emoji.named(f.emoji)} ${f.name}`, emojify(f.ranks[0].rich), unlockLine(f.ranks[0].unlock)].filter(Boolean).join('\n')))
+        sectionWithButton(container, [`### ${emoji.named(f.emoji)} ${f.name}`, emojify(f.ranks[0].rich), unlockLine(f.ranks[0].unlock)],
+            [`favor_${f.id}`, f.name, emoji.named(f.emoji)])
     }
 
     // Their speeder per class: the model and its livery (palette / pattern / patina); podracers can't be customised
