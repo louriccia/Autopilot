@@ -1597,6 +1597,21 @@ def main():
             "unlock": livery_unlock(v), "group": livery_group(v.get("unlock") or "", v.get("unlocked_by") or "", v.get("default_unlocked")),
             "emoji": palette_emoji(re.sub(r"A$", "", short), v["colors"]),
         })
+    DEFAULT_PALETTE = liveries["palettes"]["Customisation.Livery.Protagonist"]["colors"]
+
+    def render_pattern(p, palette, size=256):
+        """A pattern flat, as the datamine's catalog_liveries renders it: the body in palette[0], then each channel of
+        its SDF (inside where > 0.5) in its mask's colour, a constant or palette[swatch]."""
+        src = p and p.get("sdf") and args.textures / p["sdf"]
+        if not src or not src.exists():
+            return None
+        channels = [ch.resize((size, size), Image.BILINEAR) for ch in Image.open(src).convert("RGBA").split()]
+        im = Image.new("RGB", (size, size), palette[0])
+        for ch, m in zip(channels, p["masks"]):
+            colour = m["color"] if m["mode"] == "constant" and "color" in m else palette[min(m.get("swatch", 1), len(palette) - 1)]
+            im.paste(colour, mask=ch.point(lambda v: max(0, min(255, (v - 125) * 50))))  # a soft edge at 0.5
+        return im
+
     patterns_out = []
     for r in rows(out / "liveries" / "patterns.csv"):
         if r["class"] == "Plane" or r["name"] == "None":
@@ -1613,8 +1628,10 @@ def main():
             dest.parent.mkdir(parents=True, exist_ok=True)
             im.resize((256, 256), Image.LANCZOS).save(dest, "WEBP", quality=88)
             image = dest.relative_to(ROOT).as_posix()
-            # the garage lists liveries unlabelled, so cards show the render as an emoji (lv_Car_Assassin02)
-            pattern_emoji = tile_emoji(f"lv_{r['class']}_{re.sub(r'A$', '', short)}", im)
+            # the garage lists liveries unlabelled, so cards show each as an emoji (lv_Car_Assassin02), all in the
+            # default palette (Shade's Dark Enigma) so they differ only by pattern
+            pattern_emoji = tile_emoji(f"lv_{r['class']}_{re.sub(r'A$', '', short)}",
+                                       render_pattern(liveries["patterns"][r["class"]].get("Customisation." + r["tag"]), DEFAULT_PALETTE) or im)
         pattern_by_tag[(cls_name, re.sub(r"A$", "", short))] = pid
         patterns_out.append({
             "id": pid, "name": livery_name(r["name"]), "class": cls_name, "kitPoints": num(r["cost"]) if r["cost"] else None,
