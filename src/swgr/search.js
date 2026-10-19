@@ -105,8 +105,8 @@ const KINDS = [
     {
         kind: 'character',
         items: () => data.racers,
-        label: r => `${r.name} — Character · ${r.modes.map(m => m.style.name).join(', ')}`,
-        keywords: r => [r.bio, 'character', 'racer', 'multiplayer', ...r.modes.flatMap(m => [m.mode, m.style.name]),
+        label: r => `${r.name} — Character · ${r.styles.map(s => s.style.name).join(', ')}`,
+        keywords: r => [r.bio, 'character', 'racer', 'multiplayer', ...r.styles.flatMap(s => [...s.modes, s.style.name]),
             ...r.vehicles.map(v => data.vehicle(v.vehicle).name)].filter(Boolean),
         page: pages.characterInfo,
     },

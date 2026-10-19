@@ -1164,93 +1164,88 @@ function rivalInfo(rivalId) {
 
 // --- characters ---
 
-// A racer's multiplayer modes, broadest first: "Quick Race / Redliner"
-const racerModes = r => r.modes.map(m => `${[m.mode, ...m.alsoIn].join(' + ')} / ${m.style.name}`).join(', ')
+// A racer's styles as "Redliner", or "BT310 Quadra, Afterburner" for the pilots whose podracing modes differ
+const racerStyles = r => r.styles.map(s => s.style.name).join(', ')
+const styleName = st => [emoji.named(st.emoji), st.name].filter(Boolean).join(' ')
 
 function characterSelect(current) {
     return select('character', 'Pick a character', data.racers.map(r => ({
-        label: r.name, value: r.id, emoji: face(r.name), description: racerModes(r).slice(0, 100),
+        label: r.name, value: r.id, emoji: face(r.name), description: racerStyles(r).slice(0, 100),
     })), current)
 }
 
 function charactersOverview() {
     const container = new ContainerBuilder().setAccentColor(DEFAULT_COLOR)
-    const pilots = data.racers.filter(r => r.modes.some(m => m.mode == 'Quick Podrace'))
+    const pilots = data.racers.filter(r => r.styles.some(s => s.modes.includes('Quick Podrace')))
     header(container, [crumbs('Characters'), '# Characters',
         `${data.racers.length - pilots.length} racers to pick in Quick Race and ${pilots.length} podracer pilots in Quick Podrace, each with their own racer style and build.`])
     container.addSeparatorComponents(separator())
     container.addTextDisplayComponents(text(data.racers.map(r =>
-        `${face(r.name)} **${r.name}** / ${r.modes.map(m => [emoji.named(m.style.emoji), m.style.name].filter(Boolean).join(' ')).join(', ')} / ${r.vehicles.map(v => emoji.vehicle[v.vehicleClass]).join('')}`).join('\n')))
+        `${face(r.name)} **${r.name}** / ${r.styles.map(s => styleName(s.style)).join(', ')} / ${r.vehicles.map(v => emoji.vehicle[v.vehicleClass]).join('')}`).join('\n')))
     return page(container, new Files(), [characterSelect()])
 }
 
+// A character's card: their racer style (with its build), favor and speeder, each under its own name. The style's
+// modes are named only when they differ between modes (the podracer pilots: their pod in Quick Podrace, a racer
+// style in Podracing Tour). Of the rivalry, only an Act III rival's gate is worth saying.
 function characterInfo(racerId) {
     const r = data.racer(racerId)
+    const rival = r.rival && data.rival(r.rival)
     const files = new Files()
     const container = new ContainerBuilder().setAccentColor(DEFAULT_COLOR)
     header(container, [
         crumbs('Characters'),
         `# ${r.name}`,
         r.bio && `*${r.bio}*`,
+        rival?.afterTour2 && `-# ${emoji.named('rival')} A rival from Act III`,
         unlockLine(r.unlock),
     ], files.add(r.portrait))
 
-    // Each multiplayer mode's racer style (these differ from the campaign's ranks), and the build Quick Race and
-    // Quick Podrace give them
-    for (const m of r.modes) {
-        const st = m.style
+    for (const { modes, style: st, build } of r.styles) {
         container.addSeparatorComponents(separator())
         container.addTextDisplayComponents(text([
-            `### ${m.mode}`,
-            m.alsoIn.length && `-# Also their style in ${m.alsoIn.join(' and ')}`,
-            `${[emoji.named(st.emoji), `**${st.name}**`].filter(Boolean).join(' ')}${st.description ? `: *${st.description}*` : ''}`,
+            `### ${styleName(st)}`,
+            r.styles.length > 1 && `-# ${modes.join(' / ')}`,
+            st.description && `*${st.description}*`,
             st.abilities.length && st.abilities.map(a => `${emoji.named(a.emoji)} ${a.name}`).join('   '),
             ...st.traits.map(t => `-# ${[emoji.named(t.emoji), `**${t.name}**`].filter(Boolean).join(' ')}: ${emojify(t.description)}`),
         ].filter(Boolean).join('\n')))
-        if (m.build) {
+        if (build) {
             container.addTextDisplayComponents(text([
-                m.build.speeds.map(s => `${cls(s.vehicleClass)} ${emoji.named(s.emoji)} ${s.value} km/h`).join(' / '),
-                ...statLines(m.build.build, m.build.maxEnergy),
+                build.speeds.map(s => `${cls(s.vehicleClass)} ${emoji.named(s.emoji)} ${s.value} km/h`).join(' / '),
+                ...statLines(build.build, build.maxEnergy),
             ].join('\n')))
         }
     }
 
-    // Their speeder per class: the model and its livery (palette / pattern / patina); podracers can't be customised
-    if (r.vehicles.length) {
+    const favors = r.favors.map(data.favor)
+    for (const f of favors) {
         container.addSeparatorComponents(separator())
-        container.addTextDisplayComponents(text(['### Speeders', ...r.vehicles.map(v => {
-            const palette = v.palette && data.palette(v.palette), pattern = v.pattern && data.pattern(v.pattern)
-            return `-# ${cls(v.vehicleClass)} **${data.vehicle(v.vehicle).name}** / ${[
-                palette && `${emoji.named(palette.emoji)} ${palette.name} palette`,
-                pattern && `${pattern.name} pattern`,
-                v.vehicleClass != 'Podracer' && v.patina,
-            ].filter(Boolean).join(' / ')}`
-        })].join('\n')))
+        container.addTextDisplayComponents(text([`### ${emoji.named(f.emoji)} ${f.name}`, emojify(f.ranks[0].rich), unlockLine(f.ranks[0].unlock)].filter(Boolean).join('\n')))
     }
 
-    const campaign = r.campaignStyle && data.style(r.campaignStyle)
-    const favors = r.favors.map(data.favor)
-    const rival = r.rival && data.rival(r.rival)
-    if (campaign || favors.length || rival) {
+    // Their speeder per class: the model and its livery (palette / pattern / patina); podracers can't be customised
+    for (const v of r.vehicles) {
+        const palette = v.palette && data.palette(v.palette), pattern = v.pattern && data.pattern(v.pattern)
         container.addSeparatorComponents(separator())
-        container.addTextDisplayComponents(text(['### Campaign',
-            campaign && `-# ${emoji.named(campaign.emoji)} **${campaign.name}** racer style`,
-            ...favors.map(f => `-# ${emoji.named(f.emoji)} **${f.name}** favor: ${emojify(f.ranks[0].rich)}`),
-            rival && `-# ${emoji.named('rival')} ${rival.champion ? 'The Galactic League Champion' : 'A rival'}${rival.headToHead.length ? ', raced Head-to-Head' : ''}`,
+        container.addTextDisplayComponents(text([
+            `### ${cls(v.vehicleClass)} ${data.vehicle(v.vehicle).name}`,
+            [palette && `${emoji.named(palette.emoji)} ${palette.name} palette`, pattern && `${pattern.name} pattern`, v.vehicleClass != 'Podracer' && v.patina].filter(Boolean).join(' / '),
         ].filter(Boolean).join('\n')))
     }
 
-    const abilities = [...new Map(r.modes.flatMap(m => abilitiesOf(m.style)).map(a => [a.id, a])).values()]
+    const campaign = r.campaignStyle && data.style(r.campaignStyle)
+    const abilities = [...new Map(r.styles.flatMap(s => abilitiesOf(s.style)).map(a => [a.id, a])).values()]
     const related = [
         rival && { label: rival.name, value: `rival:${rival.id}`, description: rival.champion ? 'Champion' : 'Rival', emoji: face(rival.name) },
         campaign && { label: campaign.name, value: `style:${campaign.id}`, description: 'Campaign racer style', emoji: emoji.named(campaign.emoji) },
         ...favors.map(f => ({ label: f.name, value: `favor:${f.id}`, description: 'Favor', emoji: emoji.named(f.emoji) })),
-        ...abilities.map(a => ({ label: a.name, value: `ability:${a.id}`, description: 'Multiplayer ability', emoji: emoji.named(a.emoji) })),
+        ...abilities.map(a => ({ label: a.name, value: `ability:${a.id}`, description: 'Ability', emoji: emoji.named(a.emoji) })),
         ...r.vehicles.map(v => data.vehicle(v.vehicle)).map(v => ({ label: v.name, value: `vehicle:${v.id}`, description: `Vehicle / ${v.class}`, emoji: emoji.vehicle[v.class] })),
         ...[...new Set(r.vehicles.map(v => v.palette).filter(Boolean))].map(data.palette).map(p => ({ label: p.name, value: `palette:${p.id}`, description: 'Livery palette', emoji: emoji.named(p.emoji) })),
         ...r.vehicles.map(v => v.pattern && data.pattern(v.pattern)).filter(Boolean).map(p => ({ label: p.name, value: `pattern:${p.id}`, description: `Livery pattern / ${p.class}`, emoji: emoji.vehicle[p.class] })),
     ].filter(Boolean)
-    return page(container, files, [characterSelect(r.id), ...(related.length ? [select('goto', 'Their rival card, styles, favors, abilities and speeders', related)] : [])])
+    return page(container, files, [characterSelect(r.id), ...(related.length ? [select('goto', 'Their rival card, styles, favors and speeders', related)] : [])])
 }
 
 // --- mysteries ---

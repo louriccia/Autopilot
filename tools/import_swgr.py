@@ -1816,8 +1816,8 @@ def main():
 
     # --- racers (character cards) ---
     # Everyone you can pick in multiplayer: Quick Race's 13 (DA_PvpInstantActionDef.AllowedCharactersForInstantAction)
-    # and Quick Podrace's 6 pilots (DA_PvpPlaneInstantActionDef), one card per name (Sebulba's campaign def, Mentor,
-    # joins his podracer one). A RacerDef gives each multiplayer mode a racer style (PvpRacerStyles; these are their
+    # and Quick Podrace's 6 pilots (DA_PvpPlaneInstantActionDef), one card per name (the pilots' older selves and
+    # Sebulba's campaign def join them). A RacerDef gives each multiplayer mode a racer style (PvpRacerStyles; these are their
     # own Pvp_Style_* assets, with different traits from the campaign ranks), and a Quick Race style carries the
     # build it races with (VehicleBuildOverride: upgrade levels; a podracer's also has AuthoredBuildStats, 0-1 per
     # stat, which is what its build bars show). PreferredCustomisationForVehicleArchetype is the speeder per class,
@@ -1866,7 +1866,9 @@ def main():
 
     selectable = [n for d in ("DA_PvpInstantActionDef", "DA_PvpPlaneInstantActionDef")
                   for n in re.findall(r"RacerDef'(\w+)'", json.dumps(load_json(pvp / f"{d}.json")))]
-    selectable.append("DA_Racer_Mentor")
+    # the same characters' other defs, which the game doesn't tell apart in any mode: the pilots' older selves (their
+    # Podracing Tour style) and Sebulba's campaign one (his style and skimmer)
+    selectable += sorted(p.stem for p in racer_defs.glob("DA_PlaneRacer_*Aged.json")) + ["DA_Racer_Mentor"]
     racer_rows_by_preset = {r["preset"]: r for r in rows(out / "racer_vehicles.csv")}
     patina_names = dict((k, v["name"]) for k, v in (liveries["patinas"].items() if isinstance(liveries["patinas"], dict) else []))
     vehicle_by_code = {v["codename"]: v for v in vehicles_out}
@@ -1878,9 +1880,7 @@ def main():
         rid = slug(name)
         r = racers_out.setdefault(rid, {"id": rid, "name": name, "emoji": next((c["emoji"] for c in characters_out if c["name"] == name), None),
                                         "bio": re.sub(r"\s+", " ", bios.get(name, {}).get("Bio", "")).strip() or None,
-                                        "portrait": None, "unlock": None, "campaignStyle": None, "modes": [], "vehicles": []})
-        if stem == "DA_Racer_Mentor":  # campaign only: his style and skimmer; the podracer def has his multiplayer side
-            props = {k: v for k, v in props.items() if k != "PvpRacerStyles"}
+                                        "portrait": None, "unlock": None, "campaignStyle": None, "byMode": {}, "vehicles": []})
         # character-select portrait, cut to the figure
         art = texture(args.textures, (props.get("LargePreviewImage") or {}).get("AssetPathName"))
         if art and not r["portrait"]:
@@ -1897,7 +1897,7 @@ def main():
         if rank:
             r["unlock"] = (props.get("ReasonForUnlocking") or {}).get("LocalizedString", "").replace("{PvpRank}", rank.group(1)) or None
         cam = ref_name(props.get("CampaignRacerStyle"))[0]
-        if cam and cam.endswith("_Lv1"):
+        if cam and cam.endswith("_Lv1") and not r["campaignStyle"]:
             cam_name = next((o["Properties"] for o in load_json(styles_dir / f"{cam}.json") if o.get("Type") == "RacerStyle"), {}).get("PlayerFacingName", {}).get("LocalizedString")
             r["campaignStyle"] = next((st["id"] for st in styles_out if st["name"] == cam_name), None)
         # speeders, per class, in the class order the game lists them
@@ -1919,29 +1919,32 @@ def main():
                 "patina": patina_names.get(row["patina"]),
             })
         r["vehicles"].sort(key=lambda v: list(CLASS_KEY).index(v["vehicleClass"]))
-        # multiplayer: one entry per mode, Quick Race's (and Quick Podrace's) with the build
-        styles_by_mode = {x["Key"].split("::")[1]: x["Value"] for x in props.get("PvpRacerStyles", [])}
-        for key, mode in MP_MODES.items():
-            if key not in styles_by_mode:
+        # multiplayer: each mode's style, from the first of their defs that names one (the others have the
+        # Pvp_Style_PlaneMemory placeholder there); Quick Race's and Quick Podrace's with the build they race with
+        for x in props.get("PvpRacerStyles", []):
+            key = x["Key"].split("::")[1]
+            if key not in MP_MODES or key in r["byMode"]:
                 continue
-            asset, found = mp_style(styles_by_mode[key])
+            asset, found = mp_style(x["Value"])
             if not found:
                 continue
             style, build_path = found
-            plane = key.startswith("Plane")
-            classes = ["Podracer"] if plane else [v["vehicleClass"] for v in r["vehicles"] if v["vehicleClass"] != "Podracer"]
-            same = next((m for m in r["modes"] if m["asset"] == asset and m["build"] is not None), None)
-            if same and not key.endswith("InstantAction"):
-                same["alsoIn"].append(mode)  # a tour that starts on the Quick Race style: one entry, two modes
-                continue
-            r["modes"].append({"mode": mode, "asset": asset, "alsoIn": [], "style": style,
-                               "build": mp_build(build_path, classes) if build_path and key.endswith("InstantAction") else None})
+            classes = ["Podracer"] if key.startswith("Plane") else [v["vehicleClass"] for v in r["vehicles"] if v["vehicleClass"] != "Podracer"]
+            r["byMode"][key] = (asset, style, mp_build(build_path, classes) if build_path and key.endswith("InstantAction") else None)
     racers_out = sorted(racers_out.values(), key=lambda x: x["name"].lower())
     for r in racers_out:
+        # one entry per style, with the modes that use it (in MP_MODES order) and its build, if a mode gives one
+        styles = {}
+        for key, mode in MP_MODES.items():
+            if key in r["byMode"]:
+                asset, style, build = r["byMode"][key]
+                entry = styles.setdefault(asset, {"modes": [], "style": style, "build": None})
+                entry["modes"].append(mode)
+                entry["build"] = entry["build"] or build
+        del r["byMode"]
+        r["styles"] = list(styles.values())
         r["favors"] = [f["id"] for f in favors_out if f["character"] == r["name"]]
         r["rival"] = next((x["id"] for x in rivals_out if x["name"] == r["name"]), None)
-        for m in r["modes"]:
-            del m["asset"]
 
     for name, data in [("planets", planets), ("tracks", tracks),
                        ("arcade", {"categories": categories, "vehicleClasses": vehicle_classes, "events": arcade}),
