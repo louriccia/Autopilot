@@ -129,6 +129,12 @@ client.once(Events.ClientReady, () => {
             .then(n => n && console.log(`[profiles] updated ${n}`)).catch(error => reportError('Profiles', error))
         setTimeout(profiles, 30 * 1000)
         setInterval(profiles, 60 * 60 * 1000)
+        // Proof links to Discord files expire after a day; renew them (src/proofs.js)
+        const proofs = require('./proofs.js')
+        const renew = () => proofs.refresh(client).then(r => r.renewed && console.log(`[proofs] renewed ${r.renewed} of ${r.due} file links`))
+            .catch(error => reportError('Proof links', error))
+        setTimeout(renew, 40 * 1000)
+        setInterval(renew, proofs.REFRESH_EVERY)
     }
 })
 

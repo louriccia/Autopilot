@@ -44,7 +44,7 @@ Please cache rather than polling every few seconds: the times change when someon
 | `time` | seconds |
 | `date` | when the run happened, as far as known (a video's upload time, else when it was posted or saved) |
 | `platform` | `PC`, `PS5`, `Xbox`, or blank |
-| `proof` | a link: YouTube, a Discord post, or a Discord file (those expire after a day outside Discord). Blank if none |
+| `proof` | a link: YouTube, a Discord post, or a Discord file (screenshot or video). Discord signs file links for about a day; the bot renews them every 6 hours, so read the current value rather than caching it for long. Blank if none |
 | `notes` | free text, often blank |
 | `youtube` | the proof video's YouTube channel id, when it has one |
 
