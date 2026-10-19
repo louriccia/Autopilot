@@ -14,7 +14,13 @@ const b36 = (n, width) => n.toString(36).padStart(width, '0')
 const vehicleOf = (cls, kit) => data.vehicles.find(v => v.class == cls && v.codename == kit)
 const classIndex = cls => data.classes.findIndex(c => c.name == cls)
 
-// state <-> code: class, base kit (for Root), each slot's kit, livery (0 = none), colour, patina, in base 36
+// The colours, a page of the colour menu at a time: its first and last options turn the page
+const COLOR_PAGE = 23
+const colorPages = () => Math.ceil(data.palettes.length / COLOR_PAGE)
+const pageOf = paletteId => Math.floor(data.palettes.findIndex(p => p.id == paletteId) / COLOR_PAGE)
+
+// state <-> code: class, base kit (for Root), each slot's kit, livery (0 = none), colour, patina, colour menu page,
+// in base 36
 function encode(s) {
     const slots = preview.slotsOf(s.cls), kits = slots[0].kits
     const patterns = data.patternsFor(s.cls)
@@ -24,6 +30,7 @@ function encode(s) {
         b36(s.pattern ? patterns.findIndex(p => p.id == s.pattern) + 1 : 0, 2),
         b36(data.palettes.findIndex(p => p.id == s.palette), 2),
         b36(data.patinas.findIndex(p => p.id == s.patina), 1),
+        b36(s.page ?? pageOf(s.palette), 1),
     ].join('')
 }
 
@@ -40,6 +47,7 @@ function decode(code) {
         pattern: pat ? data.patternsFor(cls)[pat - 1].id : null,
         palette: data.palettes[take(2)].id,
         patina: data.patinas[take(1)].id,
+        page: take(1),
     }
 }
 
@@ -61,7 +69,8 @@ function menu(field, code, placeholder, options) {
         .addOptions(options.slice(0, 25).map(({ emoji: e, ...o }) => ({ ...o, emoji: emoji.component(e) }))))
 }
 
-// The card for a build: its image, then a menu per part slot, then livery / colour group / colour / patina
+// The card for a build: its image, the whole model (any kit; "Custom" once the parts are mixed), a menu per part
+// slot, then livery / colour (paged) / patina
 async function card(s) {
     const code = encode(s)
     const slots = preview.slotsOf(s.cls)
@@ -74,25 +83,33 @@ async function card(s) {
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent([
         `-# Garage / ${s.cls}`,
         `# ${stock ? stock.name : `Custom ${s.cls}`}`,
-        `-# A preview, not the game's renderer: shadows between parts are approximated, and Mix and Rust Steel Mix show as paint.`,
     ].join('\n')))
     container.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(item => item.setURL('attachment://speeder.png')))
 
-    const rows = slots.map(sl => menu(sl.id, code, sl.label, sl.kits.map(kit => vehicleOf(s.cls, kit)).filter(Boolean).map(v => ({
+    const rows = [menu('model', code, 'Model', [
+        ...(stock ? [] : [{ label: 'Model: Custom', value: 'custom', description: 'Parts from different models', default: true }]),
+        ...slots[0].kits.map(kit => vehicleOf(s.cls, kit)).filter(Boolean).map(v => ({
+            label: `Model: ${v.name}`, value: v.codename, description: v.manufacturer ?? undefined,
+            emoji: emoji.named(v.emoji) || emoji.vehicle[v.class], default: stock && v.codename == stock.codename,
+        })),
+    ])]
+    rows.push(...slots.map(sl => menu(sl.id, code, sl.label, sl.kits.map(kit => vehicleOf(s.cls, kit)).filter(Boolean).map(v => ({
         label: `${sl.label}: ${v.name}`, value: v.codename, emoji: emoji.named(v.emoji) || emoji.vehicle[v.class],
         default: v.codename == (s.parts[sl.id] ?? s.base),
-    }))))
+    })))))
     rows.push(menu('livery', code, 'Livery', [
         { label: 'Livery: none', value: 'none', default: !pattern },
         ...data.patternsFor(s.cls).map(p => ({ label: `Livery: ${p.name}`, value: p.id, emoji: emoji.named(p.emoji), default: p.id == s.pattern })),
     ]))
-    const groups = [...new Set(data.palettes.map(p => p.group))]
-    rows.push(menu('group', code, 'Color group', groups.map(g => ({
-        label: `Colors: ${g}`, value: g, description: `${data.palettesIn(g).length} colors`, default: g == palette.group,
-    }))))
-    rows.push(menu('color', code, 'Color', data.palettesIn(palette.group).map(p => ({
-        label: `Color: ${p.name}`, value: p.id, emoji: emoji.named(p.emoji), default: p.id == s.palette,
-    }))))
+    const page = s.page ?? pageOf(s.palette), pages = colorPages()
+    const turn = k => (page + k + pages) % pages
+    rows.push(menu('color', code, `Color: ${palette.name}`, [
+        { label: '◀ Previous colors', value: 'prev', description: `Page ${turn(-1) + 1} of ${pages}` },
+        ...data.palettes.slice(page * COLOR_PAGE, (page + 1) * COLOR_PAGE).map(p => ({
+            label: `Color: ${p.name}`, value: p.id, description: p.group, emoji: emoji.named(p.emoji), default: p.id == s.palette,
+        })),
+        { label: 'Next colors ▶', value: 'next', description: `Page ${turn(1) + 1} of ${pages}` },
+    ]))
     rows.push(menu('patina', code, 'Patina', data.patinas.map(p => ({
         label: `Patina: ${p.name}`, value: p.id, emoji: emoji.named(p.emoji), default: p.id == s.patina,
     }))))
@@ -107,8 +124,14 @@ async function card(s) {
 function apply(s, field, value) {
     s = { ...s, parts: { ...s.parts } }
     if (field == 'livery') s.pattern = value == 'none' ? null : value
-    else if (field == 'group') s.palette = data.palettesIn(value)[0].id
-    else if (field == 'color') s.palette = value
+    else if (field == 'color' && (value == 'prev' || value == 'next')) {
+        const page = s.page ?? pageOf(s.palette)
+        s.page = (page + (value == 'next' ? 1 : -1) + colorPages()) % colorPages()
+    } else if (field == 'color') s.palette = value
+    else if (field == 'model' && value != 'custom') {
+        s.base = value
+        for (const sl of preview.slotsOf(s.cls)) s.parts[sl.id] = value
+    }
     else if (field == 'patina') s.patina = value
     else if (preview.slotsOf(s.cls).some(sl => sl.id == field)) s.parts[field] = value
     return s
