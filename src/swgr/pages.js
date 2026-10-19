@@ -104,12 +104,13 @@ function bountyPosted(b) {
         allowedMentions: { parse: [] },
     }
 }
-// A board's community times as shown: the top 5, plus whoever is looking (src/viewer.js) and their rival if they're
-// further down
+// A board's community times as shown: the top 5, plus whoever is looking (src/viewer.js) with the places either side
+// of theirs, and their rival if they're further down
 const shownTimes = (kind, target) => {
     const board = records.leaderboard(kind, target).map((t, i) => ({ ...t, rank: i + 1 }))
     const me = viewer.id(), rival = records.rivalOf(me)
-    return board.filter(t => t.rank <= 5 || t.user == me || (rival && t.user == rival))
+    const mine = board.find(t => t.user == me)?.rank
+    return board.filter(t => t.rank <= 5 || (mine && Math.abs(t.rank - mine) <= 1) || (rival && t.user == rival))
 }
 // Submit a time, then rate the event / scenario with the three thumbs (counts on the buttons)
 function recordButtons(kind, target) {
@@ -413,10 +414,14 @@ function arcadeEvent(eventId, { expanded = false } = {}) {
     addBuild(container, files, e, e.vehicle, { kind: 'arcade', target: e.id, expanded })
 
     // Leaderboard, fastest first: the medal rivals, staff times (Fuse's logo, or the publisher's), the community's
-    // top 5 and the viewer's own best
+    // top 5 and the viewer's own best with its neighbours. A viewer with a time sees the medals still ahead of it and
+    // only the best one it beats (all three without a time).
     container.addSeparatorComponents(separator())
+    const mine = records.leaderboard('arcade', e.id).find(t => t.user == viewer.id())?.time
+    const beaten = mine == null ? null : ['gold', 'silver', 'bronze'].find(m => mine <= e.medals[m].seconds)
+    const medals = Object.entries(e.medals).filter(([m, x]) => mine == null || m == beaten || mine > x.seconds)
     const board = [
-        ...Object.entries(e.medals).map(([m, x]) => ({ seconds: x.seconds, line: `${emoji.medal[m]} ${boardTime(x.seconds)} ${x.rival}` })),
+        ...medals.map(([m, x]) => ({ seconds: x.seconds, line: `${emoji.medal[m]} ${boardTime(x.seconds)} ${x.rival}` })),
         ...records.staffTimes(e.id).map(s => ({ seconds: s.seconds, line: `${emoji.named(s.from == 'publisher' ? 'publisher' : 'staff')} ${boardTime(s.seconds)} ${s.user ? `<@${s.user}>` : s.name}` })),
         ...shownTimes('arcade', e.id).map(t => ({ seconds: t.time, line: timeLine(t, t.rank) })),
     ].sort((a, b) => a.seconds - b.seconds)
