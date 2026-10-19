@@ -1,5 +1,5 @@
 // Everything /search can find. Each kind lists its items, how they read in the autocomplete list, and the
-// page that opens them. When a new reference page is added (vehicles, parts, characters...), add its kind here.
+// page that opens them. When a new reference page is added (vehicles, parts, styles...), add its kind here.
 const data = require('./data.js')
 const pages = require('./pages.js')
 
@@ -101,6 +101,14 @@ const KINDS = [
         label: m => `${m.title} — Mystery · ${m.character}`,
         keywords: m => [m.character, ...m.parts.map(p => p.brief.replace(/\{emoji:\w+\}\s*|\*\*/g, '')), 'mystery encounter'],
         page: pages.mysteryInfo,
+    },
+    {
+        kind: 'character',
+        items: () => data.racers,
+        label: r => `${r.name} — Character · ${r.modes.map(m => m.style.name).join(', ')}`,
+        keywords: r => [r.bio, 'character', 'racer', 'multiplayer', ...r.modes.flatMap(m => [m.mode, m.style.name]),
+            ...r.vehicles.map(v => data.vehicle(v.vehicle).name)].filter(Boolean),
+        page: pages.characterInfo,
     },
     {
         kind: 'rival',

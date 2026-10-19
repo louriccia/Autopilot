@@ -1578,10 +1578,11 @@ def main():
             text = "Pre-order STAR WARS: Galactic Racer™."
         return text or None
 
-    palettes_out = []
+    palettes_out, palette_by_tag, pattern_by_tag = [], {}, {}
     for key, v in liveries["palettes"].items():
         short = key.replace("Customisation.Livery.", "")
         pid = slug(livery_name(v["name"]))
+        palette_by_tag[key] = pid
         palettes_out.append({
             "id": pid, "name": livery_name(v["name"]), "colors": v["colors"], "kitPoints": v.get("cost"),
             "unlock": livery_unlock(v), "group": livery_group(v.get("unlock") or "", v.get("unlocked_by") or "", v.get("default_unlocked")),
@@ -1603,6 +1604,7 @@ def main():
             dest.parent.mkdir(parents=True, exist_ok=True)
             im.resize((256, 256), Image.LANCZOS).save(dest, "WEBP", quality=88)
             image = dest.relative_to(ROOT).as_posix()
+        pattern_by_tag[(cls_name, re.sub(r"A$", "", short))] = pid
         patterns_out.append({
             "id": pid, "name": livery_name(r["name"]), "class": cls_name, "kitPoints": num(r["cost"]) if r["cost"] else None,
             "unlock": livery_unlock({"unlock": r["unlock"], "unlocked_by": r["unlocked_by"], "asset": r["asset"]}),
@@ -1812,6 +1814,135 @@ def main():
                            "emoji": emojis.add_file("char_OriPer", ROOT / "tools" / "art" / "ori-and-per.png")})
     characters_out.sort(key=lambda c: c["name"].lower())
 
+    # --- racers (character cards) ---
+    # Everyone you can pick in multiplayer: Quick Race's 13 (DA_PvpInstantActionDef.AllowedCharactersForInstantAction)
+    # and Quick Podrace's 6 pilots (DA_PvpPlaneInstantActionDef), one card per name (Sebulba's campaign def, Mentor,
+    # joins his podracer one). A RacerDef gives each multiplayer mode a racer style (PvpRacerStyles; these are their
+    # own Pvp_Style_* assets, with different traits from the campaign ranks), and a Quick Race style carries the
+    # build it races with (VehicleBuildOverride: upgrade levels; a podracer's also has AuthoredBuildStats, 0-1 per
+    # stat, which is what its build bars show). PreferredCustomisationForVehicleArchetype is the speeder per class,
+    # read through racer_vehicles.csv into its model, palette, pattern and patina. LargePreviewImage is the
+    # character-select portrait. Their campaign style, favors and rival card are linked by id.
+    pvp = game / "Gameplay" / "PvpFlow"
+    MP_MODES = {"InstantAction": "Quick Race", "SoloTour": "Multiplayer Tour",
+                "PlaneInstantAction": "Quick Podrace", "PlaneSoloTour": "Podracing Tour"}
+    SLOT_STAT = {"Cornering": "Cornering", "Acceleration": "Afterburner", "Resilience": "Resilience",
+                 "Boost": "Ramjet", "AbilityUsage": "Battery", "Advanced": "Advanced"}
+    STAT_ICON = dict(STATS)
+    ref_name = lambda ref: ((ref or {}).get("ObjectName") or "").split("'")[1:2] or [None]
+
+    def mp_style(ref):
+        sp = next((o["Properties"] for o in game_json(ref["ObjectPath"]) if o.get("Type") == "RacerStyle"), {})
+        name = (sp.get("PlayerFacingName") or {}).get("LocalizedString")
+        if not name:  # Pvp_Style_PlaneMemory: a podracer tour's placeholder, picked over in the lobby
+            return None, None
+        traits = [t for t in (trait(x["AssetPathName"]) for x in sp.get("Traits", [])) if t["name"]]
+        # a podracer's "style" is the pod itself, its description the pod's ("<B>BT310 QUADRA:</> Named for...")
+        description = re.sub(r"^<B>[^<]*</>\s*", "", (sp.get("PlayerFacingDescription") or {}).get("LocalizedString", ""))
+        style = {"name": name,
+                 "description": rich_text(description),
+                 # the campaign style of the same name has the same icon
+                 "emoji": next((st["emoji"] for st in styles_out if st["name"] == name), None)
+                          or emojis.add("style_" + camel(name), texture(args.textures, (sp.get("Icon") or {}).get("AssetPathName"))),
+                 "abilities": [ability({"ObjectName": "x'" + a["AssetPathName"].rsplit(".", 1)[-1] + "'", "ObjectPath": a["AssetPathName"]})
+                               for a in sp.get("StandardAbilities", [])],
+                 "traits": traits}
+        return ref_name(ref)[0], (style, (sp.get("VehicleBuildOverride") or {}).get("AssetPathName"))
+
+    def mp_build(path, classes):
+        bp = next((o.get("Properties") or {} for o in game_json(path)), {})
+        levels = {k["Key"].split("::")[1]: k["Value"] for k in bp.get("SlotToUpgradeLevelMap", [])}
+        authored = bp.get("AuthoredBuildStats")
+        shown = {s["PartSlot"].split("::")[1]: round(s["Value"] * 10) for s in
+                 next(iter(game_json(authored["ObjectPath"])), {}).get("Properties", {}).get("Stats", [])} if authored else levels
+        build = [{"stat": key, "level": shown.get(slot, 0),
+                  "emoji": emojis.add(f"stat_{key}", ui_icons / "BuildStats" / f"T_UI_BuildStats_{STAT_ICON[key]}_Icn.png")}
+                 for slot, key in SLOT_STAT.items()]
+        upgrades = [{"level": levels.get(slot, 0)} for slot in SLOT_STAT]
+        memory = "Memory" in ((bp.get("PawnOverride") or {}).get("AssetPathName") or "")
+        return {"build": build,
+                "speeds": [{"vehicleClass": c, **speed_of(c, upgrades, memory=memory)} for c in classes],
+                "maxEnergy": base_energy + battery_energy.get(levels.get("AbilityUsage", 0), 0)}
+
+    selectable = [n for d in ("DA_PvpInstantActionDef", "DA_PvpPlaneInstantActionDef")
+                  for n in re.findall(r"RacerDef'(\w+)'", json.dumps(load_json(pvp / f"{d}.json")))]
+    selectable.append("DA_Racer_Mentor")
+    racer_rows_by_preset = {r["preset"]: r for r in rows(out / "racer_vehicles.csv")}
+    patina_names = dict((k, v["name"]) for k, v in (liveries["patinas"].items() if isinstance(liveries["patinas"], dict) else []))
+    vehicle_by_code = {v["codename"]: v for v in vehicles_out}
+    portraits = ART_OUT / "racers"
+    racers_out = {}
+    for stem in selectable:
+        props = next(o["Properties"] for o in load_json(racer_defs / f"{stem}.json") if o.get("Type") == "RacerDef")
+        name = props["CharacterName"]["LocalizedString"]
+        rid = slug(name)
+        r = racers_out.setdefault(rid, {"id": rid, "name": name, "emoji": next((c["emoji"] for c in characters_out if c["name"] == name), None),
+                                        "bio": re.sub(r"\s+", " ", bios.get(name, {}).get("Bio", "")).strip() or None,
+                                        "portrait": None, "unlock": None, "campaignStyle": None, "modes": [], "vehicles": []})
+        if stem == "DA_Racer_Mentor":  # campaign only: his style and skimmer; the podracer def has his multiplayer side
+            props = {k: v for k, v in props.items() if k != "PvpRacerStyles"}
+        # character-select portrait, cut to the figure
+        art = texture(args.textures, (props.get("LargePreviewImage") or {}).get("AssetPathName"))
+        if art and not r["portrait"]:
+            im = Image.open(art).convert("RGBA")
+            box = im.getchannel("A").getbbox()
+            if box:
+                pad = 24
+                im = im.crop((max(0, box[0] - pad), max(0, box[1] - pad), min(im.width, box[2] + pad), min(im.height, box[3] + pad)))
+            im.thumbnail((512, 512), Image.LANCZOS)
+            portraits.mkdir(parents=True, exist_ok=True)
+            im.save(portraits / f"{rid}.webp", "WEBP", quality=85, method=6)
+            r["portrait"] = f"assets/racers/{rid}.webp"
+        rank = re.match(r"PvpUnlock\.Rank\.(\d+)", (props.get("UnlockedInPvpBy") or {}).get("TagName", ""))
+        if rank:
+            r["unlock"] = (props.get("ReasonForUnlocking") or {}).get("LocalizedString", "").replace("{PvpRank}", rank.group(1)) or None
+        cam = ref_name(props.get("CampaignRacerStyle"))[0]
+        if cam and cam.endswith("_Lv1"):
+            cam_name = next((o["Properties"] for o in load_json(styles_dir / f"{cam}.json") if o.get("Type") == "RacerStyle"), {}).get("PlayerFacingName", {}).get("LocalizedString")
+            r["campaignStyle"] = next((st["id"] for st in styles_out if st["name"] == cam_name), None)
+        # speeders, per class, in the class order the game lists them
+        for pre in props.get("PreferredCustomisationForVehicleArchetype", []):
+            row = racer_rows_by_preset.get(ref_name(pre["Value"])[0].removesuffix("_C"))
+            if not row:
+                continue
+            cls_name = {v: k for k, v in CLASS_KEY.items()}[row["class"]]
+            if any(v["vehicleClass"] == cls_name for v in r["vehicles"]):
+                continue
+            kits = [vehicle_by_code[k] for k in row["kits"].split("+") if k in vehicle_by_code]
+            if not kits:  # Myth (the player's podracer) and Kestar's have no name in the game
+                continue
+            r["vehicles"].append({
+                "vehicleClass": cls_name,
+                "vehicle": kits[0]["id"],
+                "palette": palette_by_tag.get(row["palette"]),
+                "pattern": pattern_by_tag.get((cls_name, re.sub(r"A$", "", row["pattern"].replace("Customisation.Livery.", "")))),
+                "patina": patina_names.get(row["patina"]),
+            })
+        r["vehicles"].sort(key=lambda v: list(CLASS_KEY).index(v["vehicleClass"]))
+        # multiplayer: one entry per mode, Quick Race's (and Quick Podrace's) with the build
+        styles_by_mode = {x["Key"].split("::")[1]: x["Value"] for x in props.get("PvpRacerStyles", [])}
+        for key, mode in MP_MODES.items():
+            if key not in styles_by_mode:
+                continue
+            asset, found = mp_style(styles_by_mode[key])
+            if not found:
+                continue
+            style, build_path = found
+            plane = key.startswith("Plane")
+            classes = ["Podracer"] if plane else [v["vehicleClass"] for v in r["vehicles"] if v["vehicleClass"] != "Podracer"]
+            same = next((m for m in r["modes"] if m["asset"] == asset and m["build"] is not None), None)
+            if same and not key.endswith("InstantAction"):
+                same["alsoIn"].append(mode)  # a tour that starts on the Quick Race style: one entry, two modes
+                continue
+            r["modes"].append({"mode": mode, "asset": asset, "alsoIn": [], "style": style,
+                               "build": mp_build(build_path, classes) if build_path and key.endswith("InstantAction") else None})
+    racers_out = sorted(racers_out.values(), key=lambda x: x["name"].lower())
+    for r in racers_out:
+        r["favors"] = [f["id"] for f in favors_out if f["character"] == r["name"]]
+        r["rival"] = next((x["id"] for x in rivals_out if x["name"] == r["name"]), None)
+        for m in r["modes"]:
+            del m["asset"]
+
     for name, data in [("planets", planets), ("tracks", tracks),
                        ("arcade", {"categories": categories, "vehicleClasses": vehicle_classes, "events": arcade}),
                        ("scenarios", scenarios_out), ("styles", styles_out), ("parts", {"keywords": keywords_out, "parts": parts_out}),
@@ -1821,7 +1952,7 @@ def main():
                        ("mysteries", mysteries_out), ("statuses", statuses_out),
                        ("sponsors", sponsors_out), ("tales", tales_out),
                        ("liveries", {"palettes": palettes_out, "patterns": patterns_out, "patinas": patinas_out}),
-                       ("characters", characters_out)]:
+                       ("characters", characters_out), ("racers", racers_out)]:
         (DATA_OUT / f"{name}.json").write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     missing = [f"{e['name']} ({k})" for e in arcade for k in ("tile",) if not e[k]]
@@ -1829,7 +1960,7 @@ def main():
     print(f"{len(emojis.by_name)} emoji icons in assets/emoji")
     missing += [f"{t['name']} (map)" for t in tracks if not t["map"]]
     missing += [f"{p['name']} (image)" for p in planets if not p["image"]]
-    print(f"{len(planets)} planets, {len(tracks)} tracks, {len(arcade)} arcade events, {len(scenarios_out)} scenarios, {len(styles_out)} racer styles, {len(parts_out)} parts, {len(abilities_out)} abilities, {len(vehicles_out)} vehicles, {len(favors_out)} favors, {len(rivals_out)} rivals, {len(mysteries_out)} mysteries, {len(statuses_out)} status effects, {len(sponsors_out)} sponsors, {len(tales_out)} tales, {len(palettes_out)} palettes, {len(patterns_out)} patterns")
+    print(f"{len(planets)} planets, {len(tracks)} tracks, {len(arcade)} arcade events, {len(scenarios_out)} scenarios, {len(styles_out)} racer styles, {len(parts_out)} parts, {len(abilities_out)} abilities, {len(vehicles_out)} vehicles, {len(favors_out)} favors, {len(rivals_out)} rivals, {len(mysteries_out)} mysteries, {len(statuses_out)} status effects, {len(sponsors_out)} sponsors, {len(tales_out)} tales, {len(palettes_out)} palettes, {len(patterns_out)} patterns, {len(racers_out)} racers")
     if missing:
         print("missing art:", ", ".join(missing))
 

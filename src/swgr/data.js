@@ -16,6 +16,8 @@ const { palettes, patterns, patinas } = require('../data/swgr/liveries.json')
 const characters = require('../data/swgr/characters.json')
 // A character's emoji: their headshot (the racers) or hologram portrait (everyone else)
 const characterEmojiByName = Object.fromEntries(characters.map(c => [c.name, c.emoji]))
+// The racers you can pick in multiplayer (character cards): bio, multiplayer styles and builds, speeders, campaign links
+const racers = require('../data/swgr/racers.json')
 const styles = require('../data/swgr/styles.json')
 const { keywords: partKeywords, parts } = require('../data/swgr/parts.json')
 
@@ -29,6 +31,7 @@ const abilityById = byId(abilities)
 const vehicleById = byId(vehicles)
 const favorById = byId(favors)
 const rivalById = byId(rivals)
+const racerById = byId(racers)
 const mysteryById = byId(mysteries)
 const statusById = byId(statuses)
 const sponsorById = byId(sponsors)
@@ -76,6 +79,7 @@ module.exports = {
     sponsors,
     tales,
     characters,
+    racers,
     palettes,
     patterns,
     patinas,
@@ -90,6 +94,7 @@ module.exports = {
     vehicle: id => vehicleById[id],
     favor: id => favorById[id],
     rival: id => rivalById[id],
+    racer: id => racerById[id],
     mystery: id => mysteryById[id],
     status: id => statusById[id],
     sponsor: id => sponsorById[id],
