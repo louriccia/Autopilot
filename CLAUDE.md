@@ -35,6 +35,7 @@ src/
   templates/          # Starting points for new commands and interactions (not loaded)
 assets/               # GENERATED art (WebP), uploaded as attachments and referenced via attachment://
 tools/import_swgr.py  # Builds data/swgr + assets from ../swgr-datamine/out and E:/SWGR_Export (Python + Pillow)
+tools/preview/        # PROOF OF CONCEPT, customised speeder previews: render_passes.py (Blender: each part alone, black/white paint per finish, livery position, depth -> assets/passes/<Class>), compose.py (any parts / palette / pattern / patina from those passes, with contact shadows), check.py (vs a full render)
 ```
 
 ## Game data
