@@ -1217,12 +1217,16 @@ function characterInfo(racerId) {
     const buildClasses = new Set(r.styles.flatMap(s => s.build?.speeds.map(x => x.vehicleClass) ?? []))
     const firstBuild = r.styles.find(s => s.build)
     const speedersOf = s => r.vehicles.filter(v => s.build?.speeds.some(x => x.vehicleClass == v.vehicleClass) || (s == firstBuild && !buildClasses.has(v.vehicleClass)))
-    // A speeder: the model, its speed and its livery (palette / pattern / patina); podracers can't be customised
-    const speederLine = (v, build) => {
+    // A speeder: its speed and livery (palette / pattern / patina; podracers can't be customised) beside a button to
+    // the model's card (like an arcade event's track button). A pod the style's own button already opens is named in
+    // the text instead (a message can't have two buttons with the same id).
+    const addSpeeder = (v, build, linked) => {
+        const vehicle = data.vehicle(v.vehicle)
         const palette = v.palette && data.palette(v.palette), pattern = v.pattern && data.pattern(v.pattern)
         const speed = build?.speeds.find(x => x.vehicleClass == v.vehicleClass)
-        return [`${cls(v.vehicleClass)} **${data.vehicle(v.vehicle).name}**`, speed && `${emoji.named(speed.emoji)} ${speed.value} km/h`,
+        const line = [linked && `${cls(v.vehicleClass)} **${vehicle.name}**`, speed && `${emoji.named(speed.emoji)} ${speed.value} km/h`,
             palette && `${emoji.named(palette.emoji)} ${palette.name} palette`, pattern && `${pattern.name} pattern`, v.vehicleClass != 'Podracer' && v.patina].filter(Boolean).join(' / ')
+        sectionWithButton(container, [line || '​'], linked ? null : [`vehicle_${vehicle.id}`, vehicle.name, emoji.vehicle[v.vehicleClass]])
     }
 
     for (const s of r.styles) {
@@ -1237,19 +1241,11 @@ function characterInfo(racerId) {
             st.abilities.length && st.abilities.map(a => `${emoji.named(a.emoji)} ${a.name}`).join('   '),
             ...st.traits.map(t => `-# ${[emoji.named(t.emoji), `**${t.name}**`].filter(Boolean).join(' ')}: ${emojify(t.description)}`),
         ], card ? [`style_${card.id}`, card.name, emoji.named(card.emoji)] : pod ? [`vehicle_${pod.id}`, pod.name, emoji.vehicle[pod.class]] : null)
-        const speeders = speedersOf(s)
-        if (build || speeders.length) {
-            container.addTextDisplayComponents(text([
-                ...speeders.map(v => speederLine(v, build)),
-                ...(build ? statLines(build.build, build.maxEnergy) : []),
-            ].join('\n')))
-        }
-        // The style's starting abilities and the speeders' models, from one menu right under the section
-        const options = [
-            ...abilitiesOf(st).map(a => ({ label: a.name, value: `ability:${a.id}`, description: a.description.slice(0, 100), emoji: emoji.named(a.emoji) })),
-            ...speeders.map(v => ({ label: data.vehicle(v.vehicle).name, value: `vehicle:${v.vehicle}`, description: `Vehicle / ${v.vehicleClass}`, emoji: emoji.vehicle[v.vehicleClass] })),
-        ].filter((o, i, all) => all.findIndex(x => x.value == o.value) == i)
-        if (options.length) container.addActionRowComponents(select('goto', 'View abilities and speeders', options))
+        for (const v of speedersOf(s)) addSpeeder(v, build, pod && pod.id == v.vehicle)
+        if (build) container.addTextDisplayComponents(text(statLines(build.build, build.maxEnergy).join('\n')))
+        // The style's starting abilities, from one menu right under the section
+        const abilities = abilitiesOf(st)
+        if (abilities.length) container.addActionRowComponents(abilitySelect(abilities, 'Starting abilities'))
     }
 
     for (const f of r.favors.map(data.favor)) {
