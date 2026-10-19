@@ -9,14 +9,16 @@ socket whatever kit it comes from, so parts rendered alone land where they would
 The importer's livery shading is linear in the paint colour (wear, grime and edge scuffs are mixes of it), so each
 finish is rendered twice, with black and with white paint: any colour is then  black + colour * (white - black).
 Finishes (metallic, roughness, as the importer's body_finish / PATINA_BODY): paint (0, 0.35), metal (1, 0.35;
-All Steel, All Gold and Deluxe tint it), rust (0.3, 0.8). Every pixel also records, for livery surfaces, where it
-sits in the top-down livery projection (the root's X, Y), so compose.py can lay any pattern over any combination.
+All Steel, All Gold and Deluxe tint it), rust (0.3, 0.8). Every pixel also records, for livery surfaces, its
+livery coordinate: the mesh's third UV map (UVMap.002, TEXCOORD_2), which the pattern SDFs are laid out on for
+speeders as for podracers (checked against the garage: Ace02's teal band runs along the bike's side panel edge), so
+compose.py can lay any pattern over any combination.
 
 Writes assets/passes/<Class>/:
   <kit>_<part>_<finish>_<0|1>.png  16-bit RGBA, linear light x 1/4 (so highlights up to 4.0 fit), alpha = coverage
-  <kit>_<part>_data.png            16-bit RGB: R, G = livery X, Y ((m + 5) / 10), B = 1 on livery surfaces
+  <kit>_<part>_data.png            16-bit RGB: R, G = livery UV ((uv + 0.5) / 2), B = 1 on livery surfaces
   <kit>_<part>_depth.png           16-bit grey: camera distance mapped over the class's depth range
-  passes.json                      camera, depth range, and each part's top-down bounds (for the livery projection)
+  passes.json                      camera, depth range, and each part's top-down bounds
 """
 import importlib.util
 import json
@@ -45,7 +47,7 @@ biv.LIVERY_PATTERNS = False  # compose.py lays the patterns; the importer only m
 
 FINISHES = {"paint": (0.0, 0.35), "metal": (1.0, 0.35), "rust": (0.3, 0.8)}
 EXPOSURE = 0.25   # passes store linear light x EXPOSURE
-XY_RANGE = 5.0    # livery X, Y stored as (m + XY_RANGE) / (2 * XY_RANGE)
+UV_LO, UV_SPAN = -0.5, 2.0   # livery UV stored as (uv - UV_LO) / UV_SPAN, so a little outside 0-1 still fits
 
 
 # ---------------------------------------------------------------- scene
@@ -122,7 +124,7 @@ def setup_compositor(sc):
 # ---------------------------------------------------------------- materials
 def pass_material(root):
     """the livery surface for the passes: base colour, metallic and roughness from labelled nodes the render loop
-    sets; an AOV with the top-down livery position (root space X, Y) and 1 for "this is livery"."""
+    sets; an AOV with the livery UV (UVMap.002) and 1 for "this is livery"."""
     mat = bpy.data.materials.new("livery_pass")
     mat.use_nodes = True
     nt = mat.node_tree
@@ -132,15 +134,15 @@ def pass_material(root):
         n = nt.nodes.new(kind)
         n.label = label
         nt.links.new(n.outputs[0], bsdf.inputs[sock])
-    tc = nt.nodes.new("ShaderNodeTexCoord")
-    tc.object = root
+    uv = nt.nodes.new("ShaderNodeUVMap")
+    uv.uv_map = "UVMap.002"
     sep = nt.nodes.new("ShaderNodeSeparateXYZ")
-    nt.links.new(tc.outputs["Object"], sep.inputs[0])
+    nt.links.new(uv.outputs["UV"], sep.inputs[0])
     comb = nt.nodes.new("ShaderNodeCombineXYZ")
     for i, axis in enumerate("XY"):
         m = nt.nodes.new("ShaderNodeMath")
         m.operation = "MULTIPLY_ADD"
-        m.inputs[1].default_value, m.inputs[2].default_value = 1 / (2 * XY_RANGE), 0.5
+        m.inputs[1].default_value, m.inputs[2].default_value = 1 / UV_SPAN, -UV_LO / UV_SPAN
         nt.links.new(sep.outputs[axis], m.inputs[0])
         nt.links.new(m.outputs[0], comb.inputs[i])
     comb.inputs[2].default_value = 1.0
@@ -202,6 +204,44 @@ def place_camera(sc, meta):
     return cam, dist, radius
 
 
+def side_projection(root):
+    """experiment: the livery projected from the side (X along the vehicle, Z up) instead of from above"""
+    meshes = [o for o in root.users_collection[0].objects if o.type == "MESH"]
+    pts = [o.matrix_world @ Vector(c) for o in meshes for c in o.bound_box]
+    mnx, mxx = min(p.x for p in pts), max(p.x for p in pts)
+    mnz, mxz = min(p.z for p in pts), max(p.z for p in pts)
+    for m in bpy.data.materials:
+        if not m.use_nodes:
+            continue
+        nt = m.node_tree
+        for mp in [n for n in nt.nodes if n.type == "MAPPING"]:
+            src = mp.inputs["Vector"].links[0].from_socket if mp.inputs["Vector"].is_linked else None
+            if not src or src.node.type != "TEX_COORD":
+                continue
+            sep = nt.nodes.new("ShaderNodeSeparateXYZ")
+            comb = nt.nodes.new("ShaderNodeCombineXYZ")
+            nt.links.new(src, sep.inputs[0])
+            nt.links.new(sep.outputs["X"], comb.inputs["X"])
+            nt.links.new(sep.outputs["Z"], comb.inputs["Y"])
+            nt.links.new(comb.outputs[0], mp.inputs["Vector"])
+            sx, sz = max(mxx - mnx, 1e-3), max(mxz - mnz, 1e-3)
+            mp.inputs["Scale"].default_value = (1 / sx, 1 / sz, 0)
+            mp.inputs["Location"].default_value = (-mnx / sx, -mnz / sz, 0)
+
+
+def uv_projection(channel):
+    """experiment: the livery through a UV map (UVMap.00<channel>) instead of the top-down projection"""
+    name = "UVMap" if channel == "0" else f"UVMap.00{channel}"
+    for m in bpy.data.materials:
+        if not m.use_nodes:
+            continue
+        nt = m.node_tree
+        for tex in [n for n in nt.nodes if n.type == "TEX_IMAGE" and n.image and "_SDF" in n.image.name]:
+            uv = nt.nodes.new("ShaderNodeUVMap")
+            uv.uv_map = name
+            nt.links.new(uv.outputs["UV"], tex.inputs["Vector"])
+
+
 def reference():
     """one combination the importer's own way (its livery material, patterns and wear), from the passes' camera and
     lights: what compose.py's output is checked against.  --reference Boa --part Front=Taipan --palette Nomad ..."""
@@ -218,7 +258,11 @@ def reference():
     sc.view_settings.view_transform, sc.view_settings.exposure = "Standard", 0
     sc.render.image_settings.color_depth = "8"
     place_camera(sc, meta)
-    biv.import_vehicle(v, (0.0, 0.0, 0.0))
+    root = biv.import_vehicle(v, (0.0, 0.0, 0.0))
+    if opt.get("projection") == "side":
+        side_projection(root)
+    elif opt.get("projection", "uv2").startswith("uv"):  # the game lays speeder liveries out on UV2 (the importer projects them top-down)
+        uv_projection(opt.get("projection", "uv2")[2:])
     sc.render.filepath = os.path.join(OUT, opt.get("out", "reference.png"))
     bpy.ops.render.render(write_still=True)
     print("wrote", sc.render.filepath)

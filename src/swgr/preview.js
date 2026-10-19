@@ -3,8 +3,8 @@
 //
 // Every part of a class is rendered alone from one camera (parts sit on the same sockets whatever kit they're from),
 // with black and with white paint for each finish (paint, metal, rust): the shading is linear in the paint colour,
-// so any colour is  black + colour * (white - black). A data pass gives each livery pixel its top-down position, where
-// the pattern's SDF is sampled over the chosen parts' bounds (as the game projects it). Parts are then stacked front
+// so any colour is  black + colour * (white - black). A data pass gives each livery pixel its livery UV (the mesh's
+// third UV map, which the game lays the pattern SDFs out on), where the pattern is sampled. Parts are then stacked front
 // to back by depth, with contact shadows between them. Passes are 16-bit PNGs: light x 1/4 (EXPOSURE), alpha = coverage.
 const fs = require('fs')
 const path = require('path')
@@ -12,7 +12,7 @@ const { PNG } = require('pngjs')
 const data = require('./data.js')
 
 const ROOT = path.join(__dirname, '../..')
-const EXPOSURE = 0.25, XY_RANGE = 5
+const EXPOSURE = 0.25, UV_LO = -0.5, UV_SPAN = 2
 const passDir = cls => path.join(ROOT, 'assets', 'passes', cls.replace(/ /g, ''))
 const metaCache = {}
 const meta = cls => metaCache[cls] ??= JSON.parse(fs.readFileSync(path.join(passDir(cls), 'passes.json'), 'utf8'))
@@ -94,11 +94,6 @@ function render(state) {
     const tex = pattern?.sdf ? sdf(pattern.sdf) : null
     const maskCols = (pattern?.masks ?? []).map(k => k.color ? hexLinear(k.color) : palette[Math.min(k.swatch ?? 1, palette.length - 1)])
 
-    // the livery's frame: the chosen parts' top-down bounds together
-    const b = names.map(n => m.parts[n].bounds).filter(Boolean)
-    const mnx = Math.min(...b.map(x => x[0])), mny = Math.min(...b.map(x => x[1]))
-    const sx = Math.max(Math.max(...b.map(x => x[2])) - mnx, 1e-3), sy = Math.max(Math.max(...b.map(x => x[3])) - mny, 1e-3)
-
     const first = pass(cls, `${names[0]}_paint_0`)
     const w = first.w, h = first.h, n = w * h
     // per layer: premultiplied linear RGB, coverage, depth
@@ -118,9 +113,8 @@ function render(state) {
             let c = body, painted = bodyFinish == 'paint' ? 1 : 0
             const flag = dat.data[i * dc + 2] / dat.max
             if (tex && flag > 1e-4) {
-                const x = dat.data[i * dc] / dat.max / flag * 2 * XY_RANGE - XY_RANGE
-                const y = dat.data[i * dc + 1] / dat.max / flag * 2 * XY_RANGE - XY_RANGE
-                const u = (x - mnx) / sx, v = (y - mny) / sy
+                const u = dat.data[i * dc] / dat.max / flag * UV_SPAN + UV_LO
+                const v = dat.data[i * dc + 1] / dat.max / flag * UV_SPAN + UV_LO
                 if (u >= 0 && u <= 1 && v >= 0 && v <= 1) {
                     const s = sample(tex, u, 1 - v)  // Blender's image origin is bottom-left
                     c = [...c]

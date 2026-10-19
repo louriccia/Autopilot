@@ -4,8 +4,8 @@
         [--palette Nomad] [--pattern Raider03] [--patina AllSteel] [--out preview.png]
 
 Per pixel, each part's layer is its finish's black render plus the paint colour times (white - black); the colour is
-the livery at that pixel: the pattern's SDF sampled at the pixel's top-down position over the chosen parts' bounds
-(as the game projects it), each channel over the body colour in its mask's colour. The layers are then stacked front
+the livery at that pixel: the pattern's SDF sampled at the pixel's livery UV (the mesh's UVMap.002, as the game lays
+the patterns out), each channel over the body colour in its mask's colour. The layers are then stacked front
 to back by depth. Needs numpy and opencv-python.
 """
 import argparse
@@ -18,7 +18,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[2]
 DATAMINE = ROOT.parent / "swgr-datamine"
 TEXTURES = Path("E:/SWGR_Export/export")
-EXPOSURE, XY_RANGE = 0.25, 5.0
+EXPOSURE, UV_LO, UV_SPAN = 0.25, -0.5, 2.0
 CLASS_KEY = {"Speeder Bike": "Bike", "Landspeeder": "Car", "Skim Speeder": "Skimmer"}
 # the importer's body finishes (blender_import_vehicle.PATINA_BODY), linear RGB; the metal patinas tint "metal"
 PATINA_FINISH = {"LP_AllSteel": ("metal", (0.56, 0.57, 0.58)), "LP_AllRust": ("rust", (0.28, 0.11, 0.05))}
@@ -109,10 +109,6 @@ def compose(cls, base, parts, palette, pattern, patina, out, shadows=True):
             mask_cols.append(hex_linear(m["color"]) if m["mode"] == "constant" and "color" in m
                              else pal[min(m.get("swatch", 1), len(pal) - 1)])
 
-    # the projection's frame: the top-down bounds of the parts as chosen (the game's are the assembled vehicle's)
-    b = np.array([meta["parts"][n]["bounds"] for n in names])
-    mnx, mny, mxx, mxy = b[:, 0].min(), b[:, 1].min(), b[:, 2].max(), b[:, 3].max()
-
     layers = []
     for n in names:
         alpha = read(passes / f"{n}_paint_0.png")[..., 3]
@@ -120,9 +116,8 @@ def compose(cls, base, parts, palette, pattern, patina, out, shadows=True):
         depth = read(passes / f"{n}_depth.png")[..., 0]
         flag = data[..., 2]
         safe = np.maximum(flag, 1e-6)
-        x = data[..., 0] / safe * 2 * XY_RANGE - XY_RANGE   # un-premultiplied: edges are blended with the background
-        y = data[..., 1] / safe * 2 * XY_RANGE - XY_RANGE
-        u, v = (x - mnx) / max(mxx - mnx, 1e-3), (y - mny) / max(mxy - mny, 1e-3)
+        u = data[..., 0] / safe * UV_SPAN + UV_LO   # un-premultiplied: edges are blended with the background
+        v = data[..., 1] / safe * UV_SPAN + UV_LO
         colour = np.broadcast_to(body, alpha.shape + (3,)).copy()
         painted = np.zeros(alpha.shape, np.float32)
         if sdf is not None:
