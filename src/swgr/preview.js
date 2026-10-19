@@ -20,9 +20,11 @@ const meta = cls => metaCache[cls] ??= JSON.parse(fs.readFileSync(path.join(pass
 // Classes with passes rendered (only these can be customised for now)
 const classes = () => data.classes.map(c => c.name).filter(n => fs.existsSync(path.join(passDir(n), 'passes.json')))
 
-// Decoded passes, least recently used dropped first: each is 2 MB (512 x 512 RGBA 16-bit); a preview reads ~40
+// Decoded passes, least recently used dropped first, kept under CACHE_BYTES (each is ~4.7 MB at 768 x 768 RGBA 16-bit and
+// a preview reads ~40; the Heroku Basic dyno has 512 MB in all)
 const cache = new Map()
-const CACHE_MAX = 80
+const CACHE_BYTES = (Number(process.env.PREVIEW_CACHE_MB) || 80) * 1024 * 1024
+let cached = 0
 function pass(cls, name) {
     const key = `${cls}/${name}`
     let img = cache.get(key)
@@ -32,7 +34,12 @@ function pass(cls, name) {
         const png = PNG.sync.read(fs.readFileSync(path.join(passDir(cls), `${name}.png`)), { skipRescale: true })
         const channels = png.data.length / (png.width * png.height)
         img = { w: png.width, h: png.height, channels, data: png.data, max: png.depth == 16 ? 65535 : 255 }
-        if (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value)
+        cached += img.data.byteLength
+        while (cached > CACHE_BYTES && cache.size) {
+            const [oldest, old] = cache.entries().next().value
+            cache.delete(oldest)
+            cached -= old.data.byteLength
+        }
     }
     cache.set(key, img)
     return img
