@@ -53,7 +53,7 @@ exports.submit = async ({ kind, target, member, memberId, racer, time: rawTime, 
         const message = faster
             ? `Saved ${exports.formatTime(time)} on ${item.name} as ${staffer.name}'s ${staffer.from} staff time${current ? ` (was ${exports.formatTime(current.seconds)})` : ''}.`
             : `${staffer.name}'s ${staffer.from} staff time on ${item.name} is already ${exports.formatTime(current.seconds)}, faster than ${exports.formatTime(time)}.`
-        return { message, receipt: message, duplicate: !faster, updated: [], staff: true }
+        return { message, receipt: message, duplicate: !faster, updated: [], staff: true, kind, target }
     }
 
     // Left empty: the racer's last platform, else their console role (fetched when it's someone else). Only a picked
@@ -102,12 +102,13 @@ exports.submit = async ({ kind, target, member, memberId, racer, time: rawTime, 
     if (creditLine.length) receipt += `\n${creditLine.join('\n')}`
     const creditNote = [earned && `${emoji.named('credits')} +${earned.total.toLocaleString('en-US')}`, ...won.map(b => `${emoji.named('credits')} +${b.paid.toLocaleString('en-US')} bounty`)].filter(Boolean).join(', ')
 
-    // first: this very time is #1 on the board (reactions show the crown for it)
-    const first = rank == 1 && best.time == time
-    if (duplicate && updated.length) return { message: `${whose} ${exports.formatTime(time)} on ${item.name} was already saved (#${rank}); updated its ${updated.length > 1 ? `${updated.slice(0, -1).join(', ')} and ${updated.at(-1)}` : updated[0]}.${creditNote ? ` ${creditNote}.` : ''}`, receipt, duplicate, updated, first }
-    if (duplicate) return { message: `${whose} ${exports.formatTime(time)} on ${item.name} is already saved (#${rank}), with the same details.`, receipt, duplicate, updated, first }
+    // run: this very time and where it places among everyone else's bests (as in the recent-runs menu), for the
+    // reaction on a replay post (src/replays.js)
+    const run = { kind, target, seconds: time, place: board.filter(t => t.user != user && t.time < time).length + 1 }
+    if (duplicate && updated.length) return { message: `${whose} ${exports.formatTime(time)} on ${item.name} was already saved (#${rank}); updated its ${updated.length > 1 ? `${updated.slice(0, -1).join(', ')} and ${updated.at(-1)}` : updated[0]}.${creditNote ? ` ${creditNote}.` : ''}`, receipt, duplicate, updated, ...run }
+    if (duplicate) return { message: `${whose} ${exports.formatTime(time)} on ${item.name} is already saved (#${rank}), with the same details.`, receipt, duplicate, updated, ...run }
     return {
-        receipt, first, earned,
+        receipt, earned, ...run,
         message: (best.time < time
             ? `Saved ${exports.formatTime(time)} on ${item.name}. ${whose} best is still ${exports.formatTime(best.time)} (#${rank}).`
             : `Saved! ${whose} ${exports.formatTime(time)} is #${rank} on ${item.name}.`) + (creditNote ? ` ${creditNote}.` : ''),

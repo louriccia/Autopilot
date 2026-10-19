@@ -12,12 +12,13 @@
 // Forwarded messages count too: their links and images are read from the forwarded copy, and the original message
 // is looked up for its author and time. Anything else (campaign runs, chat, a title naming no event or two) is left
 // alone. Needs the GuildMessages and Message Content (privileged) intents.
-const { SnowflakeUtil, MessageFlags } = require('discord.js')
+const { SnowflakeUtil, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js')
 const { testing } = require('../config.js')
 const { replay_channels, test_channel } = require('./data/discord/channel.js')
 const data = require('./swgr/data.js')
 const emoji = require('./data/discord/emoji.js')
-const { submit, formatTime } = require('./submit.js')
+const { submit, formatTime, board: boardOf } = require('./submit.js')
+const pages = require('./swgr/pages.js')
 const records = require('./records.js')
 
 const VIDEO = /(?:youtube\.com\/(?:watch\?(?:\S*?&)?v=|shorts\/|live\/)|youtu\.be\/)([\w-]{11})/g
@@ -199,8 +200,26 @@ async function mentionFollows(message, wait = 4000) {
 // Takes back the bot's "?" (whose run?) from a message, once a mention has named the racer
 const unmarkUnknown = message => message.reactions.cache.find(r => r.me && (r.emoji.name == 'unknown' || r.emoji.name == '❓'))?.users.remove(message.client.user.id).catch(() => { })
 
-// The reaction that confirms saved runs: the game's crown when one of them is #1 on its board, else the stopwatch
-const confirm = (message, saved) => message.react(emoji.named(saved.some(r => r.first) ? 'crown' : 'stopwatch').replace(/^<a?:|>$/g, '')).catch(() => { })
+// The reaction that confirms saved runs: the run's emoji as the event menus would show it (its place once it's gold
+// and top 10, else its medal, else the tick; pages.standingEmoji), for the best of them when there are several; the
+// stopwatch for a staff time
+const STANDING = ['gold', 'silver', 'bronze']
+function confirm(message, saved) {
+    const runs = saved.map(r => ({ e: data.event(r.target), ...r })).filter(r => r.e && r.place)
+        .map(r => ({ ...r, medal: (i => i < 0 ? 3 : i)(STANDING.findIndex(m => r.seconds <= r.e.medals[m].seconds)) }))
+    const best = runs.sort((a, b) => a.medal - b.medal || a.place - b.place)[0]
+    const shown = best ? pages.standingEmoji(best.e, best.seconds, best.place) : emoji.named('stopwatch')
+    return message.react(shown.replace(/^<a?:|>$/g, '')).catch(() => { })
+}
+
+// A "View board" button per board the saved runs are on (as on podium announcements), for the mention's reply
+const viewButtons = saved => {
+    const boards = [...new Set(saved.map(r => `${r.kind}:${r.target}`))].slice(0, 5).map(b => b.split(':'))
+    return boards.length ? [new ActionRowBuilder().addComponents(boards.map(([kind, target]) => new ButtonBuilder()
+        .setCustomId(kind == 'arcade' ? `arcade_event_${target}` : `scenario_${target}`)
+        .setLabel(boards.length > 1 ? `View ${(boardOf(kind, target)?.name ?? 'board').slice(0, 70)}` : 'View board')
+        .setStyle(ButtonStyle.Secondary)))] : []
+}
 
 // Saves every run found in a message; returns what happened to each, for logs and backfills
 // announce: false for backfills of old posts, so they don't announce podium changes. anywhere: a message outside the
@@ -306,7 +325,7 @@ exports.handleMention = async message => {
     const ids = [...new Set([...message.content.matchAll(/<@!?(\d+)>/g)].map(m => m[1]))].filter(id => id != me.id)
     const others = (await Promise.all(ids.map(id => message.mentions.users.get(id) ?? message.client.users.fetch(id).catch(() => null))))
         .filter(u => u && !u.bot)
-    const reply = content => message.reply({ content, allowedMentions: { parse: [], repliedUser: false }, flags: MessageFlags.SuppressNotifications }).catch(() => { })
+    const reply = (content, components = []) => message.reply({ content, components, allowedMentions: { parse: [], repliedUser: false }, flags: MessageFlags.SuppressNotifications }).catch(() => { })
     if (others.length > 1) return reply('Mention one racer at a time.')
     const racer = others[0] ?? message.author
     if (racer.id != message.author.id && !records.canSubmitForOthers(message.member)) return reply("You can only submit your own times. Leave out the mention to submit yours.")
@@ -342,14 +361,14 @@ exports.handleMention = async message => {
         })
         console.log(`[mention] ${message.author.username} for ${racer.username}: "${given.event.name} ${formatTime(given.seconds)}" -> ${result.error ?? result.message}`)
         if (!result.error) await confirm(message, [result])
-        return reply(result.error ?? result.message)
+        return reply(result.error ?? result.message, result.error ? [] : viewButtons([result]))
     }
 
     // Otherwise read what's attached
     const results = await exports.handle(target, { anywhere: true, racer })
     const saved = results.filter(r => !r.skipped && !r.error)
     if (saved.length && target != message) await unmarkUnknown(target)
-    if (saved.length) return reply(saved.map(r => r.message).join('\n'))
+    if (saved.length) return reply(saved.map(r => r.message).join('\n'), viewButtons(saved))
     if (results.some(r => r.error)) return reply(results.find(r => r.error).error)
     return reply(target != message || src.content || src.attachments.length
         ? "I couldn't find an arcade run in that. Add the event and time, like `@Autopilot Ramjet Run 1:13.59`."
