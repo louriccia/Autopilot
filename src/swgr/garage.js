@@ -20,7 +20,7 @@ const colorPages = () => Math.ceil(data.palettes.length / COLOR_PAGE)
 const pageOf = paletteId => Math.floor(data.palettes.findIndex(p => p.id == paletteId) / COLOR_PAGE)
 
 // state <-> code: class, base kit (for Root), each slot's kit, livery (0 = none), colour, patina, colour menu page,
-// tab (0 parts, 1 paint), in base 36
+// tab (0 Choose Model, 1 Edit Livery, 2 Edit Vehicle; cards from before had 0 parts / 1 paint), in base 36
 function encode(s) {
     const slots = preview.slotsOf(s.cls), kits = slots[0].kits
     const patterns = data.patternsFor(s.cls)
@@ -31,7 +31,7 @@ function encode(s) {
         b36(data.palettes.findIndex(p => p.id == s.palette), 2),
         b36(data.patinas.findIndex(p => p.id == s.patina), 1),
         b36(s.page ?? pageOf(s.palette), 1),
-        s.tab == 'paint' ? '1' : '0',
+        String(TAB_CODES.indexOf(s.tab ?? 'model')),
     ].join('')
 }
 
@@ -49,7 +49,7 @@ function decode(code) {
         palette: data.palettes[take(2)].id,
         patina: data.patinas[take(1)].id,
         page: (pg => Number.isNaN(pg) ? undefined : pg)(take(1)),  // cards from before the colour pages have none
-        tab: take(1) == 1 ? 'paint' : 'parts',
+        tab: TAB_CODES[take(1)] ?? 'model',
     }
 }
 
@@ -71,7 +71,11 @@ function menu(field, code, placeholder, options) {
         .addOptions(options.slice(0, 25).map(({ emoji: e, ...o }) => ({ ...o, emoji: emoji.component(e) }))))
 }
 
-// The card for a build: its image, then the parts tab or the paint tab
+// The garage's tabs, as the game labels them; TAB_CODES is their order in the build code
+const TABS = [['model', 'Choose Model'], ['vehicle', 'Edit Vehicle'], ['livery', 'Edit Livery']]
+const TAB_CODES = ['model', 'livery', 'vehicle']
+
+// The card for a build: its image, then one tab: the model, the parts, or the livery
 async function card(s) {
     const code = encode(s)
     const slots = preview.slotsOf(s.cls)
@@ -86,13 +90,14 @@ async function card(s) {
         `# ${stock ? stock.name : `Custom ${s.cls}`}`,
     ].join('\n')))
     container.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(item => item.setURL('attachment://speeder.png')))
-    // Two tabs, so the card stays under Discord's message size with every option's emoji (all ten menus at once,
-    // ~120 emojis, went over): the parts (Model and a menu per slot), and the paint (livery, colour, patina)
-    const tab = s.tab ?? 'parts'
-    container.addActionRowComponents(new ActionRowBuilder().addComponents([['parts', 'Parts'], ['paint', 'Paint']].map(([id, label]) =>
-        new ButtonBuilder().setCustomId(`cust_${id}_${code}`).setLabel(label).setDisabled(id == tab)
+    // Tabs, as in the game's garage; they also keep the card under Discord's message size with every option's emoji
+    // (all ten menus at once, ~120 emojis, went over)
+    const tab = s.tab ?? 'model'
+    container.addActionRowComponents(new ActionRowBuilder().addComponents(TABS.map(([id, label]) =>
+        new ButtonBuilder().setCustomId(`cust_tab${id}_${code}`).setLabel(label).setDisabled(id == tab)
             .setStyle(id == tab ? ButtonStyle.Primary : ButtonStyle.Secondary))))
-    if (tab == 'parts') container.addActionRowComponents(...partRows(s, code, slots, stock))
+    if (tab == 'model') container.addActionRowComponents(modelRow(s, code, slots, stock))
+    else if (tab == 'vehicle') container.addActionRowComponents(...partRows(s, code, slots))
     else container.addActionRowComponents(...paintRows(s, code, palette, pattern))
     return {
         components: [container], flags: MessageFlags.IsComponentsV2, allowedMentions: { parse: [] },
@@ -100,23 +105,26 @@ async function card(s) {
     }
 }
 
-// The parts tab: the whole model ("Custom" once the parts are mixed), then a menu per slot
-function partRows(s, code, slots, stock) {
-    const rows = [menu('model', code, 'Model', [
+// Choose Model: the whole model ("Custom" once the parts are mixed)
+function modelRow(s, code, slots, stock) {
+    return menu('model', code, 'Model', [
         ...(stock ? [] : [{ label: 'Model: Custom', value: 'custom', description: 'Parts from different models', default: true }]),
         ...slots[0].kits.map(kit => vehicleOf(s.cls, kit)).filter(Boolean).map(v => ({
             label: `Model: ${v.name}`, value: v.codename, description: v.manufacturer ?? undefined,
             emoji: emoji.named(v.emoji) || emoji.vehicle[v.class], default: stock && v.codename == stock.codename,
         })),
-    ])]
-    rows.push(...slots.map(sl => menu(sl.id, code, sl.label, sl.kits.map(kit => vehicleOf(s.cls, kit)).filter(Boolean).map(v => ({
-        label: `${sl.label}: ${v.name}`, value: v.codename, emoji: emoji.named(v.emoji) || emoji.vehicle[v.class],
-        default: v.codename == (s.parts[sl.id] ?? s.base),
-    })))))
-    return rows
+    ])
 }
 
-// The paint tab: livery, colour (paged), patina
+// Edit Vehicle: a menu per part slot
+function partRows(s, code, slots) {
+    return slots.map(sl => menu(sl.id, code, sl.label, sl.kits.map(kit => vehicleOf(s.cls, kit)).filter(Boolean).map(v => ({
+        label: `${sl.label}: ${v.name}`, value: v.codename, emoji: emoji.named(v.emoji) || emoji.vehicle[v.class],
+        default: v.codename == (s.parts[sl.id] ?? s.base),
+    }))))
+}
+
+// Edit Livery: livery, colour (paged), patina
 function paintRows(s, code, palette, pattern) {
     const rows = [menu('livery', code, 'Livery', [
         { label: 'Livery: none', value: 'none', default: !pattern },
@@ -150,7 +158,7 @@ function apply(s, field, value) {
         for (const sl of preview.slotsOf(s.cls)) s.parts[sl.id] = value
     }
     else if (field == 'patina') s.patina = value
-    else if (field == 'parts' || field == 'paint') s.tab = field
+    else if (field.startsWith('tab')) s.tab = field.slice(3)
     else if (preview.slotsOf(s.cls).some(sl => sl.id == field)) s.parts[field] = value
     return s
 }

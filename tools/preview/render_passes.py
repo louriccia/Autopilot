@@ -58,6 +58,8 @@ VEHICLE_METALS = [
     ("Chrome", (0.40, 0.40, 0.41), 1.0, 0.3), ("Aluminum", (0.36, 0.36, 0.37), 1.0, 0.45),
     ("Aluminium", (0.36, 0.36, 0.37), 1.0, 0.45), ("Magnesium", (0.33, 0.33, 0.34), 1.0, 0.5),
     ("Steel", (0.30, 0.30, 0.31), 1.0, 0.5),
+    # the engines' heat-tinted metal (MI_*Common_Heat*): the importer's preset was a purple that read as magenta
+    ("Heat", (0.29, 0.28, 0.30), 1.0, 0.45),
 ]
 _setup_material = biv.setup_material
 
@@ -66,15 +68,17 @@ def vehicle_material(mat):
     name = mat.name.split(".")[0]
     low = name.lower()
     src = biv.material_index().get(name)
-    if mat.get("swgr_done") or not src or any(k in low for k in ("livery", "heat", "headlight", "emissive", "flipbook")):
+    if mat.get("swgr_done") or not src or any(k in low for k in ("livery", "headlight", "emissive", "flipbook")):
         return _setup_material(mat)
     with open(src, encoding="utf-8") as fh:
         data = json.load(fh)
     cols, scal = data.get("Colors") or {}, data.get("Scalars") or {}
     glass = cols.get("Glass Colour")
     base = cols.get("Base Colour")
-    if not glass and not (base and "Binder Colour" in cols):
-        return _setup_material(mat)  # not a vehicle master material
+    metal = next(((c, m, r) for k, c, m, r in VEHICLE_METALS if k.lower() in low), None)
+    vehicle = "/Vehicles/" in src.replace("\\", "/")
+    if not vehicle or not (glass or base or metal):
+        return _setup_material(mat)  # not a vehicle material, or nothing to go on
     mat["swgr_done"] = True
     mat.use_nodes = True
     biv.strip_vertex_colors(mat)
@@ -89,8 +93,8 @@ def vehicle_material(mat):
         rgb, metallic, rough = tuple(1 - (1 - glass[c]) * k for c in "RGB"), 0.0, 0.05
         if "Transmission Weight" in bsdf.inputs:
             bsdf.inputs["Transmission Weight"].default_value = 0.95
-    elif base["Hex"].upper() == "FF0058":
-        rgb, metallic, rough = next(((c, m, r) for k, c, m, r in VEHICLE_METALS if k.lower() in low), ((0.30, 0.30, 0.31), 1.0, 0.5))
+    elif not base or base["Hex"].upper() == "FF0058":
+        rgb, metallic, rough = metal or ((0.30, 0.30, 0.31), 1.0, 0.5)
         if "smooth" in low or "polished" in low or "clean" in low:
             rough = max(rough - 0.15, 0.1)
         if "rough" in low or "matt" in low or "dirty" in low or "oxide" in low:
