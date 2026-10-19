@@ -37,6 +37,7 @@ const statusById = byId(statuses)
 const sponsorById = byId(sponsors)
 const taleById = byId(tales)
 const paletteById = byId(palettes)
+const patinaById = byId(patinas)
 const patternById = byId(patterns)
 const classById = byId(classes)
 const abilityByName = Object.fromEntries(abilities.map(a => [a.name, a]))
@@ -103,6 +104,7 @@ module.exports = {
     characterEmoji: name => { const n = (name ?? '').split(/ & | \(/)[0].trim(); return characterEmojiByName[name] ?? characterEmojiByName[n] ?? null },
     palette: id => paletteById[id],
     pattern: id => patternById[id],
+    patina: id => patinaById[id],
     palettesIn: group => palettes.filter(p => p.group == group),
     patternsFor: className => patterns.filter(p => p.class == className),
     vehicleByName: name => vehicles.find(v => v.name == name),

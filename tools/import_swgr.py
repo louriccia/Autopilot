@@ -1378,12 +1378,18 @@ def main():
             o = (1 - k) * size
             draw.polygon([(o, 0), (size, 0), (size, size - o)], fill=c)
         im = Image.blend(im, Image.new("RGBA", (size, size), (128, 128, 128, 255)), 0.08)  # the tile's dusty flatness
+        return tile_emoji(f"pal_{key}", im)
+
+    def tile_emoji(name, im):
+        """An image on the UI's rounded tile with its thin light border, as the garage's livery tiles are drawn."""
+        size = 128
+        im = im.convert("RGBA").resize((size, size), Image.LANCZOS)
         mask = Image.open(ui_common / "T_UI_FE_TileButton_140_Fill_Cmn.png").convert("RGBA").getchannel("A").resize((size, size), Image.LANCZOS)
         border = Image.new("RGBA", (size, size), (225, 225, 225, 255))
         border.putalpha(ImageChops.subtract(mask, mask.filter(ImageFilter.MinFilter(5))).point(lambda v: v * 0.8))
         im.alpha_composite(border)
         im.putalpha(mask)
-        return emojis.add_image(re.sub(r"[^A-Za-z0-9_]", "", f"pal_{key}")[:32], im)
+        return emojis.add_image(re.sub(r"[^A-Za-z0-9_]", "", name)[:32], im)
 
     def head_to_head(spec):
         # "The War Fields (Loop, reverse) Sunset 2 laps x1"
@@ -1599,7 +1605,7 @@ def main():
         short = r["tag"].replace("Livery.", "")
         render = out / "liveries" / "patterns" / f"{r['class']}_{short}.png"
         pid = f"{slug(cls_name)}-{slug(livery_name(r['name']))}"
-        image = None
+        image = pattern_emoji = None
         if render.exists():  # the render carries a caption strip under the square
             im = Image.open(render).convert("RGB")
             im = im.crop((0, 0, im.width, im.width))
@@ -1607,14 +1613,70 @@ def main():
             dest.parent.mkdir(parents=True, exist_ok=True)
             im.resize((256, 256), Image.LANCZOS).save(dest, "WEBP", quality=88)
             image = dest.relative_to(ROOT).as_posix()
+            # the garage lists liveries unlabelled, so cards show the render as an emoji (lv_Car_Assassin02)
+            pattern_emoji = tile_emoji(f"lv_{r['class']}_{re.sub(r'A$', '', short)}", im)
         pattern_by_tag[(cls_name, re.sub(r"A$", "", short))] = pid
         patterns_out.append({
             "id": pid, "name": livery_name(r["name"]), "class": cls_name, "kitPoints": num(r["cost"]) if r["cost"] else None,
             "unlock": livery_unlock({"unlock": r["unlock"], "unlocked_by": r["unlocked_by"], "asset": r["asset"]}),
             "group": livery_group(r["unlock"], r["unlocked_by"], r["default_unlocked"] == "True"),
             "image": image,
+            "emoji": pattern_emoji,
         })
-    patinas_out = [{"id": slug(v["name"]), "name": v["name"], "kitPoints": v.get("cost"), "unlock": livery_unlock(v)}
+
+    # Patinas are unlabelled in the garage too, and their masks (Patinas/T_*.png) export blank, so each gets a drawn
+    # swatch of its finish: a likeness, not game art. Mixes split the tile between their finishes.
+    import random
+
+    def finish(kind, size=128, seed=0):
+        rnd = random.Random(seed)
+        if kind == "paint":
+            im = Image.new("RGB", (size, size), (214, 208, 198))
+            ImageDraw.Draw(im).polygon([(0, size * 0.55), (size * 0.55, 0), (size * 0.75, 0), (0, size * 0.75)], fill=(236, 232, 224))
+        elif kind == "rust":
+            im = Image.new("RGB", (size, size), (128, 66, 34))
+            d = ImageDraw.Draw(im)
+            for _ in range(70):
+                x, y, r = rnd.uniform(0, size), rnd.uniform(0, size), rnd.uniform(3, 11)
+                d.ellipse((x - r, y - r, x + r, y + r), fill=rnd.choice([(170, 92, 44), (96, 46, 24), (150, 80, 40)]))
+            im = im.filter(ImageFilter.GaussianBlur(1.5))
+        elif kind in ("steel", "gold", "deluxe"):
+            dark, light = {"steel": ((110, 116, 122), (192, 197, 201)), "gold": ((146, 106, 30), (236, 196, 90)),
+                           "deluxe": ((40, 40, 48), (150, 120, 60))}[kind]
+            im = Image.new("RGB", (size, size))
+            d = ImageDraw.Draw(im)
+            for y in range(size):  # brushed: a vertical sheen with fine horizontal streaks
+                t = 1 - abs(y / size - 0.4) * 1.4 + rnd.uniform(-0.06, 0.06)
+                t = max(0, min(1, t))
+                d.line([(0, y), (size, y)], fill=tuple(round(a + (b - a) * t) for a, b in zip(dark, light)))
+        return im
+
+    PATINA_FINISHES = {"All Paint": ["paint"], "All Rust": ["rust"], "All Steel": ["steel"], "All Gold": ["gold"],
+                       "Deluxe": ["deluxe"], "Mix": ["paint", "rust", "steel"], "Rust Steel Mix": ["rust", "steel"]}
+
+    def patina_emoji(name):
+        kinds = PATINA_FINISHES.get(name)
+        if not kinds:
+            return None
+        size = 128
+        if name == "Rust Steel Mix":  # a checker, as its mask's name says (T_RustSteelChecker)
+            im, rust, steel = Image.new("RGB", (size, size)), finish("rust"), finish("steel")
+            for i in range(2):
+                for j in range(2):
+                    src = rust if (i + j) % 2 == 0 else steel
+                    box = (i * size // 2, j * size // 2, (i + 1) * size // 2, (j + 1) * size // 2)
+                    im.paste(src.crop(box), box)
+        else:  # equal diagonal bands, top-left to bottom-right (by x + y)
+            im = finish(kinds[0])
+            for k, kind in enumerate(kinds[1:], 1):
+                c = 2 * size * k / len(kinds)
+                band = Image.new("L", (size, size))
+                band.putdata([255 if x + y >= c else 0 for y in range(size) for x in range(size)])
+                im.paste(finish(kind, seed=k), mask=band)
+        return tile_emoji(f"pat_{camel(name)}", im)
+
+    patinas_out = [{"id": slug(v["name"]), "name": v["name"], "kitPoints": v.get("cost"), "unlock": livery_unlock(v),
+                    "emoji": patina_emoji(v["name"])}
                    for v in (liveries["patinas"].values() if isinstance(liveries["patinas"], dict) else liveries["patinas"])]
 
     # --- status effects ---
@@ -1921,7 +1983,7 @@ def main():
                 "vehicle": kits[0]["id"],
                 "palette": palette_by_tag.get(row["palette"]),
                 "pattern": pattern_by_tag.get((cls_name, re.sub(r"A$", "", row["pattern"].replace("Customisation.Livery.", "")))),
-                "patina": patina_names.get(row["patina"]),
+                "patina": slug(patina_names[row["patina"]]) if row["patina"] in patina_names else None,
             })
         r["vehicles"].sort(key=lambda v: list(CLASS_KEY).index(v["vehicleClass"]))
         # multiplayer: each mode's style, from the first of their defs that names one (the others have the

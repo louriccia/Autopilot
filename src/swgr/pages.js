@@ -1217,15 +1217,18 @@ function characterInfo(racerId) {
     const buildClasses = new Set(r.styles.flatMap(s => s.build?.speeds.map(x => x.vehicleClass) ?? []))
     const firstBuild = r.styles.find(s => s.build)
     const speedersOf = s => r.vehicles.filter(v => s.build?.speeds.some(x => x.vehicleClass == v.vehicleClass) || (s == firstBuild && !buildClasses.has(v.vehicleClass)))
-    // A speeder: its speed and livery (palette / pattern / patina; podracers can't be customised) beside a button to
-    // the model's card (like an arcade event's track button). A pod the style's own button already opens is named in
-    // the text instead (a message can't have two buttons with the same id).
+    // A speeder: its speed and customisation beside a button to the model's card (like an arcade event's track
+    // button). The customisation follows the garage's tabs, Livery / Color / Patina; their options are unlabelled
+    // there, so they show as their emojis (a podracer only has its colours). A pod the style's own button already
+    // opens is named in the text instead (a message can't have two buttons with the same id).
     const addSpeeder = (v, build, linked) => {
         const vehicle = data.vehicle(v.vehicle)
-        const palette = v.palette && data.palette(v.palette), pattern = v.pattern && data.pattern(v.pattern)
+        const pattern = v.pattern && data.pattern(v.pattern), palette = v.palette && data.palette(v.palette), patina = v.patina && data.patina(v.patina)
         const speed = build?.speeds.find(x => x.vehicleClass == v.vehicleClass)
+        const pod = v.vehicleClass == 'Podracer'
         const line = [linked && `${cls(v.vehicleClass)} **${vehicle.name}**`, speed && `${emoji.named(speed.emoji)} ${speed.value} km/h`,
-            palette && `${emoji.named(palette.emoji)} ${palette.name} palette`, pattern && `${pattern.name} pattern`, v.vehicleClass != 'Podracer' && v.patina].filter(Boolean).join(' / ')
+            !pod && pattern?.emoji && `Livery ${emoji.named(pattern.emoji)}`, palette && `Color ${emoji.named(palette.emoji)}`,
+            !pod && patina?.emoji && `Patina ${emoji.named(patina.emoji)}`].filter(Boolean).join(' / ')
         sectionWithButton(container, [line || '​'], linked ? null : [`vehicle_${vehicle.id}`, vehicle.name, emoji.vehicle[v.vehicleClass]])
     }
 
