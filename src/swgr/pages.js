@@ -1212,7 +1212,21 @@ function characterInfo(racerId) {
         unlockLine(r.unlock),
     ], files.add(r.portrait))
 
-    for (const { modes, style: st, build } of r.styles) {
+    // Their speeders sit in the section whose build they race with (the speed is that build's on the class);
+    // ones no build covers (Sebulba's skimmer, a pilot's spare pod) join the first section with a build
+    const buildClasses = new Set(r.styles.flatMap(s => s.build?.speeds.map(x => x.vehicleClass) ?? []))
+    const firstBuild = r.styles.find(s => s.build)
+    const speedersOf = s => r.vehicles.filter(v => s.build?.speeds.some(x => x.vehicleClass == v.vehicleClass) || (s == firstBuild && !buildClasses.has(v.vehicleClass)))
+    // A speeder: the model, its speed and its livery (palette / pattern / patina); podracers can't be customised
+    const speederLine = (v, build) => {
+        const palette = v.palette && data.palette(v.palette), pattern = v.pattern && data.pattern(v.pattern)
+        const speed = build?.speeds.find(x => x.vehicleClass == v.vehicleClass)
+        return [`${cls(v.vehicleClass)} **${data.vehicle(v.vehicle).name}**`, speed && `${emoji.named(speed.emoji)} ${speed.value} km/h`,
+            palette && `${emoji.named(palette.emoji)} ${palette.name} palette`, pattern && `${pattern.name} pattern`, v.vehicleClass != 'Podracer' && v.patina].filter(Boolean).join(' / ')
+    }
+
+    for (const s of r.styles) {
+        const { modes, style: st, build } = s
         container.addSeparatorComponents(separator())
         // beside it, a button to its card: the racer style's, or for a podracer pilot's pod, the vehicle's
         const card = data.styles.find(x => x.name == st.name), pod = !card && data.vehicleByName(st.name)
@@ -1223,43 +1237,32 @@ function characterInfo(racerId) {
             st.abilities.length && st.abilities.map(a => `${emoji.named(a.emoji)} ${a.name}`).join('   '),
             ...st.traits.map(t => `-# ${[emoji.named(t.emoji), `**${t.name}**`].filter(Boolean).join(' ')}: ${emojify(t.description)}`),
         ], card ? [`style_${card.id}`, card.name, emoji.named(card.emoji)] : pod ? [`vehicle_${pod.id}`, pod.name, emoji.vehicle[pod.class]] : null)
-        if (build) {
+        const speeders = speedersOf(s)
+        if (build || speeders.length) {
             container.addTextDisplayComponents(text([
-                build.speeds.map(s => `${cls(s.vehicleClass)} ${emoji.named(s.emoji)} ${s.value} km/h`).join(' / '),
-                ...statLines(build.build, build.maxEnergy),
+                ...speeders.map(v => speederLine(v, build)),
+                ...(build ? statLines(build.build, build.maxEnergy) : []),
             ].join('\n')))
         }
+        // The style's starting abilities and the speeders' cards, from one menu right under the section
+        const options = [
+            ...abilitiesOf(st).map(a => ({ label: a.name, value: `ability:${a.id}`, description: a.description.slice(0, 100), emoji: emoji.named(a.emoji) })),
+            ...speeders.flatMap(v => [
+                { label: data.vehicle(v.vehicle).name, value: `vehicle:${v.vehicle}`, description: `Vehicle / ${v.vehicleClass}`, emoji: emoji.vehicle[v.vehicleClass] },
+                v.palette && { label: data.palette(v.palette).name, value: `palette:${v.palette}`, description: 'Livery palette', emoji: emoji.named(data.palette(v.palette).emoji) },
+                v.pattern && { label: data.pattern(v.pattern).name, value: `pattern:${v.pattern}`, description: `Livery pattern / ${v.vehicleClass}`, emoji: emoji.vehicle[v.vehicleClass] },
+            ]).filter(Boolean),
+        ].filter((o, i, all) => all.findIndex(x => x.value == o.value) == i)
+        if (options.length) container.addActionRowComponents(select('goto', 'View abilities and speeders', options))
     }
 
-    const favors = r.favors.map(data.favor)
-    for (const f of favors) {
+    for (const f of r.favors.map(data.favor)) {
         container.addSeparatorComponents(separator())
         sectionWithButton(container, [`### ${emoji.named(f.emoji)} ${f.name}`, emojify(f.ranks[0].rich), unlockLine(f.ranks[0].unlock)],
             [`favor_${f.id}`, f.name, emoji.named(f.emoji)])
     }
 
-    // Their speeder per class: the model and its livery (palette / pattern / patina); podracers can't be customised
-    for (const v of r.vehicles) {
-        const palette = v.palette && data.palette(v.palette), pattern = v.pattern && data.pattern(v.pattern)
-        container.addSeparatorComponents(separator())
-        container.addTextDisplayComponents(text([
-            `### ${cls(v.vehicleClass)} ${data.vehicle(v.vehicle).name}`,
-            [palette && `${emoji.named(palette.emoji)} ${palette.name} palette`, pattern && `${pattern.name} pattern`, v.vehicleClass != 'Podracer' && v.patina].filter(Boolean).join(' / '),
-        ].filter(Boolean).join('\n')))
-    }
-
-    const campaign = r.campaignStyle && data.style(r.campaignStyle)
-    const abilities = [...new Map(r.styles.flatMap(s => abilitiesOf(s.style)).map(a => [a.id, a])).values()]
-    const related = [
-        rival && { label: rival.name, value: `rival:${rival.id}`, description: rival.champion ? 'Champion' : 'Rival', emoji: face(rival.name) },
-        campaign && { label: campaign.name, value: `style:${campaign.id}`, description: 'Campaign racer style', emoji: emoji.named(campaign.emoji) },
-        ...favors.map(f => ({ label: f.name, value: `favor:${f.id}`, description: 'Favor', emoji: emoji.named(f.emoji) })),
-        ...abilities.map(a => ({ label: a.name, value: `ability:${a.id}`, description: 'Ability', emoji: emoji.named(a.emoji) })),
-        ...r.vehicles.map(v => data.vehicle(v.vehicle)).map(v => ({ label: v.name, value: `vehicle:${v.id}`, description: `Vehicle / ${v.class}`, emoji: emoji.vehicle[v.class] })),
-        ...[...new Set(r.vehicles.map(v => v.palette).filter(Boolean))].map(data.palette).map(p => ({ label: p.name, value: `palette:${p.id}`, description: 'Livery palette', emoji: emoji.named(p.emoji) })),
-        ...r.vehicles.map(v => v.pattern && data.pattern(v.pattern)).filter(Boolean).map(p => ({ label: p.name, value: `pattern:${p.id}`, description: `Livery pattern / ${p.class}`, emoji: emoji.vehicle[p.class] })),
-    ].filter(Boolean)
-    return page(container, files, [characterSelect(r.id), ...(related.length ? [select('goto', 'Their rival card, styles, favors and speeders', related)] : [])])
+    return page(container, files, [characterSelect(r.id)])
 }
 
 // --- mysteries ---
