@@ -1290,6 +1290,7 @@ def main():
                         (("playstation", "X/[]"), ("xbox", "X/[]"), ("keyboard", "SpaceBar")))
     action_text = lambda s: re.sub(r'<action id="ImprovedSteering"\s*/>', glyphs, s or "")
 
+    vehicle_parts = json.loads((out / "vehicle_parts.json").read_text(encoding="utf-8"))["classes"]
     vehicle_classes_out = []
     for cls_name, key in CLASS_KEY.items():
         traits = []
@@ -1304,6 +1305,9 @@ def main():
             "traits": traits,
             "advanced": ADVANCED[cls_name],
             "gif": vehicle_classes[cls_name]["gif"],
+            # the garage's part slots (out/vehicle_parts.json): internal id, its label, the kits that fit it
+            "slots": [{"id": s, "label": parts_lib.get("slot_labels", {}).get(s, s), "kits": [o["kit"] for o in opts]}
+                      for s, opts in parts_lib.get("slots", {}).items()] if (parts_lib := vehicle_parts.get(key)) else [],
         })
 
     kit_json = {p.stem[3:]: p for p in (game / "Vehicles").glob("**/TH_*.json")}
@@ -1635,6 +1639,17 @@ def main():
         x, y = o["R"] % 1 * size, o["G"] % 1 * size
         return tiled.crop((round(x), round(y), round(x + o["B"] * size), round(y + o["A"] * size))).resize((256, 256), Image.LANCZOS).rotate(90)
 
+    def preview_pattern(p, pid):
+        src = p and p.get("sdf") and args.textures / p["sdf"]
+        if not src or not src.exists():
+            return {"sdf": None, "masks": []}
+        dest = ART_OUT / "liveries" / "sdf" / f"{pid}.png"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(src.read_bytes())
+        return {"sdf": dest.relative_to(ROOT).as_posix(),
+                "masks": [{"color": m["color"]} if m["mode"] == "constant" and "color" in m else {"swatch": m.get("swatch", 1)}
+                          for m in p["masks"]]}
+
     patterns_out = []
     for r in rows(out / "liveries" / "patterns.csv"):
         if r["class"] == "Plane" or r["name"] == "None":
@@ -1662,6 +1677,9 @@ def main():
             "group": livery_group(r["unlock"], r["unlocked_by"], r["default_unlocked"] == "True"),
             "image": image,
             "emoji": pattern_emoji,
+            # for the customised previews (src/swgr/preview.js): the pattern's SDF and each channel's colour, a
+            # constant or a palette swatch (liveries.json masks), as render_pattern uses them
+            **preview_pattern(liveries["patterns"][r["class"]].get("Customisation." + r["tag"]), pid),
         })
 
     # Patinas are unlabelled in the garage too, and their masks (Patinas/T_*.png) export blank, so each gets a drawn
@@ -1716,8 +1734,17 @@ def main():
             im.paste(finish(kind), mask=band)
         return tile_emoji(f"pat_{camel(name)}", im)
 
+    # A patina's body finish for the previews (src/swgr/preview.js, which has paint / metal / rust passes): the
+    # datamine importer's (blender_import_vehicle.body_finish): a metal override colour (All Gold, Deluxe), else steel
+    # or rust, else the palette's body colour on paint. The mixes keep the paint there too, an approximation.
+    def patina_finish(v):
+        if v.get("metal_override"):
+            return {"finish": "metal", "body": v["metal_override"]["color"]}
+        return {"LP_AllSteel": {"finish": "metal", "body": "#C5C7C8"}, "LP_AllRust": {"finish": "rust", "body": "#905D3F"}}.get(
+            v.get("asset"), {"finish": "paint", "body": None})
+
     patinas_out = [{"id": slug(v["name"]), "name": v["name"], "kitPoints": v.get("cost"), "unlock": livery_unlock(v),
-                    "emoji": patina_emoji(v["name"])}
+                    "emoji": patina_emoji(v["name"]), **patina_finish(v)}
                    for v in (liveries["patinas"].values() if isinstance(liveries["patinas"], dict) else liveries["patinas"])]
 
     # --- status effects ---

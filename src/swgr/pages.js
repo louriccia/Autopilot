@@ -10,6 +10,7 @@ const records = require('../records.js')
 const viewer = require('../viewer.js')
 const credits = require('../credits.js')
 const emoji = require('../data/discord/emoji.js')
+const garage = require('./garage.js')
 
 const ROOT = path.join(__dirname, '../..')
 const DEFAULT_COLOR = 0x3B88C3
@@ -1064,6 +1065,8 @@ function vehicleInfo(vehicleId) {
         ...events.map(e => ({ label: e.name, value: `event:${e.id}`, description: `Arcade / ${data.track(e.track).name}`, emoji: emoji.vehicle[e.vehicleClass] })),
     ]
     if (related.length) rows.push(select('goto', 'Rivals and arcade events with it', related))
+    // the garage (src/swgr/garage.js), for the classes with preview passes
+    if (garage.canCustomise(v.id)) rows.push(buttons([`cust_open_${v.id}`, 'Customize', emoji.named(v.emoji) || emoji.vehicle[v.class]]))
     return page(container, files, rows)
 }
 
