@@ -45,6 +45,68 @@ biv = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(biv)
 biv.LIVERY_PATTERNS = False  # compose.py lays the patterns; the importer only marks which slots are livery
 
+# Vehicle materials (MI_<Kit>Common_*), set from their own parameters. The importer sends them down its path for
+# layered world props (they share LayerTintColor / U Tiling), which put the generic rusted-metal texture on as the
+# base colour, fully metallic: tan pipes and frames, even on PaintedMetalBlack. The game's parameters say otherwise:
+# painted metal, plastic, rubber, leather and fabric carry a real Base Colour, Metallic and Roughness Base. The bare
+# metals (Nickel, Brass, Chrome...) leave Base Colour as the placeholder #FF0058 (their colour comes from a parent
+# layer the export doesn't include), so they get these: muted, worn-looking metals as the game shows them, mid
+# roughness, nudged for Smooth / Rough / Matt / Dirty names. Glass takes its Glass Colour, mostly see-through.
+VEHICLE_METALS = [
+    ("Brass", (0.34, 0.29, 0.19), 1.0, 0.45), ("Bronze", (0.30, 0.23, 0.16), 1.0, 0.5),
+    ("Copper", (0.34, 0.22, 0.17), 1.0, 0.45), ("Nickel", (0.30, 0.30, 0.31), 1.0, 0.45),
+    ("Chrome", (0.40, 0.40, 0.41), 1.0, 0.3), ("Aluminum", (0.36, 0.36, 0.37), 1.0, 0.45),
+    ("Aluminium", (0.36, 0.36, 0.37), 1.0, 0.45), ("Magnesium", (0.33, 0.33, 0.34), 1.0, 0.5),
+    ("Steel", (0.30, 0.30, 0.31), 1.0, 0.5),
+]
+_setup_material = biv.setup_material
+
+
+def vehicle_material(mat):
+    name = mat.name.split(".")[0]
+    low = name.lower()
+    src = biv.material_index().get(name)
+    if mat.get("swgr_done") or not src or any(k in low for k in ("livery", "heat", "headlight", "emissive", "flipbook")):
+        return _setup_material(mat)
+    with open(src, encoding="utf-8") as fh:
+        data = json.load(fh)
+    cols, scal = data.get("Colors") or {}, data.get("Scalars") or {}
+    glass = cols.get("Glass Colour")
+    base = cols.get("Base Colour")
+    if not glass and not (base and "Binder Colour" in cols):
+        return _setup_material(mat)  # not a vehicle master material
+    mat["swgr_done"] = True
+    mat.use_nodes = True
+    biv.strip_vertex_colors(mat)
+    nt = mat.node_tree
+    bsdf = next((n for n in nt.nodes if n.type == "BSDF_PRINCIPLED"), None) or nt.nodes.new("ShaderNodeBsdfPrincipled")
+    for sock in ("Base Color", "Metallic", "Roughness"):
+        for link in list(bsdf.inputs[sock].links):
+            nt.links.remove(link)
+    if glass:
+        # its colour only as strong as its opacity (Opacity Max 0.4): a light amber, not a solid yellow
+        k = float(scal.get("Opacity Max", 0.4))
+        rgb, metallic, rough = tuple(1 - (1 - glass[c]) * k for c in "RGB"), 0.0, 0.05
+        if "Transmission Weight" in bsdf.inputs:
+            bsdf.inputs["Transmission Weight"].default_value = 0.95
+    elif base["Hex"].upper() == "FF0058":
+        rgb, metallic, rough = next(((c, m, r) for k, c, m, r in VEHICLE_METALS if k.lower() in low), ((0.30, 0.30, 0.31), 1.0, 0.5))
+        if "smooth" in low or "polished" in low or "clean" in low:
+            rough = max(rough - 0.15, 0.1)
+        if "rough" in low or "matt" in low or "dirty" in low or "oxide" in low:
+            rough = min(rough + 0.2, 0.9)
+    else:
+        rgb, metallic, rough = (base["R"], base["G"], base["B"]), float(scal.get("Metallic", 0)), float(scal.get("Roughness Base", 0.6))
+    bsdf.inputs["Base Color"].default_value = (*rgb, 1.0)
+    bsdf.inputs["Metallic"].default_value = metallic
+    bsdf.inputs["Roughness"].default_value = rough
+    mat.diffuse_color = (*rgb, 1.0)
+
+
+biv.setup_material = vehicle_material  # import_vehicle looks it up in the module, so this takes its place
+STUDIO = os.path.join(os.path.dirname(bpy.app.binary_path), f"{bpy.app.version[0]}.{bpy.app.version[1]}",
+                      "datafiles", "studiolights", "world", "interior.exr")
+
 FINISHES = {"paint": (0.0, 0.35), "metal": (1.0, 0.35), "rust": (0.3, 0.8)}
 EXPOSURE = 0.25   # passes store linear light x EXPOSURE
 UV_LO, UV_SPAN = -0.5, 2.0   # livery UV stored as (uv - UV_LO) / UV_SPAN, so a little outside 0-1 still fits
@@ -76,11 +138,18 @@ def setup_scene():
     sc.render.image_settings.file_format = "PNG"
     sc.render.image_settings.color_depth = "16"
     sc.render.image_settings.color_mode = "RGBA"
-    # a soft studio: dim grey sky, a warm key from front-left above, a cool rim from behind
+    # a soft studio: Blender's interior HDRI for light and something for metals to reflect (a flat sky left them
+    # looking like glass), a warm key from front-left above, a cool rim from behind
     world = bpy.data.worlds.new("passes")
     world.use_nodes = True
-    world.node_tree.nodes["Background"].inputs["Color"].default_value = (0.35, 0.36, 0.38, 1)
-    world.node_tree.nodes["Background"].inputs["Strength"].default_value = 0.6
+    bg = world.node_tree.nodes["Background"]
+    bg.inputs["Strength"].default_value = 0.6
+    if os.path.exists(STUDIO):
+        env = world.node_tree.nodes.new("ShaderNodeTexEnvironment")
+        env.image = bpy.data.images.load(STUDIO, check_existing=True)
+        world.node_tree.links.new(env.outputs["Color"], bg.inputs["Color"])
+    else:
+        bg.inputs["Color"].default_value = (0.35, 0.36, 0.38, 1)
     sc.world = world
     for name, energy, rot, colour in (("key", 4.0, (math.radians(50), 0, math.radians(-40)), (1.0, 0.97, 0.92)),
                                       ("rim", 2.5, (math.radians(60), 0, math.radians(150)), (0.85, 0.9, 1.0))):
