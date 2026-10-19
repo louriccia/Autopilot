@@ -1229,29 +1229,31 @@ function characterInfo(racerId) {
         sectionWithButton(container, [line || '​'], linked ? null : [`vehicle_${vehicle.id}`, vehicle.name, emoji.vehicle[v.vehicleClass]])
     }
 
+    const shownAbilities = new Set()  // button ids must be unique within the message
     for (const s of r.styles) {
         const { modes, style: st, build } = s
         container.addSeparatorComponents(separator())
-        // beside it, a button to its card: the racer style's, or for a podracer pilot's pod, the vehicle's
+        // Beside it, a button to its card, which names it (so no heading then): the racer style's, or for a podracer
+        // pilot's pod, the vehicle's
         const card = data.styles.find(x => x.name == st.name), pod = !card && data.vehicleByName(st.name)
         sectionWithButton(container, [
-            `### ${styleName(st)}`,
+            !card && !pod && `### ${styleName(st)}`,
             r.styles.length > 1 && `-# ${modes.join(' / ')}`,
             st.description && `*${st.description}*`,
-            st.abilities.length && st.abilities.map(a => `${emoji.named(a.emoji)} ${a.name}`).join('   '),
             ...st.traits.map(t => `-# ${[emoji.named(t.emoji), `**${t.name}**`].filter(Boolean).join(' ')}: ${emojify(t.description)}`),
         ], card ? [`style_${card.id}`, card.name, emoji.named(card.emoji)] : pod ? [`vehicle_${pod.id}`, pod.name, emoji.vehicle[pod.class]] : null)
+        // Its starting abilities, each what it does beside a button to its card
+        for (const a of abilitiesOf(st).filter(a => !shownAbilities.has(a.id))) {
+            shownAbilities.add(a.id)
+            sectionWithButton(container, [abilityText(a)], [`ability_${a.id}`, a.name, emoji.named(a.emoji)])
+        }
         for (const v of speedersOf(s)) addSpeeder(v, build, pod && pod.id == v.vehicle)
         if (build) container.addTextDisplayComponents(text(statLines(build.build, build.maxEnergy).join('\n')))
-        // The style's starting abilities, from one menu right under the section
-        const abilities = abilitiesOf(st)
-        if (abilities.length) container.addActionRowComponents(abilitySelect(abilities, 'Starting abilities'))
     }
 
     for (const f of r.favors.map(data.favor)) {
         container.addSeparatorComponents(separator())
-        sectionWithButton(container, [`### ${emoji.named(f.emoji)} ${f.name}`, emojify(f.ranks[0].rich), unlockLine(f.ranks[0].unlock)],
-            [`favor_${f.id}`, f.name, emoji.named(f.emoji)])
+        sectionWithButton(container, [emojify(f.ranks[0].rich), unlockLine(f.ranks[0].unlock)], [`favor_${f.id}`, f.name, emoji.named(f.emoji)])
     }
 
     return page(container, files, [characterSelect(r.id)])

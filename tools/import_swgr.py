@@ -1348,7 +1348,10 @@ def main():
             "description": rich_text(desc) or None,
             "image": save_art(image, f"vehicles/{aid}.webp", max_size=256) if image and image.exists() else None,
             "parts": kit_slots.get(code, []) if r["Class"] != "Podracer" else [],  # podracers can't be customised
-            "racers": sorted({x["racer"] for x in racer_rows if x["racer"] in racer_names and code in x["kits"].split("+")}),
+            # a podracer is only its pilot's: other racers' podracer presets (Fola Kanjen's, Goli's) are filled in
+            # with Gasgano's pod
+            "racers": sorted({x["racer"] for x in racer_rows if x["racer"] in racer_names and code in x["kits"].split("+")
+                              and (r["Class"] != "Podracer" or not r["Pilot"] or x["racer"] == r["Pilot"])}),
             "events": [e["id"] for e in arcade if e["vehicle"] == r["Name"]],
         })
     vehicle_order = list(CLASS_KEY)
@@ -1910,6 +1913,8 @@ def main():
                 continue
             kits = [vehicle_by_code[k] for k in row["kits"].split("+") if k in vehicle_by_code]
             if not kits:  # Myth (the player's podracer) and Kestar's have no name in the game
+                continue
+            if cls_name == "Podracer" and kits[0]["pilot"] not in (None, name):  # another pilot's pod as a filler preset
                 continue
             r["vehicles"].append({
                 "vehicleClass": cls_name,
