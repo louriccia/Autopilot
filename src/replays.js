@@ -29,8 +29,10 @@ const SHORT = { champ: 'champion', champs: 'champion' }
 // Accents are dropped and any script's letters kept, so translated titles compare the same way ("Ás" = "as")
 const words = s => ` ${s.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replace(/['’`]/g, '').replace(/&/g, ' and ')
     .replace(/[^\p{L}\p{N}]+/gu, ' ').trim().split(' ').map(w => SHORT[w] ?? w).join(' ')} `
-// Times spelled with units, as the game's m:ss.hh: "1m 43s 35", "1m43s35", "1m 43.35s" -> "1:43.35"
+// Times spelled with units or spaces, as the game's m:ss.hh: "1m 43s 35", "1m43s35", "1m 43.35s", "1 02 32" -> "1:43.35"
+// (a spaced one only as three separate numbers; either way the time still has to be plausible for the event)
 const unitTimes = s => s.replace(/\b(\d{1,2})\s*m(?:in)?\s*(\d{1,2})(?:\s*s(?:ec)?\s*|\s*[.,]\s*)(\d{2})(?:\s*s(?:ec)?)?\b/gi, '$1:$2.$3')
+    .replace(/(?<![\d:.,])\b(\d{1,2}) ([0-5]\d) (\d{2})\b(?![\d:.,])/g, '$1:$2.$3')
 // Chinese, Japanese and Korean titles often run words (and the time) together, so their names match anywhere
 const UNSPACED = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u
 // Every event under its English name and the game's translations (event.names, from tools/import_swgr.py), longest
@@ -69,8 +71,9 @@ exports.matchTitle = (title, { anyTime = false } = {}) => {
         if (rest.includes(key)) { if (!found.includes(event)) found.push(event); rest = rest.replace(key, ' ') }
     }
     if (found.length != 1) return null
-    const m = title.match(/(?<![\d:.])(?:\d{1,2}:)?\d{1,2}[.:]\d{2}(?![\d:.])/)
-    const seconds = m && readTime(m[0])
+    // the first time-shaped number that's plausible for the event (a date or a "top 10 20 30" isn't)
+    const candidates = [...title.matchAll(/(?<![\d:.])(?:\d{1,2}:)?\d{1,2}[.:]\d{2}(?![\d:.])/g)].map(m => readTime(m[0]))
+    const seconds = candidates.find(s => plausible(found[0], s)) ?? candidates[0] ?? null
     return anyTime || plausible(found[0], seconds) ? { event: found[0], seconds } : null
 }
 
