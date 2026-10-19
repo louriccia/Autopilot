@@ -532,8 +532,11 @@ function scenarioInfo(scenarioId, { expanded = false } = {}) {
         crumbs('Scenarios', sc.tier),
         `# ${sc.name}`,
         `*${sc.tagline}*`,
-        [`${emoji.planet[planet.id]} ${planet.name}`, sc.difficulty].filter(Boolean).join(' / '),
     ], files.add(sc.tile))
+    // Where and how hard, beside a button to the character it's named after (like an arcade event's track button)
+    const racer = data.racers.find(r => r.name == sc.name)
+    sectionWithButton(container, [[`${emoji.planet[planet.id]} ${planet.name}`, sc.difficulty].filter(Boolean).join(' / ')],
+        racer && [`character_${racer.id}`, racer.name, face(racer.name)])
     if (sc.unlock) container.addTextDisplayComponents(text(unlockLine(sc.unlock)))
     // The details (which describe the racer style), with the style's name on a button to its card beside them
     if (style) {
@@ -687,14 +690,18 @@ function styleInfo(styleId) {
         unlockLine(r.unlock),
     ]).filter(Boolean).join('\n')))
 
-    const scenarios = data.scenarios.filter(sc => sc.style.name == st.name)
-    if (scenarios.length) {
-        container.addTextDisplayComponents(text(['### Scenarios', ...scenarios.map(sc => `-# ${cls(sc.vehicleClass)} **${sc.name}** (${sc.tier})`)].join('\n')))
+    // Who races it: its owner (in the campaign, multiplayer and the scenario named after them), then any podracer
+    // pilot who borrows it, with the mode they use it in. Their cards link the scenario.
+    const users = data.racers.flatMap(r => r.styles.filter(s => s.style.name == st.name).map(s => ({ r, modes: r.styles.length > 1 ? s.modes : [] })))
+        .sort((a, b) => a.modes.length - b.modes.length)
+    if (users.length) {
+        container.addTextDisplayComponents(text(['### Characters',
+            ...users.map(({ r, modes }) => `-# ${face(r.name)} **${r.name}**${modes.length ? ` (${modes.join(' / ')})` : ''}`)].join('\n')))
     }
 
     const rows = [styleSelect(st.id)]
     if (abilitiesOf(st).length) rows.push(abilitySelect(abilitiesOf(st), 'Starting abilities'))
-    if (scenarios.length) rows.push(buttons(...scenarios.slice(0, 5).map(sc => [`scenario_${sc.id}`, sc.name, emoji.vehicle[sc.vehicleClass]])))
+    if (users.length) rows.push(buttons(...users.slice(0, 5).map(({ r }) => [`character_${r.id}`, r.name, face(r.name)])))
     return page(container, files, rows)
 }
 
@@ -1211,6 +1218,12 @@ function characterInfo(racerId) {
         rival?.afterTour2 && `-# ${emoji.named('rival')} A rival from Act III`,
         unlockLine(r.unlock),
     ], files.add(r.portrait))
+    // The scenario named after them: its tagline and tier beside a button to it
+    const scenario = data.scenarios.find(sc => sc.name == r.name)
+    if (scenario) {
+        sectionWithButton(container, [`*${scenario.tagline}*`, `-# ${scenario.tier} scenario`],
+            [`scenario_${scenario.id}`, 'Scenario', emoji.vehicle[scenario.vehicleClass]])
+    }
 
     // Their speeders sit in the section whose build they race with (the speed is that build's on the class);
     // ones no build covers (Sebulba's skimmer, a pilot's spare pod) join the first section with a build
