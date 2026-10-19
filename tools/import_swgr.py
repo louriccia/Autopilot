@@ -1642,54 +1642,52 @@ def main():
         })
 
     # Patinas are unlabelled in the garage too, and their masks (Patinas/T_*.png) export blank, so each gets a drawn
-    # swatch of its finish: a likeness, not game art. Mixes split the tile between their finishes.
+    # swatch after the garage's tiles: a cloudy finish with a few paint chips. Mixes split the tile along the
+    # top-left to bottom-right diagonal, as the garage's do: Mix is paint top-right, a rust band, steel bottom-left;
+    # Rust Steel Mix is rust top-right, steel bottom-left. The two locked tiles (All Gold, Deluxe) are drawn as their
+    # finish rather than the lock. A likeness, not game art.
     import random
 
+    FINISH_COLOURS = {"paint": ((84, 84, 86), (140, 140, 140)), "rust": ((112, 88, 80), (158, 132, 120)),
+                      "steel": ((150, 148, 142), (255, 255, 250)), "gold": ((120, 92, 34), (232, 196, 104)),
+                      "deluxe": ((30, 32, 36), (92, 96, 104))}
+
     def finish(kind, size=128, seed=0):
-        rnd = random.Random(seed)
-        if kind == "paint":
-            im = Image.new("RGB", (size, size), (214, 208, 198))
-            ImageDraw.Draw(im).polygon([(0, size * 0.55), (size * 0.55, 0), (size * 0.75, 0), (0, size * 0.75)], fill=(236, 232, 224))
-        elif kind == "rust":
-            im = Image.new("RGB", (size, size), (128, 66, 34))
-            d = ImageDraw.Draw(im)
-            for _ in range(70):
-                x, y, r = rnd.uniform(0, size), rnd.uniform(0, size), rnd.uniform(3, 11)
-                d.ellipse((x - r, y - r, x + r, y + r), fill=rnd.choice([(170, 92, 44), (96, 46, 24), (150, 80, 40)]))
-            im = im.filter(ImageFilter.GaussianBlur(1.5))
-        elif kind in ("steel", "gold", "deluxe"):
-            dark, light = {"steel": ((110, 116, 122), (192, 197, 201)), "gold": ((146, 106, 30), (236, 196, 90)),
-                           "deluxe": ((40, 40, 48), (150, 120, 60))}[kind]
-            im = Image.new("RGB", (size, size))
-            d = ImageDraw.Draw(im)
-            for y in range(size):  # brushed: a vertical sheen with fine horizontal streaks
-                t = 1 - abs(y / size - 0.4) * 1.4 + rnd.uniform(-0.06, 0.06)
-                t = max(0, min(1, t))
-                d.line([(0, y), (size, y)], fill=tuple(round(a + (b - a) * t) for a, b in zip(dark, light)))
+        rnd = random.Random(f"{kind}{seed}")
+        # clouds: coarse random values, smoothly upscaled, between the finish's dark and light
+        cloud = Image.new("L", (6, 6))
+        cloud.putdata([rnd.randint(0, 255) for _ in range(36)])
+        cloud = cloud.resize((size, size), Image.BICUBIC).filter(ImageFilter.GaussianBlur(size / 16))
+        dark, light = FINISH_COLOURS[kind]
+        im = Image.composite(Image.new("RGB", (size, size), light), Image.new("RGB", (size, size), dark), cloud)
+        # fine grain, then a few small light chips
+        grain = Image.new("L", (size, size))
+        grain.putdata([rnd.randint(0, 40) for _ in range(size * size)])
+        im = ImageChops.add(im, Image.merge("RGB", [grain] * 3), scale=1, offset=-20)
+        d = ImageDraw.Draw(im)
+        for _ in range(4 if kind in ("paint", "rust") else 0):
+            x, y = rnd.uniform(size * 0.25, size * 0.75), rnd.uniform(size * 0.3, size * 0.7)
+            for _ in range(rnd.randint(2, 5)):
+                dx, dy, r = rnd.uniform(-6, 6), rnd.uniform(-6, 6), rnd.uniform(1, 2.5)
+                d.ellipse((x + dx - r, y + dy - r, x + dx + r, y + dy + r), fill=(235, 232, 226))
         return im
 
-    PATINA_FINISHES = {"All Paint": ["paint"], "All Rust": ["rust"], "All Steel": ["steel"], "All Gold": ["gold"],
-                       "Deluxe": ["deluxe"], "Mix": ["paint", "rust", "steel"], "Rust Steel Mix": ["rust", "steel"]}
+    # where each finish goes, by d = x - y (positive top-right): the first whose test passes
+    PATINA_LAYOUT = {"All Paint": [("paint", None)], "All Rust": [("rust", None)], "All Steel": [("steel", None)],
+                     "All Gold": [("gold", None)], "Deluxe": [("deluxe", None)],
+                     "Mix": [("paint", lambda d: d > 0.22), ("rust", lambda d: d > -0.22), ("steel", None)],
+                     "Rust Steel Mix": [("rust", lambda d: d > 0), ("steel", None)]}
 
     def patina_emoji(name):
-        kinds = PATINA_FINISHES.get(name)
-        if not kinds:
+        layout = PATINA_LAYOUT.get(name)
+        if not layout:
             return None
         size = 128
-        if name == "Rust Steel Mix":  # a checker, as its mask's name says (T_RustSteelChecker)
-            im, rust, steel = Image.new("RGB", (size, size)), finish("rust"), finish("steel")
-            for i in range(2):
-                for j in range(2):
-                    src = rust if (i + j) % 2 == 0 else steel
-                    box = (i * size // 2, j * size // 2, (i + 1) * size // 2, (j + 1) * size // 2)
-                    im.paste(src.crop(box), box)
-        else:  # equal diagonal bands, top-left to bottom-right (by x + y)
-            im = finish(kinds[0])
-            for k, kind in enumerate(kinds[1:], 1):
-                c = 2 * size * k / len(kinds)
-                band = Image.new("L", (size, size))
-                band.putdata([255 if x + y >= c else 0 for y in range(size) for x in range(size)])
-                im.paste(finish(kind, seed=k), mask=band)
+        im = finish(layout[-1][0])
+        for kind, test in reversed(layout[:-1]):  # each region over the ones after it
+            band = Image.new("L", (size, size))
+            band.putdata([255 if test((x - y) / size) else 0 for y in range(size) for x in range(size)])
+            im.paste(finish(kind), mask=band)
         return tile_emoji(f"pat_{camel(name)}", im)
 
     patinas_out = [{"id": slug(v["name"]), "name": v["name"], "kitPoints": v.get("cost"), "unlock": livery_unlock(v),
