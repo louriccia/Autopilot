@@ -96,7 +96,7 @@ async function card(s) {
     container.addActionRowComponents(new ActionRowBuilder().addComponents(TABS.map(([id, label]) =>
         new ButtonBuilder().setCustomId(`cust_tab${id}_${code}`).setLabel(label).setDisabled(id == tab)
             .setStyle(id == tab ? ButtonStyle.Primary : ButtonStyle.Secondary))))
-    if (tab == 'model') container.addActionRowComponents(modelRow(s, code, slots, stock))
+    if (tab == 'model') container.addActionRowComponents(classRow(s, code), modelRow(s, code, slots, stock))
     else if (tab == 'vehicle') container.addActionRowComponents(...partRows(s, code, slots))
     else container.addActionRowComponents(...paintRows(s, code, palette, pattern))
     return {
@@ -105,7 +105,13 @@ async function card(s) {
     }
 }
 
-// Choose Model: the whole model ("Custom" once the parts are mixed)
+// Choose Model: the vehicle class (those with passes rendered), then the whole model ("Custom" once the parts are mixed)
+function classRow(s, code) {
+    return menu('class', code, 'Vehicle class', preview.classes().map(c => ({
+        label: `Vehicle: ${c}`, value: String(classIndex(c)), emoji: emoji.vehicle[c], default: c == s.cls,
+    })))
+}
+
 function modelRow(s, code, slots, stock) {
     return menu('model', code, 'Model', [
         ...(stock ? [] : [{ label: 'Model: Custom', value: 'custom', description: 'Parts from different models', default: true }]),
@@ -153,7 +159,13 @@ function apply(s, field, value) {
         const page = s.page ?? pageOf(s.palette)
         s.page = (page + (value == 'next' ? 1 : -1) + colorPages()) % colorPages()
     } else if (field == 'color') s.palette = value
-    else if (field == 'model' && value != 'custom') {
+    else if (field == 'class') {
+        // another class: its first model, keeping the colour and patina (liveries are per class)
+        const cls = data.classes[Number(value)]?.name
+        if (!cls || cls == s.cls) return s
+        const first = vehicleOf(cls, preview.slotsOf(cls)[0].kits[0])
+        return { ...startState(first.id), palette: s.palette, patina: s.patina, page: s.page, tab: s.tab }
+    } else if (field == 'model' && value != 'custom') {
         s.base = value
         for (const sl of preview.slotsOf(s.cls)) s.parts[sl.id] = value
     }
