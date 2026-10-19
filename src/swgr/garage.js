@@ -2,7 +2,7 @@
 // (src/swgr/preview.js composes the image). The whole build rides in the menus' custom ids, so a card needs nothing
 // stored and anyone can carry on from it: "cust_<field>_<code>" (interactions/cust.js).
 const {
-    MessageFlags, AttachmentBuilder, ActionRowBuilder, StringSelectMenuBuilder,
+    MessageFlags, AttachmentBuilder, ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle,
     ContainerBuilder, TextDisplayBuilder, MediaGalleryBuilder,
 } = require('discord.js')
 const data = require('./data.js')
@@ -20,7 +20,7 @@ const colorPages = () => Math.ceil(data.palettes.length / COLOR_PAGE)
 const pageOf = paletteId => Math.floor(data.palettes.findIndex(p => p.id == paletteId) / COLOR_PAGE)
 
 // state <-> code: class, base kit (for Root), each slot's kit, livery (0 = none), colour, patina, colour menu page,
-// in base 36
+// tab (0 parts, 1 paint), in base 36
 function encode(s) {
     const slots = preview.slotsOf(s.cls), kits = slots[0].kits
     const patterns = data.patternsFor(s.cls)
@@ -31,6 +31,7 @@ function encode(s) {
         b36(data.palettes.findIndex(p => p.id == s.palette), 2),
         b36(data.patinas.findIndex(p => p.id == s.patina), 1),
         b36(s.page ?? pageOf(s.palette), 1),
+        s.tab == 'paint' ? '1' : '0',
     ].join('')
 }
 
@@ -48,6 +49,7 @@ function decode(code) {
         palette: data.palettes[take(2)].id,
         patina: data.patinas[take(1)].id,
         page: (pg => Number.isNaN(pg) ? undefined : pg)(take(1)),  // cards from before the colour pages have none
+        tab: take(1) == 1 ? 'paint' : 'parts',
     }
 }
 
@@ -69,8 +71,7 @@ function menu(field, code, placeholder, options) {
         .addOptions(options.slice(0, 25).map(({ emoji: e, ...o }) => ({ ...o, emoji: emoji.component(e) }))))
 }
 
-// The card for a build: its image, the whole model (any kit; "Custom" once the parts are mixed), a menu per part
-// slot, then livery / colour (paged) / patina
+// The card for a build: its image, then the parts tab or the paint tab
 async function card(s) {
     const code = encode(s)
     const slots = preview.slotsOf(s.cls)
@@ -85,7 +86,22 @@ async function card(s) {
         `# ${stock ? stock.name : `Custom ${s.cls}`}`,
     ].join('\n')))
     container.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(item => item.setURL('attachment://speeder.png')))
+    // Two tabs, so the card stays under Discord's message size with every option's emoji (all ten menus at once,
+    // ~120 emojis, went over): the parts (Model and a menu per slot), and the paint (livery, colour, patina)
+    const tab = s.tab ?? 'parts'
+    container.addActionRowComponents(new ActionRowBuilder().addComponents([['parts', 'Parts'], ['paint', 'Paint']].map(([id, label]) =>
+        new ButtonBuilder().setCustomId(`cust_${id}_${code}`).setLabel(label).setDisabled(id == tab)
+            .setStyle(id == tab ? ButtonStyle.Primary : ButtonStyle.Secondary))))
+    if (tab == 'parts') container.addActionRowComponents(...partRows(s, code, slots, stock))
+    else container.addActionRowComponents(...paintRows(s, code, palette, pattern))
+    return {
+        components: [container], flags: MessageFlags.IsComponentsV2, allowedMentions: { parse: [] },
+        files: [new AttachmentBuilder(image, { name: 'speeder.png' })],
+    }
+}
 
+// The parts tab: the whole model ("Custom" once the parts are mixed), then a menu per slot
+function partRows(s, code, slots, stock) {
     const rows = [menu('model', code, 'Model', [
         ...(stock ? [] : [{ label: 'Model: Custom', value: 'custom', description: 'Parts from different models', default: true }]),
         ...slots[0].kits.map(kit => vehicleOf(s.cls, kit)).filter(Boolean).map(v => ({
@@ -94,15 +110,18 @@ async function card(s) {
         })),
     ])]
     rows.push(...slots.map(sl => menu(sl.id, code, sl.label, sl.kits.map(kit => vehicleOf(s.cls, kit)).filter(Boolean).map(v => ({
-        // no badge emojis here: each option's emoji is sent as an object, and with ~120 of them the card went over
-        // Discord's message size (413); the Model menu keeps them
-        label: `${sl.label}: ${v.name}`, value: v.codename,
+        label: `${sl.label}: ${v.name}`, value: v.codename, emoji: emoji.named(v.emoji) || emoji.vehicle[v.class],
         default: v.codename == (s.parts[sl.id] ?? s.base),
     })))))
-    rows.push(menu('livery', code, 'Livery', [
+    return rows
+}
+
+// The paint tab: livery, colour (paged), patina
+function paintRows(s, code, palette, pattern) {
+    const rows = [menu('livery', code, 'Livery', [
         { label: 'Livery: none', value: 'none', default: !pattern },
         ...data.patternsFor(s.cls).map(p => ({ label: `Livery: ${p.name}`, value: p.id, emoji: emoji.named(p.emoji), default: p.id == s.pattern })),
-    ]))
+    ])]
     const page = s.page ?? pageOf(s.palette), pages = colorPages()
     const turn = k => (page + k + pages) % pages
     rows.push(menu('color', code, `Color: ${palette.name}`, [
@@ -115,11 +134,7 @@ async function card(s) {
     rows.push(menu('patina', code, 'Patina', data.patinas.map(p => ({
         label: `Patina: ${p.name}`, value: p.id, emoji: emoji.named(p.emoji), default: p.id == s.patina,
     }))))
-    container.addActionRowComponents(...rows)
-    return {
-        components: [container], flags: MessageFlags.IsComponentsV2, allowedMentions: { parse: [] },
-        files: [new AttachmentBuilder(image, { name: 'speeder.png' })],
-    }
+    return rows
 }
 
 // A menu pick: the build with that field changed
@@ -135,6 +150,7 @@ function apply(s, field, value) {
         for (const sl of preview.slotsOf(s.cls)) s.parts[sl.id] = value
     }
     else if (field == 'patina') s.patina = value
+    else if (field == 'parts' || field == 'paint') s.tab = field
     else if (preview.slotsOf(s.cls).some(sl => sl.id == field)) s.parts[field] = value
     return s
 }
