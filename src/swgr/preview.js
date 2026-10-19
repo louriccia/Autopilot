@@ -85,7 +85,16 @@ function contactShadow(front, depth, w, h) {
 function render(state) {
     const cls = state.cls, m = meta(cls)
     const allSlots = [...new Set(Object.values(m.parts).map(p => p.part))]
-    const names = allSlots.map(s => `${state.parts[s] ?? state.base}_${s}`).filter(n => m.parts[n])
+    // a part on a socket that moves with another slot's kit (the bike's rear engine, on the front engine) has a
+    // render for each position: <kit>_<slot>@<group kit>
+    const kitOf = s => state.parts[s] ?? state.base
+    const partName = s => {
+        const sk = m.sockets?.[s], name = `${kitOf(s)}_${s}`
+        if (!sk) return name
+        const at = sk.groups[kitOf(sk.parent)]
+        return at && at != sk.groups[kitOf(s)] && m.parts[`${name}@${at}`] ? `${name}@${at}` : name
+    }
+    const names = allSlots.map(partName).filter(n => m.parts[n])
     const palette = data.palette(state.palette).colors.map(hexLinear)
     const pattern = state.pattern && data.pattern(state.pattern)
     const patina = data.patina(state.patina) ?? { finish: 'paint' }

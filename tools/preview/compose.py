@@ -86,7 +86,13 @@ def compose(cls, base, parts, palette, pattern, patina, out, shadows=True):
     cat = json.loads((DATAMINE / "out" / "liveries" / "liveries.json").read_text(encoding="utf-8"))
     slots = sorted({p["part"] for p in meta["parts"].values() if p["kit"] == base})
     chosen = {s: parts.get(s, base) for s in slots}
-    names = [f"{kit}_{slot}" for slot, kit in chosen.items()]
+    def part_name(slot, kit):
+        """a part on a socket that moves with another slot's kit (the bike's rear engine) has one render per position"""
+        sk = meta.get("sockets", {}).get(slot)
+        at = sk and sk["groups"].get(chosen[sk["parent"]])
+        name = f"{kit}_{slot}"
+        return f"{name}@{at}" if at and at != sk["groups"].get(kit) and f"{name}@{at}" in meta["parts"] else name
+    names = [part_name(slot, kit) for slot, kit in chosen.items()]
     for n in names:
         if n not in meta["parts"]:
             raise SystemExit(f"no passes for {n}: render that kit first")

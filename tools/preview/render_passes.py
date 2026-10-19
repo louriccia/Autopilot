@@ -50,16 +50,16 @@ biv.LIVERY_PATTERNS = False  # compose.py lays the patterns; the importer only m
 # base colour, fully metallic: tan pipes and frames, even on PaintedMetalBlack. The game's parameters say otherwise:
 # painted metal, plastic, rubber, leather and fabric carry a real Base Colour, Metallic and Roughness Base. The bare
 # metals (Nickel, Brass, Chrome...) leave Base Colour as the placeholder #FF0058 (their colour comes from a parent
-# layer the export doesn't include), so they get these: muted, worn-looking metals as the game shows them, mid
-# roughness, nudged for Smooth / Rough / Matt / Dirty names. Glass takes its Glass Colour, mostly see-through.
+# layer the export doesn't include), so they get these, matched by eye to the garage (golden brass pipes and bright
+# steel cages on the ARZ 41), mid roughness, nudged for Smooth / Rough / Matt / Dirty names. Glass takes its Glass Colour, mostly see-through.
 VEHICLE_METALS = [
-    ("Brass", (0.34, 0.29, 0.19), 1.0, 0.45), ("Bronze", (0.30, 0.23, 0.16), 1.0, 0.5),
-    ("Copper", (0.34, 0.22, 0.17), 1.0, 0.45), ("Nickel", (0.30, 0.30, 0.31), 1.0, 0.45),
-    ("Chrome", (0.40, 0.40, 0.41), 1.0, 0.3), ("Aluminum", (0.36, 0.36, 0.37), 1.0, 0.45),
-    ("Aluminium", (0.36, 0.36, 0.37), 1.0, 0.45), ("Magnesium", (0.33, 0.33, 0.34), 1.0, 0.5),
-    ("Steel", (0.30, 0.30, 0.31), 1.0, 0.5),
+    ("Brass", (0.55, 0.43, 0.20), 1.0, 0.4), ("Bronze", (0.45, 0.31, 0.18), 1.0, 0.45),
+    ("Copper", (0.52, 0.33, 0.24), 1.0, 0.4), ("Nickel", (0.44, 0.43, 0.42), 1.0, 0.4),
+    ("Chrome", (0.56, 0.56, 0.57), 1.0, 0.25), ("Aluminum", (0.50, 0.50, 0.51), 1.0, 0.4),
+    ("Aluminium", (0.50, 0.50, 0.51), 1.0, 0.4), ("Magnesium", (0.42, 0.42, 0.43), 1.0, 0.45),
+    ("Steel", (0.40, 0.40, 0.41), 1.0, 0.45),
     # the engines' heat-tinted metal (MI_*Common_Heat*): the importer's preset was a purple that read as magenta
-    ("Heat", (0.29, 0.28, 0.30), 1.0, 0.45),
+    ("Heat", (0.36, 0.35, 0.37), 1.0, 0.4),
 ]
 _setup_material = biv.setup_material
 
@@ -88,8 +88,8 @@ def vehicle_material(mat):
         for link in list(bsdf.inputs[sock].links):
             nt.links.remove(link)
     if glass:
-        # its colour only as strong as its opacity (Opacity Max 0.4): a light amber, not a solid yellow
-        k = float(scal.get("Opacity Max", 0.4))
+        # its colour at half its opacity (Opacity Max 0.4): the garage's windscreens are nearly clear, tinted at the edge
+        k = float(scal.get("Opacity Max", 0.4)) / 2
         rgb, metallic, rough = tuple(1 - (1 - glass[c]) * k for c in "RGB"), 0.0, 0.05
         if "Transmission Weight" in bsdf.inputs:
             bsdf.inputs["Transmission Weight"].default_value = 0.95
@@ -341,6 +341,46 @@ def reference():
     print("wrote", sc.render.filepath)
 
 
+def socket_groups():
+    """Parts whose socket depends on another slot's kit: the bike's rear engine (EngineB) hangs off the front engine
+    (EngineC), at one of four heights. -> {child slot: {"parent": slot, "groups": {parent kit: group's first kit}}}"""
+    lib = biv.parts_library().get(biv.CLASS_KEY.get(CLASS, CLASS), {})
+    out = {}
+    for parent, opts in lib.get("slots", {}).items():
+        for child in {k for o in opts for k in (o.get("attach") or {})}:
+            groups = {}
+            for o in opts:
+                m = (o.get("attach") or {}).get(child)
+                if m:
+                    groups.setdefault(tuple(round(m[i]) for i in (3, 7, 11)), []).append(o["kit"])
+            if len(groups) > 1:
+                out[child] = {"parent": parent, "groups": {k: kits[0] for kits in groups.values() for k in kits}}
+    return out
+
+
+def render_part(sc, out, meshes, objs, name):
+    """one part alone, every finish with black and white paint, plus its data and depth"""
+    for ob in meshes:
+        # each part alone: leaving the rest of its kit in as unseen shadow casters left its shadows behind
+        # when those parts were swapped out (a black face on Kingsnake's controls beside another front);
+        # compose.py adds contact shadows from the actual combination instead
+        ob.hide_render = ob not in objs
+    first = True
+    for finish, (metal, rough) in FINISHES.items():
+        for base in (0, 1):
+            set_finish(metal, rough, base)
+            out.base_path = os.path.join(OUT, "_tmp")
+            sc.render.filepath = os.path.join(OUT, f"{name}_{finish}_{base}.png")
+            bpy.ops.render.render(write_still=True)
+            tmp = os.path.join(OUT, "_tmp")
+            for slot in ("data", "depth"):
+                src = os.path.join(tmp, f"{slot}{sc.frame_current:04d}.png")
+                if first and os.path.exists(src):
+                    os.replace(src, os.path.join(OUT, f"{name}_{slot}.png"))
+            first = False
+    print(f"rendered {name}")
+
+
 # ---------------------------------------------------------------- main
 def main():
     if opt.get("reference"):
@@ -373,29 +413,33 @@ def main():
         for ob in meshes:
             parts.setdefault(ob.get("swgr_part", "?"), []).append(ob)
         for part, objs in parts.items():
-            for ob in meshes:
-                # each part alone: leaving the rest of its kit in as unseen shadow casters left its shadows behind
-                # when those parts were swapped out (a black face on Kingsnake's controls beside another front);
-                # compose.py adds contact shadows from the actual combination instead
-                ob.hide_render = ob not in objs
             name = f"{v['codename']}_{part}"
             meta["parts"][name] = {"kit": v["codename"], "part": part, "bounds": part_bounds(objs)}
-            first = True
-            for finish, (metal, rough) in FINISHES.items():
-                for base in (0, 1):
-                    set_finish(metal, rough, base)
-                    out.base_path = os.path.join(OUT, "_tmp")
-                    sc.render.filepath = os.path.join(OUT, f"{name}_{finish}_{base}.png")
-                    bpy.ops.render.render(write_still=True)
-                    tmp = os.path.join(OUT, "_tmp")
-                    for slot in ("data", "depth"):
-                        src = os.path.join(tmp, f"{slot}{sc.frame_current:04d}.png")
-                        if first and os.path.exists(src):
-                            os.replace(src, os.path.join(OUT, f"{name}_{slot}.png"))
-                    first = False
-            print(f"rendered {name}")
+            render_part(sc, out, meshes, objs, name)
         with open(meta_path, "w", encoding="utf-8") as fh:
             json.dump(meta, fh, indent=1)
+
+    # Parts on a socket that moves with another slot's kit, rendered once more for each other position:
+    # <kit>_<part>@<group kit>, the group kit being the first parent kit with that socket (compose picks by meta["sockets"])
+    sockets = socket_groups()
+    meta["sockets"] = sockets
+    for v in vehicles:
+        for child, sk in sockets.items():
+            own = sk["groups"].get(v["codename"])
+            for group in sorted(set(sk["groups"].values()) - {own}):
+                biv.PARTS.clear()
+                biv.PARTS[sk["parent"]] = group
+                root, coll = build(v)
+                meshes = [o for o in coll.objects if o.type == "MESH"]
+                objs = [o for o in meshes if o.get("swgr_part") == child]
+                name = f"{v['codename']}_{child}@{group}"
+                meta["parts"][name] = {"kit": v["codename"], "part": child, "socket": group, "bounds": part_bounds(objs)}
+                render_part(sc, out, meshes, objs, name)
+        biv.PARTS.clear()
+        with open(meta_path, "w", encoding="utf-8") as fh:
+            json.dump(meta, fh, indent=1)
+    with open(meta_path, "w", encoding="utf-8") as fh:
+        json.dump(meta, fh, indent=1)
 
 
 main()
