@@ -1347,6 +1347,10 @@ def main():
             "pilot": r["Pilot"] or None,
             "description": rich_text(desc) or None,
             "image": save_art(image, f"vehicles/{aid}.webp", max_size=256) if image and image.exists() else None,
+            # a speeder's manufacturer badge, as the garage's model tiles show it; each manufacturer has two
+            # (T_UI_Manufacturer_<theme>_A / _B, the corner mark differs), so mfr_KorSarun_A / _B
+            "emoji": emojis.add(f"mfr_{camel(r['Manufacturer'])}_{image.stem.split('_')[-2]}", image)
+                     if r["Class"] != "Podracer" and r["Manufacturer"] and image and image.exists() else None,
             "parts": kit_slots.get(code, []) if r["Class"] != "Podracer" else [],  # podracers can't be customised
             # a podracer is only its pilot's: other racers' podracer presets (Fola Kanjen's, Goli's) are filled in
             # with Gasgano's pod
@@ -1612,6 +1616,25 @@ def main():
             im.paste(colour, mask=ch.point(lambda v: max(0, min(255, (v - 125) * 50))))  # a soft edge at 0.5
         return im
 
+    shared_vehicles = args.datamine / "out" / "json" / "Griffin" / "Plugins" / "GriffinSharedVehicles" / "Content" / "Griffin" / "Vehicles"
+    CLASS_FOLDER = {"Bike": "Bikes", "Car": "Cars", "Skimmer": "Skimmers"}
+
+    def pattern_thumbnail(cls, p, palette, size=512):
+        """A pattern as its garage tile shows it: the window of the SDF its LM_ asset's ThumbnailOffsetExtent gives
+        (offset R,G and size B,A in UV, wrapping: Enforcer01's R is 1.58), turned a quarter anticlockwise. Checked
+        against the garage's Landspeeder tiles."""
+        full = render_pattern(p, palette, size)
+        lm = p and next((shared_vehicles / CLASS_FOLDER[cls] / "Liveries").rglob(f"{p['asset']}.json"), None)
+        o = lm and (load_json(lm)[0].get("Properties") or {}).get("ThumbnailOffsetExtent")
+        if not full or not o:
+            return full
+        tiled = Image.new("RGB", (size * 2, size * 2))
+        for i in range(2):
+            for j in range(2):
+                tiled.paste(full, (i * size, j * size))
+        x, y = o["R"] % 1 * size, o["G"] % 1 * size
+        return tiled.crop((round(x), round(y), round(x + o["B"] * size), round(y + o["A"] * size))).resize((256, 256), Image.LANCZOS).rotate(90)
+
     patterns_out = []
     for r in rows(out / "liveries" / "patterns.csv"):
         if r["class"] == "Plane" or r["name"] == "None":
@@ -1628,10 +1651,10 @@ def main():
             dest.parent.mkdir(parents=True, exist_ok=True)
             im.resize((256, 256), Image.LANCZOS).save(dest, "WEBP", quality=88)
             image = dest.relative_to(ROOT).as_posix()
-            # the garage lists liveries unlabelled, so cards show each as an emoji (lv_Car_Assassin02), all in the
-            # default palette (Shade's Dark Enigma) so they differ only by pattern
+            # the garage lists liveries unlabelled, so cards show each as an emoji of its garage tile (lv_Car_Assassin02),
+            # all in the default palette (Shade's Dark Enigma) so they differ only by pattern
             pattern_emoji = tile_emoji(f"lv_{r['class']}_{re.sub(r'A$', '', short)}",
-                                       render_pattern(liveries["patterns"][r["class"]].get("Customisation." + r["tag"]), DEFAULT_PALETTE) or im)
+                                       pattern_thumbnail(r["class"], liveries["patterns"][r["class"]].get("Customisation." + r["tag"]), DEFAULT_PALETTE) or im)
         pattern_by_tag[(cls_name, re.sub(r"A$", "", short))] = pid
         patterns_out.append({
             "id": pid, "name": livery_name(r["name"]), "class": cls_name, "kitPoints": num(r["cost"]) if r["cost"] else None,

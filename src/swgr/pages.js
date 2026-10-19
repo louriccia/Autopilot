@@ -1239,10 +1239,11 @@ function characterInfo(racerId) {
         const pattern = v.pattern && data.pattern(v.pattern), palette = v.palette && data.palette(v.palette), patina = v.patina && data.patina(v.patina)
         const speed = build?.speeds.find(x => x.vehicleClass == v.vehicleClass)
         const pod = v.vehicleClass == 'Podracer'
-        const line = [linked && `${cls(v.vehicleClass)} **${vehicle.name}**`, speed && `${emoji.named(speed.emoji)} ${speed.value} km/h`,
+        const line = [linked ? `${cls(v.vehicleClass)} **${vehicle.name}**` : cls(v.vehicleClass), speed && `${emoji.named(speed.emoji)} ${speed.value} km/h`,
             !pod && pattern?.emoji && `Livery ${emoji.named(pattern.emoji)}`, palette && `Color ${emoji.named(palette.emoji)}`,
             !pod && patina?.emoji && `Patina ${emoji.named(patina.emoji)}`].filter(Boolean).join(' / ')
-        sectionWithButton(container, [line || '​'], linked ? null : [`vehicle_${vehicle.id}`, vehicle.name, emoji.vehicle[v.vehicleClass]])
+        // the button carries the model's manufacturer badge, as the garage's model tiles do (a pod has none)
+        sectionWithButton(container, [line || '​'], linked ? null : [`vehicle_${vehicle.id}`, vehicle.name, emoji.named(vehicle.emoji) || emoji.vehicle[v.vehicleClass]])
     }
 
     const shownAbilities = new Set()  // button ids must be unique within the message
