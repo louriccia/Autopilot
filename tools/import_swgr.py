@@ -1648,7 +1648,10 @@ def main():
     # finish rather than the lock. A likeness, not game art.
     import random
 
-    FINISH_COLOURS = {"paint": ((84, 84, 86), (140, 140, 140)), "rust": ((112, 88, 80), (158, 132, 120)),
+    # paint is the palette's body colour, so it's drawn in the default palette's (Dark Enigma), darker and lighter
+    body = tuple(int(DEFAULT_PALETTE[0].lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))
+    FINISH_COLOURS = {"paint": (tuple(round(c * 0.8) for c in body), tuple(min(255, round(c * 1.45)) for c in body)),
+                      "rust": ((112, 88, 80), (158, 132, 120)),
                       "steel": ((150, 148, 142), (255, 255, 250)), "gold": ((120, 92, 34), (232, 196, 104)),
                       "deluxe": ((30, 32, 36), (92, 96, 104))}
 
