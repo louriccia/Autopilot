@@ -47,7 +47,7 @@ function decode(code) {
         pattern: pat ? data.patternsFor(cls)[pat - 1].id : null,
         palette: data.palettes[take(2)].id,
         patina: data.patinas[take(1)].id,
-        page: take(1),
+        page: (pg => Number.isNaN(pg) ? undefined : pg)(take(1)),  // cards from before the colour pages have none
     }
 }
 
