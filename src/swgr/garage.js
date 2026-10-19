@@ -94,7 +94,9 @@ async function card(s) {
         })),
     ])]
     rows.push(...slots.map(sl => menu(sl.id, code, sl.label, sl.kits.map(kit => vehicleOf(s.cls, kit)).filter(Boolean).map(v => ({
-        label: `${sl.label}: ${v.name}`, value: v.codename, emoji: emoji.named(v.emoji) || emoji.vehicle[v.class],
+        // no badge emojis here: each option's emoji is sent as an object, and with ~120 of them the card went over
+        // Discord's message size (413); the Model menu keeps them
+        label: `${sl.label}: ${v.name}`, value: v.codename,
         default: v.codename == (s.parts[sl.id] ?? s.base),
     })))))
     rows.push(menu('livery', code, 'Livery', [
