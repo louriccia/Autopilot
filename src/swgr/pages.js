@@ -1244,14 +1244,10 @@ function characterInfo(racerId) {
                 ...(build ? statLines(build.build, build.maxEnergy) : []),
             ].join('\n')))
         }
-        // The style's starting abilities and the speeders' cards, from one menu right under the section
+        // The style's starting abilities and the speeders' models, from one menu right under the section
         const options = [
             ...abilitiesOf(st).map(a => ({ label: a.name, value: `ability:${a.id}`, description: a.description.slice(0, 100), emoji: emoji.named(a.emoji) })),
-            ...speeders.flatMap(v => [
-                { label: data.vehicle(v.vehicle).name, value: `vehicle:${v.vehicle}`, description: `Vehicle / ${v.vehicleClass}`, emoji: emoji.vehicle[v.vehicleClass] },
-                v.palette && { label: data.palette(v.palette).name, value: `palette:${v.palette}`, description: 'Livery palette', emoji: emoji.named(data.palette(v.palette).emoji) },
-                v.pattern && { label: data.pattern(v.pattern).name, value: `pattern:${v.pattern}`, description: `Livery pattern / ${v.vehicleClass}`, emoji: emoji.vehicle[v.vehicleClass] },
-            ]).filter(Boolean),
+            ...speeders.map(v => ({ label: data.vehicle(v.vehicle).name, value: `vehicle:${v.vehicle}`, description: `Vehicle / ${v.vehicleClass}`, emoji: emoji.vehicle[v.vehicleClass] })),
         ].filter((o, i, all) => all.findIndex(x => x.value == o.value) == i)
         if (options.length) container.addActionRowComponents(select('goto', 'View abilities and speeders', options))
     }
