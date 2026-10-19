@@ -195,4 +195,33 @@ function sample(t, u, v) {
     return [0, 1, 2, 3].map(c => (at(x, y, c) * (1 - ax) + at(x2, y, c) * ax) * (1 - ay) + (at(x, y2, c) * (1 - ax) + at(x2, y2, c) * ax) * ay)
 }
 
-module.exports = { render, classes, slotsOf }
+// render() on a worker thread (preview-worker.js), so composing doesn't hold up the bot: started on first use, renders
+// one at a time in order. If the worker dies, the next call starts a new one.
+let worker = null, nextId = 0
+const pending = new Map()
+function renderAsync(state) {
+    if (!worker) {
+        const { Worker } = require('worker_threads')
+        worker = new Worker(path.join(__dirname, 'preview-worker.js'))
+        worker.on('message', ({ id, png, error }) => {
+            const p = pending.get(id)
+            pending.delete(id)
+            if (p) error ? p.reject(new Error(error)) : p.resolve(Buffer.from(png))
+        })
+        const fail = err => {
+            for (const p of pending.values()) p.reject(err)
+            pending.clear()
+            worker = null
+        }
+        worker.on('error', fail)
+        worker.on('exit', code => code && fail(new Error(`preview worker exited with ${code}`)))
+        worker.unref()  // don't keep the process alive for it
+    }
+    const id = nextId++
+    return new Promise((resolve, reject) => {
+        pending.set(id, { resolve, reject })
+        worker.postMessage({ id, state })
+    })
+}
+
+module.exports = { render, renderAsync, classes, slotsOf }

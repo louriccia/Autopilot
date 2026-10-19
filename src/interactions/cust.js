@@ -13,6 +13,12 @@ module.exports = {
         const card = interaction.message?.flags.has(MessageFlags.IsComponentsV2)
         if (card) await interaction.deferUpdate()
         else await interaction.deferReply()
-        await interaction.editReply({ ...await garage.card(state), attachments: [] })
+        try {
+            await interaction.editReply({ ...await garage.card(state), attachments: [] })
+        } catch (error) {
+            // the click is acknowledged already, so say so rather than leave the card as it was
+            await interaction.followUp({ content: "Couldn't build that preview, try again.", flags: MessageFlags.Ephemeral }).catch(() => {})
+            throw error
+        }
     }
 }

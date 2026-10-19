@@ -81,7 +81,7 @@ async function card(s) {
     const slots = preview.slotsOf(s.cls)
     const kits = [...new Set(slots.map(sl => s.parts[sl.id] ?? s.base))]
     const stock = kits.length == 1 && vehicleOf(s.cls, kits[0])
-    const image = preview.render(s)
+    const image = await preview.renderAsync(s)  // on a worker thread, so other clicks are answered meanwhile
     const palette = data.palette(s.palette), pattern = s.pattern && data.pattern(s.pattern), patina = data.patina(s.patina)
 
     const container = new ContainerBuilder().setAccentColor(parseInt(palette.colors[0].slice(1), 16))
