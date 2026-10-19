@@ -9,8 +9,9 @@ module.exports = {
     announce_channel: process.env.ANNOUNCE_CHANNEL_ID,
     // Where testing copies post everything the feeds produce
     test_channel: process.env.TEST_CHANNEL_ID,
-    // Feed announcements (src/feeds): patches = Steam builds and announcements, videos = YouTube uploads, streams = Twitch,
-    // community = what people post about the game elsewhere (Reddit, YouTube, Twitch clips, news)
+    // Feed announcements (src/feeds): patches = Steam builds and announcements and news articles, videos = official YouTube
+    // uploads (both #news-and-media: news and anything official), streams = Twitch, community = what people post about
+    // the game elsewhere (Reddit, YouTube, Twitch clips)
     feedChannels: {
         patches: process.env.PATCH_CHANNEL_ID,
         videos: process.env.VIDEO_CHANNEL_ID,

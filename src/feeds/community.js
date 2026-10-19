@@ -1,6 +1,7 @@
 // What people post about the game around the internet, for #community (COMMUNITY_CHANNEL_ID): the subreddit's top
-// posts of the day, YouTube videos about the game that catch on, popular Twitch clips and news articles. Four feeds
-// sharing one channel; each posts an item once (seen.posted) and at most MAX_PER_CHECK at a time.
+// posts of the day, YouTube videos about the game that catch on and popular Twitch clips; plus news articles, which go
+// with the official announcements in #news-and-media (PATCH_CHANNEL_ID). Each feed posts an item once (seen.posted)
+// and at most MAX_PER_CHECK at a time.
 // Each item is posted as its bare link, and Discord builds the preview: YouTube videos and Twitch clips play in the
 // channel, Reddit posts and articles get their own title and picture.
 const { CHANNELS: OFFICIAL } = require('./youtube.js')
@@ -99,10 +100,11 @@ const clips = {
 
 // News articles about the game, from a Bing News search (its RSS). Google News's links go through a page that only
 // JavaScript can follow, so Discord can't preview them; Bing's carry the article's own address (in their url=).
-// The same story from several outlets has different titles, so each article posts on its own.
+// The same story from several outlets has different titles, so each article posts on its own. News goes to
+// #news-and-media with the official announcements, not #community.
 const news = {
     name: 'bing-news',
-    channel: 'community',
+    channel: 'patches',
     every: 2 * 60 * 60 * 1000,
     async check(seen, { preview = false } = {}) {
         const res = await fetch(`https://www.bing.com/news/search?q=${encodeURIComponent('"Galactic Racer"')}&format=rss&setlang=en-us&mkt=en-US`, { headers: { 'User-Agent': USER_AGENT } })
