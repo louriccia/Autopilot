@@ -18,6 +18,8 @@ Writes assets/passes/<Class>/:
   <kit>_<part>_<finish>_<0|1>.png  16-bit RGBA, linear light x 1/4 (so highlights up to 4.0 fit), alpha = coverage
   <kit>_<part>_data.png            16-bit RGB: R, G = livery UV ((uv + 0.5) / 2), B = 1 on livery surfaces
   <kit>_<part>_depth.png           16-bit grey: camera distance mapped over the class's depth range
+  <kit>_<part>_patina.png          16-bit RGB: R, G = each mesh's PatinaUV (its cell in the patina's 4x4 grid), B = 1 on
+                                   livery surfaces (--patina-only renders just these, for passes made before them)
   passes.json                      camera, depth range, and each part's top-down bounds
 """
 import importlib.util
@@ -165,6 +167,7 @@ def setup_scene():
     vl = sc.view_layers[0]
     vl.use_pass_z = True
     vl.aovs.add().name = "lv"
+    vl.aovs.add().name = "pt"
     return sc
 
 
@@ -186,7 +189,9 @@ def setup_compositor(sc):
     out.file_slots.clear()
     out.file_slots.new("data")
     out.file_slots.new("depth")
+    out.file_slots.new("patina")
     nt.links.new(rl.outputs["lv"], out.inputs["data"])
+    nt.links.new(rl.outputs["pt"], out.inputs["patina"])
     rng = nt.nodes.new("CompositorNodeMapRange")
     rng.use_clamp = True
     nt.links.new(rl.outputs["Depth"], rng.inputs["Value"])
@@ -222,6 +227,12 @@ def pass_material(root):
     aov = nt.nodes.new("ShaderNodeOutputAOV")
     aov.aov_name = "lv"
     nt.links.new(comb.outputs[0], aov.inputs["Color"])
+    # the mesh's PatinaUV (set on each object by build()): its cell in the patina's 4x4 grid
+    pt = nt.nodes.new("ShaderNodeAttribute")
+    pt.attribute_type, pt.attribute_name = "OBJECT", "swgr_patina_uv"
+    pt_aov = nt.nodes.new("ShaderNodeOutputAOV")
+    pt_aov.aov_name = "pt"
+    nt.links.new(pt.outputs["Color"], pt_aov.inputs["Color"])
     return mat
 
 
@@ -235,6 +246,26 @@ def set_finish(metallic, rough, base):
                     n.outputs[0].default_value = metallic
                 elif n.label == "P_ROUGH":
                     n.outputs[0].default_value = rough
+
+
+_patina_uv = {}
+
+
+def patina_uv(mesh_path):
+    """A mesh's PatinaUV (its StaticMesh's PatinaUserData; SwgrDump dump .../Customisation --match "^SM_"): where it
+    samples the patina's 4x4 grid, one finish for the whole mesh (a part's base mesh and each panel apart). (0, 0) when
+    it has none."""
+    if mesh_path not in _patina_uv:
+        rel = os.path.relpath(os.path.splitext(mesh_path)[0], biv.EXPORT_ROOT)
+        js = os.path.join(DATAMINE, "out", "json", rel + ".json")
+        uv = (0.0, 0.0)
+        if os.path.exists(js):
+            for o in json.load(open(js, encoding="utf-8")):
+                if o.get("Type") == "PatinaUserData":  # no properties: left at its default, (0, 0)
+                    p = (o.get("Properties") or {}).get("PatinaUV") or {}
+                    uv = (p.get("X", 0.0), p.get("Y", 0.0))
+        _patina_uv[mesh_path] = uv
+    return _patina_uv[mesh_path]
 
 
 def build(v):
@@ -251,6 +282,7 @@ def build(v):
     mat = pass_material(root)
     for ob in coll.objects:
         if ob.type == "MESH":
+            ob["swgr_patina_uv"] = (*patina_uv(ob.get("swgr_mesh_path", "")), 1.0)
             for sl in ob.material_slots:
                 if sl.material and "livery" in sl.material.name.lower():
                     sl.material = mat
@@ -315,6 +347,120 @@ def uv_projection(channel):
             nt.links.new(uv.outputs["UV"], tex.inputs["Vector"])
 
 
+def debug_parts(root):
+    """experiment: every part in its own flat colour, its name printed with the colour"""
+    import colorsys
+    obs = [o for o in root.users_collection[0].objects if o.type == "MESH"]
+    parts = sorted({o.get("swgr_part", "?") for o in obs})
+    for k, part in enumerate(parts):
+        rgb = colorsys.hsv_to_rgb(k / len(parts), 0.8, 0.9)
+        print("PART", part, "#%02X%02X%02X" % tuple(round(c * 255) for c in rgb))
+        mat = bpy.data.materials.new(f"part_{part}")
+        mat.use_nodes = True
+        b = next(n for n in mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED")
+        b.inputs["Base Color"].default_value = (*rgb, 1)
+        for o in obs:
+            if o.get("swgr_part") == part:
+                for sl in o.material_slots:
+                    if sl.material and "livery" in sl.material.name.lower():
+                        sl.material = mat
+
+
+def debug_region():
+    """experiment: livery surfaces coloured by their vertex colour's red channel (the patina region?): blue below
+    0.25, orange from there to 0.75, white above"""
+    for m in bpy.data.materials:
+        if not m.use_nodes or "livery" not in m.name.lower():
+            continue
+        nt = m.node_tree
+        bsdf = next((n for n in nt.nodes if n.type == "BSDF_PRINCIPLED"), None)
+        if not bsdf:
+            continue
+        mode = opt["debug-region"]
+        sep = nt.nodes.new("ShaderNodeSeparateColor")
+        if mode.startswith("uv"):
+            # the 4x4 cell of UVMap.00<n> each surface sits in, as a checker: red = (floor(4u) + floor(4v)) mod 2
+            uv = nt.nodes.new("ShaderNodeUVMap")
+            uv.uv_map = f"UVMap.00{mode[2:]}"
+            xyz = nt.nodes.new("ShaderNodeSeparateXYZ")
+            nt.links.new(uv.outputs["UV"], xyz.inputs[0])
+            fl = []
+            for axis in "XY":
+                mul = nt.nodes.new("ShaderNodeMath"); mul.operation = "MULTIPLY"; mul.inputs[1].default_value = 4
+                nt.links.new(xyz.outputs[axis], mul.inputs[0])
+                f = nt.nodes.new("ShaderNodeMath"); f.operation = "FLOOR"
+                nt.links.new(mul.outputs[0], f.inputs[0])
+                fl.append(f)
+            add = nt.nodes.new("ShaderNodeMath"); add.operation = "ADD"
+            nt.links.new(fl[0].outputs[0], add.inputs[0]); nt.links.new(fl[1].outputs[0], add.inputs[1])
+            mod = nt.nodes.new("ShaderNodeMath"); mod.operation = "FLOORED_MODULO"; mod.inputs[1].default_value = 2
+            nt.links.new(add.outputs[0], mod.inputs[0])
+            half = nt.nodes.new("ShaderNodeMath"); half.operation = "MULTIPLY"; half.inputs[1].default_value = 0.5
+            nt.links.new(mod.outputs[0], half.inputs[0])
+            comb = nt.nodes.new("ShaderNodeCombineColor")
+            nt.links.new(half.outputs[0], comb.inputs["Red"])
+            nt.links.new(comb.outputs[0], sep.inputs["Color"])
+        elif mode.startswith("grid"):
+            # the Mix patina's 4x4 table (T_PatinaMix: 0 paint, 105 rust, 255 steel), sampled nearest through
+            # UVMap(.00<n>): paint dark grey, rust orange, steel light
+            n, which = mode[4], mode[5:] or "mix"
+            uv = nt.nodes.new("ShaderNodeUVMap")
+            uv.uv_map = "UVMap" if n == "0" else f"UVMap.00{n}"
+            img = bpy.data.images.get(f"patina_{which}_debug")
+            if img is None:
+                grid = ([[105, 255, 105, 255]] * 4 if which.startswith("checker") else
+                        [[255, 105, 0, 255], [105, 0, 255, 105], [0, 0, 255, 105], [0, 255, 105, 0]])
+                colour = {0: (0.08, 0.08, 0.09), 105: (0.45, 0.15, 0.04), 255: (0.75, 0.75, 0.76)}
+                img = bpy.data.images.new(f"patina_{which}_debug", 4, 4)
+                px = []
+                flip = which.endswith("flip")
+                for y in range(4):  # Blender rows run bottom-up; the texture's first row is its top
+                    for x in range(4):
+                        px += [*colour[grid[y if flip else 3 - y][x]], 1.0]
+                img.pixels = px
+            tex = nt.nodes.new("ShaderNodeTexImage")
+            tex.image, tex.interpolation, tex.extension = img, "Closest", "REPEAT"
+            nt.links.new(uv.outputs["UV"], tex.inputs["Vector"])
+            for link in list(bsdf.inputs["Base Color"].links):
+                nt.links.remove(link)
+            nt.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+            bsdf.inputs["Metallic"].default_value = 0
+            continue
+        elif mode == "mask":
+            # the part's baked mask (wear_material's T_<Part>_U on UV0): blue and green as they are, red = 0
+            tex = next((n for n in nt.nodes if n.type == "TEX_IMAGE" and n.image and n.image.name.endswith("_U.png")), None)
+            if not tex:
+                continue
+            msep = nt.nodes.new("ShaderNodeSeparateColor")
+            nt.links.new(tex.outputs["Color"], msep.inputs["Color"])
+            comb = nt.nodes.new("ShaderNodeCombineColor")
+            nt.links.new(msep.outputs["Green"], comb.inputs["Green"])
+            nt.links.new(msep.outputs["Blue"], comb.inputs["Blue"])
+            for link in list(bsdf.inputs["Base Color"].links):
+                nt.links.remove(link)
+            nt.links.new(comb.outputs[0], bsdf.inputs["Base Color"])
+            bsdf.inputs["Metallic"].default_value = 0
+            if "Emission Color" in bsdf.inputs:
+                nt.links.new(comb.outputs[0], bsdf.inputs["Emission Color"])
+                bsdf.inputs["Emission Strength"].default_value = 0.6
+            continue
+        else:
+            attr = nt.nodes.new("ShaderNodeVertexColor")
+            nt.links.new(attr.outputs["Color"], sep.inputs["Color"])
+        ramp = nt.nodes.new("ShaderNodeValToRGB")
+        ramp.color_ramp.interpolation = "CONSTANT"
+        els = ramp.color_ramp.elements
+        els[0].position, els[0].color = 0.0, (0.05, 0.2, 0.9, 1)
+        els[1].position, els[1].color = 0.25, (0.9, 0.35, 0.05, 1)
+        e = els.new(0.75)
+        e.color = (1, 1, 1, 1)
+        nt.links.new(sep.outputs["Red"], ramp.inputs["Fac"])
+        for link in list(bsdf.inputs["Base Color"].links):
+            nt.links.remove(link)
+        nt.links.new(ramp.outputs["Color"], bsdf.inputs["Base Color"])
+        bsdf.inputs["Metallic"].default_value = 0
+
+
 def reference():
     """one combination the importer's own way (its livery material, patterns and wear), from the passes' camera and
     lights: what compose.py's output is checked against.  --reference Boa --part Front=Taipan --palette Nomad ..."""
@@ -332,7 +478,11 @@ def reference():
     sc.render.image_settings.color_depth = "8"
     place_camera(sc, meta)
     root = biv.import_vehicle(v, (0.0, 0.0, 0.0))
-    if opt.get("projection") == "side":
+    if opt.get("debug-parts"):
+        debug_parts(root)
+    elif opt.get("debug-region"):
+        debug_region()
+    elif opt.get("projection") == "side":
         side_projection(root)
     elif opt.get("projection", "uv2").startswith("uv"):  # the game lays speeder liveries out on UV2 (the importer projects them top-down)
         uv_projection(opt.get("projection", "uv2")[2:])
@@ -365,6 +515,17 @@ def render_part(sc, out, meshes, objs, name):
         # when those parts were swapped out (a black face on Kingsnake's controls beside another front);
         # compose.py adds contact shadows from the actual combination instead
         ob.hide_render = ob not in objs
+    if opt.get("patina-only"):
+        # just the patina pass (each mesh's PatinaUV), added after the rest were rendered: one quick render
+        sc.cycles.samples = 16
+        out.base_path = os.path.join(OUT, "_tmp")
+        sc.render.filepath = os.path.join(OUT, "_tmp", "image.png")
+        bpy.ops.render.render(write_still=True)
+        src = os.path.join(OUT, "_tmp", f"patina{sc.frame_current:04d}.png")
+        if os.path.exists(src):
+            os.replace(src, os.path.join(OUT, f"{name}_patina.png"))
+        print(f"rendered {name} patina")
+        return
     first = True
     for finish, (metal, rough) in FINISHES.items():
         for base in (0, 1):
@@ -373,7 +534,7 @@ def render_part(sc, out, meshes, objs, name):
             sc.render.filepath = os.path.join(OUT, f"{name}_{finish}_{base}.png")
             bpy.ops.render.render(write_still=True)
             tmp = os.path.join(OUT, "_tmp")
-            for slot in ("data", "depth"):
+            for slot in ("data", "depth", "patina"):
                 src = os.path.join(tmp, f"{slot}{sc.frame_current:04d}.png")
                 if first and os.path.exists(src):
                     os.replace(src, os.path.join(OUT, f"{name}_{slot}.png"))

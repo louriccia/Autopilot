@@ -53,6 +53,8 @@ function sdf(file) {
     return sdfCache.get(file)
 }
 
+// the bare finishes' body colours (the datamine importer's PATINA_BODY steel and rust, as sRGB)
+const STEEL = '#C5C7C8', RUST = '#905D3F'
 const toLinear = c => c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
 const toSrgb = c => c <= 0.0031308 ? c * 12.92 : 1.055 * c ** (1 / 2.4) - 0.055
 const hexLinear = h => [0, 2, 4].map(i => toLinear(parseInt(h.replace('#', '').slice(i, i + 2), 16) / 255))
@@ -104,9 +106,15 @@ function render(state) {
     const names = allSlots.map(partName).filter(n => m.parts[n])
     const palette = data.palette(state.palette).colors.map(hexLinear)
     const pattern = state.pattern && data.pattern(state.pattern)
+    // The patina: one body finish, or (Mix, Rust Steel Mix) a 4x4 grid of them, each mesh (a part's base and every
+    // panel) taking the cell at its PatinaUV (the _patina pass): column floor(4x), row 3 - floor(4y) (checked against
+    // the garage's Dre'shi). The livery is painted over it either way.
     const patina = data.patina(state.patina) ?? { finish: 'paint' }
-    const bodyFinish = patina.finish ?? 'paint'
+    const bodyFinish = patina.finish ?? 'paint', grid = patina.grid
+    const BODY = { paint: palette[0], rust: hexLinear(RUST), metal: hexLinear(STEEL) }
     const body = patina.body ? hexLinear(patina.body) : palette[0]
+    const at = x => Math.min(3, Math.max(0, Math.floor(x * 4)))
+    const cell = (x, y) => grid[(3 - at(y)) * 4 + at(x)]
     const tex = pattern?.sdf ? sdf(pattern.sdf) : null
     const maskCols = (pattern?.masks ?? []).map(k => k.color ? hexLinear(k.color) : palette[Math.min(k.swatch ?? 1, palette.length - 1)])
 
@@ -114,10 +122,12 @@ function render(state) {
     const w = first.w, h = first.h, n = w * h
     // per layer: premultiplied linear RGB, coverage, depth
     const layers = names.map(name => {
-        const p0 = pass(cls, `${name}_paint_0`), p1 = pass(cls, `${name}_paint_1`)
-        const f0 = bodyFinish == 'paint' ? p0 : pass(cls, `${name}_${bodyFinish}_0`)
-        const f1 = bodyFinish == 'paint' ? p1 : pass(cls, `${name}_${bodyFinish}_1`)
+        // each finish's black and white renders, only those this patina can use
+        const finishes = {}
+        for (const f of new Set(['paint', ...(grid ?? [bodyFinish])])) finishes[f] = [pass(cls, `${name}_${f}_0`), pass(cls, `${name}_${f}_1`)]
+        const [p0, p1] = finishes.paint
         const dat = pass(cls, `${name}_data`), dep = pass(cls, `${name}_depth`)
+        const pt = grid ? pass(cls, `${name}_patina`) : null, pc = pt?.channels
         const rgb = new Float32Array(n * 3), alpha = new Float32Array(n), depth = new Float32Array(n)
         const dc = dat.channels, zc = dep.channels
         for (let i = 0; i < n; i++) {
@@ -125,12 +135,17 @@ function render(state) {
             alpha[i] = a
             depth[i] = a > 0.002 ? dep.data[i * zc] / dep.max : 2
             if (a <= 0) continue
-            // the livery colour here: the body colour, each pattern channel over it in its mask's colour
-            let c = body, painted = bodyFinish == 'paint' ? 1 : 0
+            // the livery colour here: the body colour (of this panel's finish), each pattern channel over it in its
+            // mask's colour
             const flag = dat.data[i * dc + 2] / dat.max
-            if (tex && flag > 1e-4) {
-                const u = dat.data[i * dc] / dat.max / flag * UV_SPAN + UV_LO
-                const v = dat.data[i * dc + 1] / dat.max / flag * UV_SPAN + UV_LO
+            const livery = flag > 1e-4
+            const u = livery ? dat.data[i * dc] / dat.max / flag * UV_SPAN + UV_LO : 0
+            const v = livery ? dat.data[i * dc + 1] / dat.max / flag * UV_SPAN + UV_LO : 0
+            const pf = pt ? pt.data[i * pc + 2] / pt.max : 0  // the patina pass's coverage, to un-blend its edges
+            const fin = grid && livery && pf > 1e-4 ? cell(pt.data[i * pc] / pt.max / pf, pt.data[i * pc + 1] / pt.max / pf) : grid ? 'paint' : bodyFinish
+            let c = grid ? BODY[fin] : body, painted = fin == 'paint' ? 1 : 0
+            const [f0, f1] = finishes[fin]
+            if (tex && livery) {
                 if (u >= 0 && u <= 1 && v >= 0 && v <= 1) {
                     const s = sample(tex, u, 1 - v)  // Blender's image origin is bottom-left
                     c = [...c]

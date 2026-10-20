@@ -1734,14 +1734,35 @@ def main():
             im.paste(finish(kind), mask=band)
         return tile_emoji(f"pat_{camel(name)}", im)
 
-    # A patina's body finish for the previews (src/swgr/preview.js, which has paint / metal / rust passes): the
-    # datamine importer's (blender_import_vehicle.body_finish): a metal override colour (All Gold, Deluxe), else steel
-    # or rust, else the palette's body colour on paint. The mixes keep the paint there too, an approximation.
+    # A patina's body finish for the previews (src/swgr/preview.js, which has paint / metal / rust passes). Each patina
+    # is a 4x4 grey texture (Patinas/T_*: 0 paint, 105 rust, 255 bare steel), read on the CPU: every vehicle mesh (a
+    # part's base and each panel) has a PatinaUV (its StaticMesh's PatinaUserData) picking its cell, so Mix (T_PatinaMix)
+    # and Rust Steel Mix (T_RustSteelChecker) are patchworks of panels and the All ones uniform; the livery is painted
+    # over whatever the cell says. Checked against the garage on the Dre'shi (src/swgr/preview.js has the cell maths).
+    # The export left these blank (they're 16 bytes inline in the package), so they're read from the raw
+    # package (SwgrDump raw .../Liveries/Patinas -> out/raw). All Gold and Deluxe override the whole body with a metal.
+    # Colours: steel / rust as the datamine importer's PATINA_BODY, paint the palette's body colour.
+    GRID_FINISH = {0: "paint", 105: "rust", 255: "metal"}
+
+    def patina_grid(v):
+        tex = (v.get("mask") or [""])[0]
+        raw = out / "raw" / ("Griffin/Plugins/" + tex.replace("GriffinSharedVehicles/", "GriffinSharedVehicles/Content/", 1)).replace(".png", ".uasset")
+        if not tex or not raw.exists():
+            return None
+        d = raw.read_bytes()
+        i = d.rfind(b"DXT1\x00")
+        cells = list(d[i + 27:i + 43]) if i >= 0 else []
+        if len(cells) != 16 or any(c not in GRID_FINISH for c in cells):
+            return None
+        return [GRID_FINISH[c] for c in cells]  # row-major, row = floor(4v), column = floor(4u)
+
     def patina_finish(v):
         if v.get("metal_override"):
-            return {"finish": "metal", "body": v["metal_override"]["color"]}
-        return {"LP_AllSteel": {"finish": "metal", "body": "#C5C7C8"}, "LP_AllRust": {"finish": "rust", "body": "#905D3F"}}.get(
-            v.get("asset"), {"finish": "paint", "body": None})
+            return {"finish": "metal", "body": v["metal_override"]["color"], "grid": None}
+        grid = patina_grid(v)
+        uniform = grid and len(set(grid)) == 1 and grid[0]
+        finish = uniform or {"LP_AllSteel": "metal", "LP_AllRust": "rust"}.get(v.get("asset"), "paint")
+        return {"finish": finish, "body": {"metal": "#C5C7C8", "rust": "#905D3F"}.get(finish), "grid": None if uniform else grid}
 
     patinas_out = [{"id": slug(v["name"]), "name": v["name"], "kitPoints": v.get("cost"), "unlock": livery_unlock(v),
                     "emoji": patina_emoji(v["name"]), **patina_finish(v)}
