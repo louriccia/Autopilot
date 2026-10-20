@@ -145,10 +145,10 @@ async function save(run, guild, { announce }) {
     // can round differently)
     const same = records.allTimes().find(x => x.kind == t.kind && x.target == t.target && x.user == user && Math.abs(x.time - t.seconds) <= 0.011)
     const member = linked ? await guild?.members.fetch(user).catch(() => null) : null
-    const { submit } = require('./submit.js')
+    const { submit, formatTime } = require('./submit.js')
     const r = await submit({
         kind: t.kind, target: t.target, member: member ?? { id: user, client: guild?.client, guild }, memberId: user,
-        time: String(same?.time ?? t.seconds), platform: t.platform, keepPlatform: true, proof: t.proof, proofType: 'video',
+        time: formatTime(same?.time ?? t.seconds),  // "1:43.67": plain seconds only parse under a minute platform: t.platform, keepPlatform: true, proof: t.proof, proofType: 'video',
         notes: '', trusted: true, date: t.date, announce, pay: linked, src: { run: run.id, user: t.player, name: t.name },
     })
     if (r.error) throw new Error(`run ${run.id}: ${r.error}`)
@@ -160,16 +160,38 @@ async function save(run, guild, { announce }) {
     return r
 }
 
-// Tries to work out whose an unlinked account is: its src profile's Discord connection naming a member of the server,
-// else its run video's YouTube channel already being linked (records.youtubeOwner). Asked once per account per day.
+// The server member a src run is evidently also theirs: the same board, the same time (within a hundredth), the same
+// platform (both given), already submitted on Discord by a member whose username, display name or server nickname is
+// the src name (ignoring case). Null unless exactly one member fits.
+async function sameRunner({ kind, target, seconds, platform, name }, guild) {
+    if (!guild || !name || !platform) return null
+    const candidates = new Set(records.allTimes().filter(x => records.isDiscord(x.user) && x.kind == kind && x.target == target
+        && x.platform == platform && Math.abs(x.time - seconds) <= 0.011).map(x => x.user))
+    const named = []
+    for (const id of candidates) {
+        const m = await guild.members.fetch(id).catch(() => null)
+        if (m && [m.user.username, m.user.globalName, m.displayName].some(n => n?.toLowerCase() == name.toLowerCase())) named.push(id)
+    }
+    return named.length == 1 ? named[0] : null
+}
+
+// Tries to work out whose an unlinked account is: the same run already submitted on Discord under the same name
+// (sameRunner, every run), else (once per account per day) its src profile's Discord connection naming a member of the
+// server, else its run video's YouTube channel already being linked (records.youtubeOwner)
 const tried = new Map()
 async function autoLink(run, guild) {
     const player = players(run)[0]
     const id = player?.rel == 'user' && player.id
-    if (!id || exports.owner(id) || Date.now() - (tried.get(id) ?? 0) < 24 * 60 * 60 * 1000) return
+    const name = player?.names?.international
+    if (!id || !name || exports.owner(id)) return
+    const t = asTime(run)
+    const match = t && await sameRunner(t, guild)
+    if (match) {
+        console.log(`[speedrun] linked ${name} to ${match} (same name, time and platform)`)
+        return exports.link({ id, name }, match, { by: 'auto', guild })
+    }
+    if (Date.now() - (tried.get(id) ?? 0) < 24 * 60 * 60 * 1000) return
     tried.set(id, Date.now())
-    const name = player.names?.international
-    if (!name) return
     let user = null
     const discord = await exports.discordOf(name)
     if (discord && guild) {
@@ -198,21 +220,34 @@ async function verifiedSince(since) {
     }
 }
 
-// New verified runs since the last check: saved (podiums announced), or auto-linked first
+// New verified runs since the last check: saved (podiums announced), or auto-linked first. Then runs saved earlier
+// under an unlinked account get the same-run check (sameRunner) again, for a Discord time submitted after them.
 exports.poll = async guild => {
     if (!game || !database) return 0
     const checked = (await database.ref('speedrun/checked').get()).val()
     const found = (await verifiedSince(checked ?? 0)).filter(r => game.kinds[r.category]).reverse()  // oldest first
-    let saved = 0
+    let saved = 0, failed = null
     for (const run of found) {
         try {
             await autoLink(run, guild)
             // The very first check brings in whatever was already there without announcing it
             if (await save(run, guild, { announce: checked != null })) saved++
-        } catch (error) { console.error('[speedrun]', run.weblink, error) }  // one bad run doesn't hold up the rest
+        } catch (error) {
+            console.error('[speedrun]', run.weblink, error)  // one bad run doesn't hold up the rest
+            failed ??= Date.parse(run.status['verify-date'])
+        }
     }
-    const latest = Math.max(checked ?? 0, ...found.map(r => Date.parse(r.status['verify-date'])))
+    // Up to the newest run, or to just before the first that failed so it's tried again next time (runs saved since
+    // are skipped then)
+    const latest = failed ? Math.max(checked ?? 0, failed - 1) : Math.max(checked ?? 0, ...found.map(r => Date.parse(r.status['verify-date'])))
     if (latest != checked) await database.ref('speedrun/checked').set(latest)
+    for (const t of records.allTimes().filter(t => t.srcUser && t.srcName && !records.isDiscord(t.user) && !exports.owner(t.srcUser))) {
+        if (exports.owner(t.srcUser)) continue  // linked by an earlier time in this loop
+        const match = await sameRunner({ kind: t.kind, target: t.target, seconds: t.time, platform: t.platform, name: t.srcName }, guild).catch(() => null)
+        if (!match) continue
+        console.log(`[speedrun] linked ${t.srcName} to ${match} (same name, time and platform)`)
+        await exports.link({ id: t.srcUser, name: t.srcName }, match, { by: 'auto', guild }).catch(error => console.error('[speedrun] link', error))
+    }
     return saved
 }
 
