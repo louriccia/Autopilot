@@ -347,6 +347,69 @@ def uv_projection(channel):
             nt.links.new(uv.outputs["UV"], tex.inputs["Vector"])
 
 
+PATINA_GRIDS = {"mix": [[255, 105, 0, 255], [105, 0, 255, 105], [0, 0, 255, 105], [0, 255, 105, 0]],
+                "rsm": [[105, 255, 105, 255]] * 4}
+
+
+def debug_patina(root, spec):
+    """experiment: each mesh's livery surfaces flat in the finish its PatinaUV picks from a patina grid, under one of
+    the eight orientations: spec "<mix|rsm>:<transpose><flipx><flipy>", e.g. "mix:001". Paint dark grey, rust
+    orange, steel light."""
+    which, o = spec.split(":")
+    tr, fx, fy = (c == "1" for c in o)
+    grid = PATINA_GRIDS[which]
+    colours = {0: (0.06, 0.06, 0.07), 105: (0.5, 0.16, 0.03), 255: (0.8, 0.8, 0.82)}
+    mats = {}
+    for v, rgb in colours.items():
+        m = bpy.data.materials.new(f"finish_{v}")
+        m.use_nodes = True
+        b = next(n for n in m.node_tree.nodes if n.type == "BSDF_PRINCIPLED")
+        b.inputs["Base Color"].default_value = (*rgb, 1)
+        b.inputs["Roughness"].default_value = 0.6
+        mats[v] = m
+    for ob in root.users_collection[0].objects:
+        if ob.type != "MESH":
+            continue
+        x, y = patina_uv(ob.get("swgr_mesh_path", ""))
+        c, r = min(3, int(x * 4)), min(3, int(y * 4))
+        if tr:
+            c, r = r, c
+        if fx:
+            c = 3 - c
+        if fy:
+            r = 3 - r
+        for sl in ob.material_slots:
+            if sl.material and "livery" in sl.material.name.lower():
+                sl.material = mats[grid[r][c]]
+
+
+def top_camera(sc, meta):
+    """experiment: a camera high above the vehicle, nose to the right and tilted a little, like the garage's patina shots"""
+    centre, radius = Vector(meta["camera"]["centre"]), meta["camera"]["radius"]
+    cam = sc.camera
+    direction = Vector((0.45, -0.9, 0.95)).normalized()
+    cam.location = centre + direction * radius * 1.25 / math.tan(cam.data.angle / 2)
+    cam.rotation_euler = (centre - cam.location).to_track_quat("-Z", "Y").to_euler()
+
+
+def debug_meshes(root):
+    """experiment: every mesh's livery surfaces in its own colour; prints mesh, colour and PatinaUV"""
+    import colorsys
+    obs = [o for o in root.users_collection[0].objects if o.type == "MESH" and any(
+        sl.material and "livery" in sl.material.name.lower() for sl in o.material_slots)]
+    for k, ob in enumerate(obs):
+        rgb = colorsys.hsv_to_rgb((k * 0.618) % 1, 0.85, 0.95)
+        mat = bpy.data.materials.new(f"mesh_{k}")
+        mat.use_nodes = True
+        b = next(n for n in mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED")
+        b.inputs["Base Color"].default_value = (*rgb, 1)
+        for sl in ob.material_slots:
+            if sl.material and "livery" in sl.material.name.lower():
+                sl.material = mat
+        print("MESH", k, os.path.basename(ob.get("swgr_mesh_path", "?")), "#%02X%02X%02X" % tuple(round(c * 255) for c in rgb),
+              "uv %.3f %.3f" % patina_uv(ob.get("swgr_mesh_path", "")))
+
+
 def debug_parts(root):
     """experiment: every part in its own flat colour, its name printed with the colour"""
     import colorsys
@@ -478,8 +541,14 @@ def reference():
     sc.render.image_settings.color_depth = "8"
     place_camera(sc, meta)
     root = biv.import_vehicle(v, (0.0, 0.0, 0.0))
-    if opt.get("debug-parts"):
+    if opt.get("view") == "top":
+        top_camera(sc, meta)
+    if opt.get("debug-patina"):
+        debug_patina(root, opt["debug-patina"])
+    elif opt.get("debug-parts"):
         debug_parts(root)
+    elif opt.get("debug-meshes"):
+        debug_meshes(root)
     elif opt.get("debug-region"):
         debug_region()
     elif opt.get("projection") == "side":

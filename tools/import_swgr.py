@@ -1735,11 +1735,11 @@ def main():
         return tile_emoji(f"pat_{camel(name)}", im)
 
     # A patina's body finish for the previews (src/swgr/preview.js, which has paint / metal / rust passes). Each patina
-    # is a 4x4 grey texture (Patinas/T_*: 0 paint, 105 rust, 255 bare steel), read on the CPU: every vehicle mesh (a
+    # is a small square grey texture (Patinas/T_*: 0 paint, 105 rust, 255 bare steel), read on the CPU: every vehicle mesh (a
     # part's base and each panel) has a PatinaUV (its StaticMesh's PatinaUserData) picking its cell, so Mix (T_PatinaMix)
-    # and Rust Steel Mix (T_RustSteelChecker) are patchworks of panels and the All ones uniform; the livery is painted
-    # over whatever the cell says. Checked against the garage on the Dre'shi (src/swgr/preview.js has the cell maths).
-    # The export left these blank (they're 16 bytes inline in the package), so they're read from the raw
+    # and Rust Steel Mix (T_RustSteelChecker) are 8x8 and 16x16 patchworks of panels and the All ones uniform 4x4; the livery is painted
+    # over whatever the cell says. Checked against the garage on the Napaco D (src/swgr/preview.js has the cell maths).
+    # The export left these blank (the texels are inline in the package), so they're read from the raw
     # package (SwgrDump raw .../Liveries/Patinas -> out/raw). All Gold and Deluxe override the whole body with a metal.
     # Colours: steel / rust as the datamine importer's PATINA_BODY, paint the palette's body colour.
     GRID_FINISH = {0: "paint", 105: "rust", 255: "metal"}
@@ -1750,11 +1750,16 @@ def main():
         if not tex or not raw.exists():
             return None
         d = raw.read_bytes()
+        # the top mip follows the pixel format: width, height, ..., then a grayscale byte per texel (4x4 for the All
+        # ones, 8x8 Mix, 16x16 Rust Steel Mix)
         i = d.rfind(b"DXT1\x00")
-        cells = list(d[i + 27:i + 43]) if i >= 0 else []
-        if len(cells) != 16 or any(c not in GRID_FINISH for c in cells):
+        if i < 0:
             return None
-        return [GRID_FINISH[c] for c in cells]  # row-major, row = floor(4v), column = floor(4u)
+        w, h = int.from_bytes(d[i + 5:i + 9], "little"), int.from_bytes(d[i + 9:i + 13], "little")
+        cells = list(d[i + 27:i + 27 + w * h])
+        if w != h or len(cells) != w * h or any(c not in GRID_FINISH for c in cells):
+            return None
+        return [GRID_FINISH[c] for c in cells]  # row-major, n x n
 
     def patina_finish(v):
         if v.get("metal_override"):
