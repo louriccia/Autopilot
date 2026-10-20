@@ -87,7 +87,7 @@ const place = rank => rank <= 10 ? emoji.named(`place_${rank}`) : `**#${rank}**`
 // A time's platform as the game's logo (platform_PC / _PS5 / _Xbox); anything else in words
 const platformMark = p => !p ? '' : records.PLATFORMS.includes(p) ? ` ${emoji.named(`platform_${p}`)}` : ` / ${p}`
 // The viewer's declared rival (/times rival) gets the rival marker
-const timeLine = (t, rank) => `${place(rank)} ${t.proof ? `[${boardTime(t.time)}](<${t.proof}>)` : boardTime(t.time)} <@${t.user}>${platformMark(t.platform)}${t.user == records.rivalOf(viewer.id()) ? ` ${emoji.named('rival')}` : ''}`
+const timeLine = (t, rank) => `${place(rank)} ${t.proof ? `[${boardTime(t.time)}](<${t.proof}>)` : boardTime(t.time)} ${records.who(t.user)}${platformMark(t.platform)}${t.user == records.rivalOf(viewer.id()) ? ` ${emoji.named('rival')}` : ''}`
 // A board's open bounties (/bounty): the pot, the time to beat and when it ends
 // (at the top of its leaderboard): "[bounty] 54.00 [credits] 100 (expires in 14 days)"
 const bountyLines = (kind, target) => credits.openBounties(kind, target).map(b =>

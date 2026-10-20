@@ -39,7 +39,7 @@ Please cache rather than polling every few seconds: the times change when someon
 | field | |
 |---|---|
 | `kind`, `target` | the board (see above) |
-| `user` | whose run it is |
+| `user` | whose run it is: a Discord id, or for a speedrun.com runner nobody has linked to Discord yet `src:<src user id>` (`src:guest:<name>` for src guests; show `srcName`) |
 | `submittedBy` | who saved it (a submitter can save runs for others; the bot itself for posted runs) |
 | `time` | seconds |
 | `date` | when the run happened, as far as known (a video's upload time, else when it was posted or saved) |
@@ -47,7 +47,7 @@ Please cache rather than polling every few seconds: the times change when someon
 | `proof` | a link: YouTube, a Discord post, or a Discord file (screenshot or video). Discord signs file links for about a day; the bot renews them every 6 hours, so read the current value rather than caching it for long. Blank if none |
 | `notes` | free text, often blank |
 | `youtube` | the proof video's YouTube channel id, when it has one |
-| `src`, `srcUser` | the speedrun.com run id and runner id, for a run verified there (`https://www.speedrun.com/Star_Wars_Galactic_Racer/runs/<src>`); absent otherwise |
+| `src`, `srcUser`, `srcName` | the speedrun.com run id, runner id and runner name, for a run verified there (`https://www.speedrun.com/Star_Wars_Galactic_Racer/runs/<src>`); absent otherwise |
 
 ### `staff/<event id>/<key>`: the developer's and publisher's own times
 `{ name, seconds, from: "developer" | "publisher", user? }`. Shown apart from community times (Fuse Games is the

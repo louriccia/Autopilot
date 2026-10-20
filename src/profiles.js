@@ -14,7 +14,7 @@ exports.refresh = async (client, guild) => {
         ...records.allTimes().map(t => t.user),
         ...credits.balances().map(b => b.user),
         ...data.events.flatMap(e => records.staffTimes(e.id).map(s => s.user)),
-    ].filter(Boolean))
+    ].filter(records.isDiscord))
     const current = (await database.ref('profiles').get()).val() ?? {}
     const members = await guild.members.fetch().catch(() => guild.members.cache)
     const updates = {}

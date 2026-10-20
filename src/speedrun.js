@@ -8,11 +8,13 @@
 //   speedrun/users/<src user id>   { user (discord id), name (src name), linkedBy, linkedAt }: whose runs a src account's are
 //   speedrun/runs/<src run id>     { time (our times/ id) | null, at }: runs already saved, so a removed time stays removed
 //   speedrun/checked               the latest verify-date (ms) seen by poll()
-// A run is saved through src/submit.js like any other (credits, podiums, bounties), as a video-proven run credited to
-// whoever the src account is linked to; a runner's time already submitted on Discord (to the hundredth) is the same run
-// and only gains the video and the src link. Runs by unlinked accounts wait until the account is linked
-// (/times speedrun, or automatically: the account's Discord connection names a server member, or its video's YouTube
-// channel is already linked to someone), then come in all at once (backfill()).
+// Every verified run is saved through src/submit.js like any other, as a video-proven run. One by an account linked to
+// a Discord id is theirs (credits, podiums, bounties), and a time they already submitted on Discord (to the hundredth)
+// is the same run, which only gains the video and the src fields. One by an account nobody has linked yet is saved
+// under 'src:<src user id>' ('src:guest:<name>' for guests; records.who shows the src name), on the boards and in
+// podium posts but earning nothing. Linking (/times speedrun, or automatically: the account's Discord connection names
+// a server member, or its video's YouTube channel is already linked to someone) saves those runs again as the person's
+// (link()), so they're deduplicated against their own times and paid like any other save, without announcements.
 const { database } = require('./firebase.js')
 const records = require('./records.js')
 
@@ -91,8 +93,15 @@ exports.link = async (src, discordId, { by, guild } = {}) => {
     const value = { user: discordId, name: src.name, linkedBy: by ?? null, linkedAt: Date.now() }
     await database.ref(`speedrun/users/${src.id}`).set(value)
     users[src.id] = value
-    // Times already saved from this account's runs go with it
-    for (const t of records.allTimes().filter(t => t.srcUser == src.id && t.user != discordId)) await records.updateTime(t.id, { user: discordId })
+    for (const t of records.allTimes().filter(t => t.srcUser == src.id && t.user != discordId)) {
+        if (records.isDiscord(t.user)) await records.updateTime(t.id, { user: discordId })  // a relink: their times move
+        else {
+            // Saved before anyone linked it: forgotten here, so the backfill saves it again as theirs
+            await records.removeTime(t.id)
+            await database.ref(`speedrun/runs/${t.src}`).remove()
+            delete runs[t.src]
+        }
+    }
     return exports.backfill(src.id, guild)
 }
 
@@ -119,25 +128,28 @@ function asTime(run) {
         kind, target: board[0].split(':')[1], seconds, platform, date,
         proof: run.videos?.links?.[0]?.uri ?? run.weblink,
         player: player.rel == 'user' ? player.id : null,
+        name: player.rel == 'user' ? player.names?.international ?? null : player.name,
+        // Who it's saved for: the linked Discord id, else the placeholder
+        racer: player.rel == 'user' ? exports.owner(player.id) ?? `src:${player.id}` : `src:guest:${player.name}`,
     }
 }
 
 // Saves one verified run for whoever its account is linked to; returns the submit result, or null when it was skipped
-// (not ours, already saved, unlinked)
+// (not ours, already saved)
 async function save(run, guild, { announce }) {
     if (runs[run.id]) return null
     const t = asTime(run)
-    const user = t?.player && exports.owner(t.player)
-    if (!t || !user) return null
+    if (!t) return null
+    const user = t.racer, linked = records.isDiscord(user)
     // The same run submitted on Discord: their time on the board within a hundredth (results screens and src's timing
     // can round differently)
     const same = records.allTimes().find(x => x.kind == t.kind && x.target == t.target && x.user == user && Math.abs(x.time - t.seconds) <= 0.011)
-    const member = await guild?.members.fetch(user).catch(() => null)
+    const member = linked ? await guild?.members.fetch(user).catch(() => null) : null
     const { submit } = require('./submit.js')
     const r = await submit({
         kind: t.kind, target: t.target, member: member ?? { id: user, client: guild?.client, guild }, memberId: user,
         time: String(same?.time ?? t.seconds), platform: t.platform, keepPlatform: true, proof: t.proof, proofType: 'video',
-        notes: '', trusted: true, date: t.date, announce, src: { run: run.id, user: t.player },
+        notes: '', trusted: true, date: t.date, announce, pay: linked, src: { run: run.id, user: t.player, name: t.name },
     })
     if (r.error) throw new Error(`run ${run.id}: ${r.error}`)
     const saved = records.allTimes().find(x => x.src == run.id)
@@ -172,11 +184,7 @@ async function autoLink(run, guild) {
     }
     if (!user) return
     console.log(`[speedrun] linked ${name} to ${user} (${discord ? 'Discord connection' : 'YouTube channel'})`)
-    const value = { user, name, linkedBy: 'auto', linkedAt: Date.now() }
-    await database.ref(`speedrun/users/${id}`).set(value)
-    users[id] = value
-    // Their earlier runs come in by the backfill
-    await exports.backfill(id, guild)
+    await exports.link({ id, name }, user, { by: 'auto', guild })
 }
 
 // Every verified run of the game, newest verification first, until one verified before `since` (ms)
@@ -213,7 +221,7 @@ exports.backfill = async (srcId, guild) => {
     if (!game) return 0
     let saved = 0
     for (let offset = 0; ; offset += 200) {
-        const page = await get(`/runs?game=${game.id}&user=${srcId}&status=verified&orderby=date&direction=asc&max=200&offset=${offset}`)
+        const page = await get(`/runs?game=${game.id}&user=${srcId}&status=verified&orderby=date&direction=asc&max=200&offset=${offset}&embed=players`)
         for (const run of page.data) if (await save(run, guild, { announce: false })) saved++
         if (page.data.length < 200) return saved
     }

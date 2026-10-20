@@ -174,7 +174,7 @@ module.exports = {
         const t = removable(interaction).find(x => x.id == id)
         if (!t) return reply(interaction, "That isn't one of the times you can remove. Pick one from the list as you type.")
         await records.removeTime(id)
-        return reply(interaction, `Removed ${formatTime(t.time)} by <@${t.user}> on ${nameOf(t)}.`)
+        return reply(interaction, `Removed ${formatTime(t.time)} by ${records.who(t.user)} on ${nameOf(t)}.`)
     },
     async autocomplete(interaction) {
         const q = interaction.options.getFocused().toLowerCase()

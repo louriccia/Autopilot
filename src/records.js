@@ -112,12 +112,12 @@ const replaces = (f, next, old) => !(f == 'proof' && exports.isVideo(old) && !ex
 // it in. None of those counts as an updated detail.
 exports.addTime = async entry => {
     entry = { ...entry, date: entry.date ?? Date.now() }
-    for (const f of ['youtube', 'src', 'srcUser']) if (!entry[f]) delete entry[f]
+    for (const f of ['youtube', 'src', 'srcUser', 'srcName']) if (!entry[f]) delete entry[f]
     const same = Object.entries(times).find(([, t]) => t.kind == entry.kind && t.target == entry.target && t.user == entry.user && t.time == entry.time)
     if (same) {
         const [id, old] = same
         const changes = Object.fromEntries(DETAILS.filter(f => entry[f] && entry[f] != old[f] && replaces(f, entry[f], old[f])).map(f => [f, entry[f]]))
-        const quiet = { ...(entry.date < old.date ? { date: entry.date } : {}), ...Object.fromEntries(['youtube', 'src', 'srcUser'].filter(f => entry[f] && !old[f]).map(f => [f, entry[f]])) }
+        const quiet = { ...(entry.date < old.date ? { date: entry.date } : {}), ...Object.fromEntries(['youtube', 'src', 'srcUser', 'srcName'].filter(f => entry[f] && !old[f]).map(f => [f, entry[f]])) }
         if (Object.keys(changes).length || Object.keys(quiet).length) {
             await database.ref(`times/${id}`).update({ ...changes, ...quiet })
             times[id] = { ...old, ...changes, ...quiet }
@@ -127,6 +127,20 @@ exports.addTime = async entry => {
     const ref = await database.ref('times').push(entry)
     times[ref.key] = entry  // so the card that's redrawn next already shows it
     return { id: ref.key, duplicate: false }
+}
+
+// Racers are Discord ids, except runs from speedrun.com accounts nobody has linked yet (src/speedrun.js):
+// 'src:<src user id>', or 'src:guest:<name>' for src's guest runners
+exports.isDiscord = user => /^\d+$/.test(user ?? '')
+// A racer as shown on boards and in messages: a mention, or an unlinked runner's src name (from their times' srcName)
+// linked to their src profile
+exports.who = user => {
+    if (exports.isDiscord(user)) return `<@${user}>`
+    const plain = s => s.replace(/[_*~`|\\[\]<>]/g, '\\$&')  // src names often have underscores
+    const guest = String(user).match(/^src:guest:(.*)$/)?.[1]
+    if (guest) return plain(guest)
+    const name = Object.values(times).find(t => t.user == user && t.srcName)?.srcName
+    return name ? `[${plain(name)}](<https://www.speedrun.com/users/${encodeURIComponent(name)}>)` : 'a speedrun.com runner'
 }
 
 // Declared rivals (/times rival): one each; null clears

@@ -59,6 +59,7 @@ exports.balances = () => Object.entries(balances).map(([user, amount]) => ({ use
 // Adds a ledger entry and moves the balance with it. With mustCover, it only goes through if the balance covers the
 // (negative) amount; returns false then.
 async function post(user, amount, entry, { mustCover = false } = {}) {
+    if (!records.isDiscord(user)) return false  // unlinked speedrun.com runners (src/speedrun.js) have no balance
     amount = Math.round(amount)
     let ok = true
     const res = await database.ref(`balances/${user}`).transaction(v => {
