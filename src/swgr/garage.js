@@ -3,7 +3,7 @@
 // stored and anyone can carry on from it: "cust_<field>_<code>" (interactions/cust.js).
 const {
     MessageFlags, AttachmentBuilder, ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle,
-    ContainerBuilder, TextDisplayBuilder, MediaGalleryBuilder,
+    ContainerBuilder, TextDisplayBuilder, MediaGalleryBuilder, SectionBuilder,
 } = require('discord.js')
 const data = require('./data.js')
 const preview = require('./preview.js')
@@ -76,7 +76,7 @@ function openId(livery) {
 const buildKey = s => encode(s).slice(0, -2)
 
 // The known speeders a build is dressed exactly as: characters' (racers.json) and arcade events' (arcade.json), as
-// [custom id, label, emoji] buttons to their cards
+// [custom id, label, emoji] buttons to their cards. No two of them are dressed alike, so there's at most one.
 function knownAs(s) {
     const kits = new Set(preview.slotsOf(s.cls).map(sl => s.parts[sl.id] ?? s.base))
     if (kits.size != 1) return []
@@ -160,21 +160,21 @@ async function card(s, message = null) {
 
     const container = new ContainerBuilder().setAccentColor(parseInt(palette.colors[0].slice(1), 16))
     // the title with its class's icon; a stock model stands in for its vehicle card (what the game says of it); then
-    // what every piece of the build costs and how it's unlocked (costLines)
-    container.addTextDisplayComponents(new TextDisplayBuilder().setContent([
+    // what every piece of the build costs and how it's unlocked (costLines). Beside it, when the build is dressed
+    // exactly as a character's speeder or an arcade event's, a button to that card (no two of them share one)
+    const header = new TextDisplayBuilder().setContent([
         `-# Garage / ${s.cls}`,
         `# ${emoji.vehicle[s.cls]} ${stock ? stock.name : `Custom ${s.cls}`}`,
         stock?.description && `*${stock.description}*`,
         ...costLines(s, slots, stock, pattern, palette, patina),
-    ].filter(Boolean).join('\n')))
+    ].filter(Boolean).join('\n'))
+    const known = knownAs(s)[0]
+    if (known) {
+        const [id, label, e] = known
+        container.addSectionComponents(new SectionBuilder().addTextDisplayComponents(header).setButtonAccessory(
+            new ButtonBuilder().setCustomId(id).setLabel(label.slice(0, 80)).setEmoji(emoji.component(e)).setStyle(ButtonStyle.Secondary)))
+    } else container.addTextDisplayComponents(header)
     container.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(item => item.setURL(`attachment://${file}`)))
-    // the characters and arcade events whose speeder this is, each a button to its card
-    const known = knownAs(s).slice(0, 5)
-    if (known.length) {
-        container.addTextDisplayComponents(new TextDisplayBuilder().setContent('-# Raced as'))
-        container.addActionRowComponents(new ActionRowBuilder().addComponents(known.map(([id, label, e]) =>
-            new ButtonBuilder().setCustomId(id).setLabel(label.slice(0, 80)).setEmoji(emoji.component(e)).setStyle(ButtonStyle.Secondary))))
-    }
     // Tabs, as in the game's garage; they also keep the card under Discord's message size with every option's emoji
     // (all ten menus at once, ~120 emojis, went over)
     const tab = s.tab ?? 'model'
