@@ -148,11 +148,15 @@ async function save(run, guild, { announce }) {
     const { submit, formatTime } = require('./submit.js')
     const r = await submit({
         kind: t.kind, target: t.target, member: member ?? { id: user, client: guild?.client, guild }, memberId: user,
-        time: formatTime(same?.time ?? t.seconds),  // "1:43.67": plain seconds only parse under a minute platform: t.platform, keepPlatform: true, proof: t.proof, proofType: 'video',
+        // "1:43.67": plain seconds only parse under a minute
+        time: formatTime(same?.time ?? t.seconds), platform: t.platform, keepPlatform: true, proof: t.proof, proofType: 'video',
         notes: '', trusted: true, date: t.date, announce, pay: linked, src: { run: run.id, user: t.player, name: t.name },
     })
     if (r.error) throw new Error(`run ${run.id}: ${r.error}`)
     const saved = records.allTimes().find(x => x.src == run.id)
+    // The verified run's proof replaces whatever the time had (submit only swaps a video for another video); the date
+    // stays the earliest known (records.addTime)
+    if (saved && t.proof && saved.proof != t.proof) await records.updateTime(saved.id, { proof: t.proof })
     const value = { time: saved?.id ?? null, at: Date.now() }
     await database.ref(`speedrun/runs/${run.id}`).set(value)
     runs[run.id] = value
