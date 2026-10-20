@@ -86,6 +86,11 @@ module.exports = {
         .addSubcommand(sub => sub.setName('youtube').setDescription("set whose runs a YouTube channel's videos are (server managers)")
             .addStringOption(o => o.setName('video').setDescription('a link to any video from the channel').setRequired(true))
             .addUserOption(o => o.setName('racer').setDescription('whose channel it is').setRequired(true)))
+        // Whose runs a speedrun.com account's are (src/speedrun.js): your own, proven by the Discord connection on the
+        // account's profile, or anyone's for server managers and submitters
+        .addSubcommand(sub => sub.setName('speedrun').setDescription('link a speedrun.com account so its verified runs count here')
+            .addStringOption(o => o.setName('account').setDescription('the speedrun.com username or profile link').setRequired(true))
+            .addUserOption(o => o.setName('racer').setDescription("whose account it is (default: yours; someone else's: submitters)")))
         // A declared rival, compared on timesheets and receipts
         .addSubcommand(sub => sub.setName('rival').setDescription('declare your rival (leave racer empty to clear it)')
             .addUserOption(o => o.setName('racer').setDescription('the racer to measure yourself against')))
@@ -121,6 +126,33 @@ module.exports = {
             await records.linkYoutube(v.channelId, { user: racer.id, name: v.channelName, by: interaction.user.id })
             const moved = await records.moveYoutubeTimes(v.channelId, racer.id)
             return reply(interaction, `${v.channelName}'s videos are now <@${racer.id}>'s runs.${moved ? ` Moved ${moved} time${moved == 1 ? '' : 's'} already saved from them.` : ''}`)
+        }
+        if (sub == 'speedrun') {
+            const speedrun = require('../speedrun.js')
+            const racer = interaction.options.getUser('racer') ?? interaction.user
+            const forOther = racer.id != interaction.user.id
+            if (forOther && !records.canSubmitForOthers(interaction.member)) return reply(interaction, "Only server managers and submitters can link someone else's account.")
+            if (racer.bot) return reply(interaction, "Bots don't race.")
+            await interaction.deferReply({ flags: MessageFlags.Ephemeral })
+            const src = await speedrun.findUser(interaction.options.getString('account'))
+            if (!src) return interaction.editReply("Couldn't find that speedrun.com account. Give its username or profile link.")
+            const owner = speedrun.owner(src.id)
+            if (owner == racer.id) return interaction.editReply(`[${src.name}](<${src.weblink}>) is already <@${racer.id}>'s.`)
+            // Your own: the account must name you under its connections
+            if (!forOther) {
+                const discord = await speedrun.discordOf(src.name)
+                if (discord != interaction.user.username.toLowerCase()) {
+                    return interaction.editReply([
+                        `To prove [${src.name}](<${src.weblink}>) is yours, add your Discord (**${interaction.user.username}**) under **Settings / Connections** on speedrun.com, then try again${discord ? ` (it names **${discord}** now)` : ''}.`,
+                        '-# Or ask a submitter to link it for you.',
+                    ].join('\n'))
+                }
+            }
+            const saved = await speedrun.link(src, racer.id, { by: interaction.user.id, guild: interaction.guild })
+            return interaction.editReply({
+                content: `[${src.name}](<${src.weblink}>)'s verified runs are now <@${racer.id}>'s${owner ? ` (instead of <@${owner}>'s)` : ''}.${saved ? ` Saved ${saved} run${saved == 1 ? '' : 's'} already on speedrun.com.` : ''}`,
+                allowedMentions: { parse: [] },
+            })
         }
         if (sub.startsWith('staff')) {
             if (!records.canSubmitForOthers(interaction.member)) return reply(interaction, 'Only server managers and submitters can change staff times.')

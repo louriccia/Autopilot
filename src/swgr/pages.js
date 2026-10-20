@@ -11,6 +11,7 @@ const viewer = require('../viewer.js')
 const credits = require('../credits.js')
 const emoji = require('../data/discord/emoji.js')
 const garage = require('./garage.js')
+const speedrun = require('../speedrun.js')
 
 const ROOT = path.join(__dirname, '../..')
 const DEFAULT_COLOR = 0x3B88C3
@@ -113,13 +114,16 @@ const shownTimes = (kind, target) => {
     const mine = board.find(t => t.user == me)?.rank
     return board.filter(t => t.rank <= 5 || (mine && Math.abs(t.rank - mine) <= 1) || (rival && t.user == rival))
 }
-// Submit a time, then rate the event / scenario with the three thumbs (counts on the buttons)
+// Submit a time, then rate the event / scenario with the three thumbs (counts on the buttons), then the matching
+// speedrun.com board (src/speedrun.js) when there is one
 function recordButtons(kind, target) {
     const counts = records.feedbackCounts(kind, target)
+    const src = speedrun.boardUrl(kind, target)
     return new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`time_open_${kind}_${target}`).setLabel('Submit').setEmoji(emoji.named('stopwatch')).setStyle(ButtonStyle.Primary),
         ...[['up', emoji.thumbsUp], ['neutral', emoji.thumbsNeutral], ['down', emoji.thumbsDown]].map(([r, e]) =>
-            new ButtonBuilder().setCustomId(`rate_${kind}_${target}_${r}`).setLabel(String(counts[r])).setEmoji(emoji.component(e)).setStyle(ButtonStyle.Secondary)))
+            new ButtonBuilder().setCustomId(`rate_${kind}_${target}_${r}`).setLabel(String(counts[r])).setEmoji(emoji.component(e)).setStyle(ButtonStyle.Secondary)),
+        ...(src ? [new ButtonBuilder().setURL(src).setLabel('View on src').setStyle(ButtonStyle.Link)] : []))
 }
 // A board's leaderboard text with "Set a bounty" beside it (like the track button beside an event's details), which
 // posts a bounty on the board from your credits (interactions/bounty.js)

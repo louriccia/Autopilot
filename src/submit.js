@@ -29,7 +29,8 @@ exports.formatTime = s => {
 // empty instead of filling in the racer's usual one (imports).
 // proofType: 'video' | 'screenshot' | 'claim' when the caller knows better than the proof link (a typed claim's proof is
 // its message link; a screenshot post's too). pay: false skips credits (backfills that pay separately).
-exports.submit = async ({ kind, target, member, memberId, racer, time: rawTime, platform, proof, notes, trusted, date, youtube, keepPlatform, announce = true, proofType, pay = true }) => {
+// src: { run, user }, the speedrun.com run and account the time comes from (src/speedrun.js).
+exports.submit = async ({ kind, target, member, memberId, racer, time: rawTime, platform, proof, notes, trusted, date, youtube, keepPlatform, announce = true, proofType, pay = true, src }) => {
     if (!database) return { error: "Times can't be saved right now (no database)." }
     const item = exports.board(kind, target)
     if (!item) return { error: "That isn't an arcade event or scenario." }
@@ -65,7 +66,7 @@ exports.submit = async ({ kind, target, member, memberId, racer, time: rawTime, 
     const existing = records.allTimes().find(t => t.kind == kind && t.target == target && t.user == user && t.time == time)
     if (existing?.platform && !picked) platform = ''
     const before = records.leaderboard(kind, target)
-    const { id: timeId, duplicate, updated } = await records.addTime({ kind, target, user, submittedBy: memberId, time, platform, proof, notes: exports.clean(notes).slice(0, 120), date, youtube })
+    const { id: timeId, duplicate, updated } = await records.addTime({ kind, target, user, submittedBy: memberId, time, platform, proof, notes: exports.clean(notes).slice(0, 120), date, youtube, src: src?.run, srcUser: src?.user })
     const board = records.leaderboard(kind, target)
     const rank = board.findIndex(t => t.user == user) + 1
     const best = board[rank - 1]

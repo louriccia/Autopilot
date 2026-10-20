@@ -124,6 +124,17 @@ client.once(Events.ClientReady, () => {
     const { main_guild, test_guild } = require('./data/discord/guild.js')
     setInterval(() => credits.expireBounties(client.guilds.cache.get(testing ? test_guild : main_guild))
         .catch(error => reportError('Bounties', error)), 60 * 60 * 1000)
+    // speedrun.com (src/speedrun.js): its boards for the cards' "View on src" buttons, then (live bot only) its verified
+    // runs every 10 minutes
+    const speedrun = require('./speedrun.js')
+    speedrun.load().then(n => {
+        console.log(`[speedrun] ${n} boards matched`)
+        if (testing) return
+        const poll = () => speedrun.poll(client.guilds.cache.get(main_guild))
+            .then(n => n && console.log(`[speedrun] saved ${n} run(s)`)).catch(error => console.error('[speedrun] poll', error.message))
+        setTimeout(poll, 50 * 1000)
+        setInterval(poll, speedrun.POLL_EVERY)
+    }).catch(error => reportError('speedrun.com', error))
     // Racers' names and avatars for the website (src/profiles.js): once the times and balances have loaded, then hourly
     if (!testing) {
         const profiles = () => require('./profiles.js').refresh(client, client.guilds.cache.get(main_guild))

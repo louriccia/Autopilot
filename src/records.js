@@ -1,7 +1,8 @@
 // Community times and feedback for arcade events and scenarios, kept in the database and always keyed by Discord id
 // (like Botto), never by name:
 //   times/<push id>                     { kind, target, user, submittedBy, time (s), platform, proof, notes, date,
-//                                         youtube? (the proof video's channel id) }: date is when the run happened, as
+//                                         youtube? (the proof video's channel id), src?, srcUser? (the speedrun.com
+//                                         run and account it came from, src/speedrun.js) }: date is when the run happened, as
 //                                         far as we know (the earlier of upload and post for replays; else when saved)
 //   youtube/<channel id>                { user, name, linkedBy, linkedAt }: whose runs a YouTube channel's videos are
 //   rivals/<discord id>                 { rival (discord id), setAt }: the racer they measure themselves against
@@ -107,15 +108,16 @@ const DETAILS = ['platform', 'proof', 'notes']
 exports.isVideo = url => /youtu\.?be|twitch\.tv|streamable\.com|medal\.tv|vimeo\.com|\.(mp4|mov|webm|mkv)(\?|$)/i.test(url ?? '')
 const replaces = (f, next, old) => !(f == 'proof' && exports.isVideo(old) && !exports.isVideo(next))
 // entry.date (when the run happened, if known) defaults to now; a repeat with an earlier date moves the saved one back,
-// and one that knows the proof video's channel (entry.youtube) fills it in. Neither counts as an updated detail.
+// and one that knows the proof video's channel (entry.youtube) or its speedrun.com run (entry.src, entry.srcUser) fills
+// it in. None of those counts as an updated detail.
 exports.addTime = async entry => {
     entry = { ...entry, date: entry.date ?? Date.now() }
-    if (!entry.youtube) delete entry.youtube
+    for (const f of ['youtube', 'src', 'srcUser']) if (!entry[f]) delete entry[f]
     const same = Object.entries(times).find(([, t]) => t.kind == entry.kind && t.target == entry.target && t.user == entry.user && t.time == entry.time)
     if (same) {
         const [id, old] = same
         const changes = Object.fromEntries(DETAILS.filter(f => entry[f] && entry[f] != old[f] && replaces(f, entry[f], old[f])).map(f => [f, entry[f]]))
-        const quiet = { ...(entry.date < old.date ? { date: entry.date } : {}), ...(entry.youtube && !old.youtube ? { youtube: entry.youtube } : {}) }
+        const quiet = { ...(entry.date < old.date ? { date: entry.date } : {}), ...Object.fromEntries(['youtube', 'src', 'srcUser'].filter(f => entry[f] && !old[f]).map(f => [f, entry[f]])) }
         if (Object.keys(changes).length || Object.keys(quiet).length) {
             await database.ref(`times/${id}`).update({ ...changes, ...quiet })
             times[id] = { ...old, ...changes, ...quiet }
