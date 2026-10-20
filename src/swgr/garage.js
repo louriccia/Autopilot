@@ -251,14 +251,19 @@ function apply(s, field, value) {
         s.page = (page + (value == 'next' ? 1 : -1) + colorPages()) % colorPages()
     } else if (field == 'color') s.palette = value
     else if (field == 'class') {
-        // another class: its first model, keeping the colour, patina and tab, and the livery when the class has one by
-        // the same name (each class has its own, mostly named alike)
+        // another class: the same build there. The classes list their models alike (the same manufacturers, two
+        // each, in the same order: RAR 27 / ARZ 41 / MSM 04), so each kit becomes the one at its place in the new
+        // class's list (a slot the new class doesn't have takes the base's); the colour, patina, tab and colour page
+        // stay, and the livery when the class has one by the same name (each class has its own, mostly named alike)
         const cls = data.classes[Number(value)]?.name
         if (!cls || cls == s.cls) return s
-        const first = vehicleOf(cls, preview.slotsOf(cls)[0].kits[0])
+        const from = preview.slotsOf(s.cls)[0].kits, to = preview.slotsOf(cls)[0].kits
+        const same = kit => to[from.indexOf(kit)] ?? to[0]
+        const base = same(s.base)
+        const parts = Object.fromEntries(preview.slotsOf(cls).map(sl => [sl.id, s.parts[sl.id] ? same(s.parts[sl.id]) : base]))
         const name = s.pattern && data.pattern(s.pattern)?.name
         const pattern = (name && data.patternsFor(cls).find(p => p.name == name)?.id) || null
-        return { ...startState(first.id), pattern, palette: s.palette, patina: s.patina, page: s.page, tab: s.tab }
+        return { cls, base, parts, pattern, palette: s.palette, patina: s.patina, page: s.page, tab: s.tab }
     } else if (field == 'model' && value != 'custom') {
         s.base = value
         for (const sl of preview.slotsOf(s.cls)) s.parts[sl.id] = value
