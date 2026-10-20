@@ -154,10 +154,14 @@ async function card(s, message = null) {
     const palette = data.palette(s.palette), pattern = s.pattern && data.pattern(s.pattern), patina = data.patina(s.patina)
 
     const container = new ContainerBuilder().setAccentColor(parseInt(palette.colors[0].slice(1), 16))
+    // a stock model stands in for its vehicle card: what the game says of it, its maker, cost and unlock
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent([
         `-# Garage / ${s.cls}`,
         `# ${stock ? stock.name : `Custom ${s.cls}`}`,
-    ].join('\n')))
+        stock?.description && `*${stock.description}*`,
+        stock && [stock.manufacturer, stock.kitPoints && `${emoji.named('KitPoints')} ${stock.kitPoints} Kit Points`].filter(Boolean).join(' / '),
+        stock?.unlock && `-# ${emoji.named('lock')} ${stock.unlock}`,
+    ].filter(Boolean).join('\n')))
     container.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(item => item.setURL(`attachment://${file}`)))
     // the characters and arcade events whose speeder this is, each a button to its card
     const known = knownAs(s).slice(0, 5)
@@ -179,12 +183,47 @@ async function card(s, message = null) {
     if (tab == 'model') {
         container.addActionRowComponents(classRow(s, code), modelRow(s, code, slots, stock))
         if (mine.length) container.addActionRowComponents(savedRow(s, code, mine))
+        if (stock) {
+            const users = racedBy(stock)
+            if (users.length) container.addActionRowComponents(users)
+        }
     }
     else if (tab == 'vehicle') container.addActionRowComponents(...partRows(s, code, slots))
     else container.addActionRowComponents(...paintRows(s, code, palette, pattern))
     return {
         components: [container], flags: MessageFlags.IsComponentsV2, allowedMentions: { parse: [] },
         ...kept ? { attachments: [kept] } : { files: [new AttachmentBuilder(image, { name: file })], attachments: [] },
+    }
+}
+
+// Choose Model, on a stock model: the characters and arcade events racing it, in any livery (the vehicle card's
+// "Raced by"), opened through /search's ids (interactions/goto.js)
+function racedBy(v) {
+    const options = [
+        ...data.racers.filter(r => r.vehicles.some(x => x.vehicle == v.id))
+            .map(r => ({ label: r.name, value: `character:${r.id}`, description: 'Character', emoji: emoji.named(r.emoji) })),
+        ...data.events.filter(e => e.livery?.vehicle == v.id)
+            .map(e => ({ label: e.name, value: `event:${e.id}`, description: `Arcade / ${data.track(e.track).name}`, emoji: emoji.vehicle[e.vehicleClass] })),
+    ]
+    if (!options.length) return []
+    return new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('goto')
+        .setPlaceholder(`Characters and events with the ${v.name}`)
+        .addOptions(options.slice(0, 25).map(({ emoji: e, ...o }) => ({ ...o, emoji: emoji.component(e) }))))
+}
+
+// Answer an interaction with the garage on a build: a card is redrawn in place (a vehicle, character or event card
+// turning into the garage, like any card's buttons), anything else gets it as a reply. Composing the image takes a
+// moment, so it's acknowledged first.
+async function respond(interaction, state) {
+    const inPlace = interaction.message?.flags.has(MessageFlags.IsComponentsV2)
+    if (inPlace) await interaction.deferUpdate()
+    else await interaction.deferReply()
+    try {
+        await interaction.editReply(await card(state, inPlace ? interaction.message : null))
+    } catch (error) {
+        // the click is acknowledged already, so say so rather than leave the card as it was
+        await interaction.followUp({ content: "Couldn't build that preview, try again.", flags: MessageFlags.Ephemeral }).catch(() => {})
+        throw error
     }
 }
 
@@ -275,4 +314,4 @@ function apply(s, field, value) {
     return s
 }
 
-module.exports = { card, encode, decode, startState, apply, canCustomise, openId, buildKey, savesOf, toggleSave, describe, listen }
+module.exports = { card, respond, encode, decode, startState, apply, canCustomise, openId, buildKey, savesOf, toggleSave, describe, listen }

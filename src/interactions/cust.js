@@ -15,20 +15,9 @@ module.exports = {
         if (field == 'open') state = garage.startState(code)
         else if (field == 'build') state = garage.decode(code)
         else state = garage.apply(garage.decode(code), field, interaction.values?.[0])
-        // a card is redrawn in place (a vehicle, character or event card turning into the garage, like any card's
-        // buttons); a plain message gets the garage as a reply
-        const inPlace = interaction.message?.flags.has(MessageFlags.IsComponentsV2)
-        if (inPlace) await interaction.deferUpdate()
-        else await interaction.deferReply()
         if (field == 'save' && !await garage.toggleSave(member_id, state)) {
-            return interaction.followUp({ content: 'You have 25 saved builds already: unsave one first.', flags: MessageFlags.Ephemeral })
+            return interaction.reply({ content: 'You have 25 saved builds already: unsave one first.', flags: MessageFlags.Ephemeral })
         }
-        try {
-            await interaction.editReply(await garage.card(state, inPlace ? interaction.message : null))
-        } catch (error) {
-            // the click is acknowledged already, so say so rather than leave the card as it was
-            await interaction.followUp({ content: "Couldn't build that preview, try again.", flags: MessageFlags.Ephemeral }).catch(() => {})
-            throw error
-        }
+        await garage.respond(interaction, state)
     }
 }

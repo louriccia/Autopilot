@@ -1249,10 +1249,8 @@ function characterInfo(racerId) {
             !pod && pattern?.emoji && `Livery ${emoji.named(pattern.emoji)}`, palette && `Color ${emoji.named(palette.emoji)}`,
             !pod && patina?.emoji && `Patina ${emoji.named(patina.emoji)}`].filter(Boolean).join(' / ')
         // the button carries the model's manufacturer badge, as the garage's model tiles do (a pod has none)
-        sectionWithButton(container, [line || '​'], linked ? null : [`vehicle_${vehicle.id}`, vehicle.name, emoji.named(vehicle.emoji) || emoji.vehicle[v.vehicleClass]])
-        // and right under it, the garage on that exact speeder (the classes with previews)
-        const open = garage.openId(v)
-        if (open) container.addActionRowComponents(buttons([open, 'Customize', emoji.vehicle[v.vehicleClass]]))
+        // the button opens the garage on that exact speeder (a podracer, not customisable yet, its vehicle card)
+        sectionWithButton(container, [line || '​'], linked ? null : [garage.openId(v) ?? `vehicle_${vehicle.id}`, vehicle.name, emoji.named(vehicle.emoji) || emoji.vehicle[v.vehicleClass]])
     }
 
     const shownAbilities = new Set()  // button ids must be unique within the message

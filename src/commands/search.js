@@ -15,6 +15,7 @@ module.exports = {
         const query = interaction.options.getString('query')
         const page = open(query)
         if (!page) return interaction.reply({ content: `Nothing matches "${query}".`, flags: MessageFlags.Ephemeral })
+        if (typeof page == 'function') return page(interaction)  // a speeder, in the garage
         await interaction.reply(page)
     },
     async autocomplete(interaction) {

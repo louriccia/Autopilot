@@ -2,6 +2,7 @@
 // page that opens them. When a new reference page is added (vehicles, parts, styles...), add its kind here.
 const data = require('./data.js')
 const pages = require('./pages.js')
+const garage = require('./garage.js')
 
 const KINDS = [
     {
@@ -129,7 +130,9 @@ const KINDS = [
         items: () => data.vehicles,
         label: v => `${v.name} — ${v.class}${v.manufacturer ? ` · ${v.manufacturer}` : v.pilot ? ` · ${v.pilot}` : ''}`,
         keywords: v => [v.class, v.manufacturer, v.pilot, ...v.racers, 'vehicle'].filter(Boolean),
-        page: pages.vehicleInfo,
+        // a speeder opens in the garage, which composes its image first, so its page is a function answering the
+        // interaction itself (callers: commands/search.js, interactions/goto.js); a podracer has its card
+        page: id => garage.canCustomise(id) ? interaction => garage.respond(interaction, garage.startState(id)) : pages.vehicleInfo(id),
     },
     {
         kind: 'class',
