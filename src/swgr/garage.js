@@ -201,9 +201,10 @@ async function card(s, message = null) {
 function costLines(s, slots, stock, pattern, palette, patina) {
     const kp = n => n ? `${emoji.named('KitPoints')} ${n}` : null
     const lock = text => text ? `${emoji.named('lock')} ${text}` : null
-    const line = (label, e, name, ...rest) => `-# ${label} ${e ? `${e} ` : ''}**${name}**${rest.filter(Boolean).map(x => ` / ${x}`).join('')}`
+    // no labels: the emojis say which piece is which (the garage leaves its options unlabelled too)
+    const line = (e, name, ...rest) => `-# ${e ? `${e} ` : ''}**${name}**${rest.filter(Boolean).map(x => ` / ${x}`).join('')}`
     const lines = []
-    if (stock) lines.push(line('Model', emoji.named(stock.emoji), stock.name, stock.manufacturer, kp(stock.kitPoints), lock(stock.unlock)))
+    if (stock) lines.push(line(emoji.named(stock.emoji), stock.name, stock.manufacturer, kp(stock.kitPoints), lock(stock.unlock)))
     else {
         const byKit = new Map()
         for (const sl of slots) {
@@ -214,12 +215,12 @@ function costLines(s, slots, stock, pattern, palette, patina) {
             const v = vehicleOf(s.cls, kit)
             if (!v) continue
             const cost = sls.reduce((n, sl) => n + (v.parts.find(p => p.slot == sl.label)?.cost ?? 0), 0)
-            lines.push(line('Parts', emoji.named(v.emoji), v.name, sls.map(sl => sl.label).join(', '), kp(cost), lock(v.unlock)))
+            lines.push(line(emoji.named(v.emoji), v.name, sls.map(sl => sl.label).join(', '), kp(cost), lock(v.unlock)))
         }
     }
-    if (pattern) lines.push(line('Livery', emoji.named(pattern.emoji), pattern.name, kp(pattern.kitPoints), lock(pattern.unlock)))
-    lines.push(line('Color', emoji.named(palette.emoji), palette.name, kp(palette.kitPoints), lock(palette.unlock)))
-    if (patina) lines.push(line('Patina', emoji.named(patina.emoji), patina.name, kp(patina.kitPoints), lock(patina.unlock)))
+    if (pattern) lines.push(line(emoji.named(pattern.emoji), pattern.name, kp(pattern.kitPoints), lock(pattern.unlock)))
+    lines.push(line(emoji.named(palette.emoji), palette.name, kp(palette.kitPoints), lock(palette.unlock)))
+    if (patina) lines.push(line(emoji.named(patina.emoji), patina.name, kp(patina.kitPoints), lock(patina.unlock)))
     return lines
 }
 
