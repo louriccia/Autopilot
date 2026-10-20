@@ -131,6 +131,11 @@ async function imageOf(s) {
 
 const canCustomise = vehicleId => preview.classes().includes(data.vehicle(vehicleId)?.class)
 
+// A menu option's description: what else it says, then its Kit Points and unlock, as the header has them (plain text:
+// option descriptions don't show emojis)
+const costText = (...parts) => [...parts].filter(Boolean).join(' / ').slice(0, 100) || undefined
+const kitText = n => n ? `${n} Kit Points` : null
+
 function menu(field, code, placeholder, options) {
     return new ActionRowBuilder().addComponents(new StringSelectMenuBuilder()
         .setCustomId(`cust_${field}_${code}`).setPlaceholder(placeholder)
@@ -274,7 +279,7 @@ function modelRow(s, code, slots, stock) {
     return menu('model', code, 'Model', [
         ...(stock ? [] : [{ label: 'Model: Custom', value: 'custom', description: 'Parts from different models', default: true }]),
         ...slots[0].kits.map(kit => vehicleOf(s.cls, kit)).filter(Boolean).map(v => ({
-            label: `Model: ${v.name}`, value: v.codename, description: v.manufacturer ?? undefined,
+            label: `Model: ${v.name}`, value: v.codename, description: costText(v.manufacturer, kitText(v.kitPoints), v.unlock),
             emoji: emoji.named(v.emoji) || emoji.vehicle[v.class], default: stock && v.codename == stock.codename,
         })),
     ])
@@ -284,6 +289,7 @@ function modelRow(s, code, slots, stock) {
 function partRows(s, code, slots) {
     return slots.map(sl => menu(sl.id, code, sl.label, sl.kits.map(kit => vehicleOf(s.cls, kit)).filter(Boolean).map(v => ({
         label: `${sl.label}: ${v.name}`, value: v.codename, emoji: emoji.named(v.emoji) || emoji.vehicle[v.class],
+        description: costText(kitText(v.parts.find(p => p.slot == sl.label)?.cost), v.unlock),
         default: v.codename == (s.parts[sl.id] ?? s.base),
     }))))
 }
@@ -292,19 +298,24 @@ function partRows(s, code, slots) {
 function paintRows(s, code, palette, pattern) {
     const rows = [menu('livery', code, 'Livery', [
         { label: 'Livery: none', value: 'none', default: !pattern },
-        ...data.patternsFor(s.cls).map(p => ({ label: `Livery: ${p.name}`, value: p.id, emoji: emoji.named(p.emoji), default: p.id == s.pattern })),
+        ...data.patternsFor(s.cls).map(p => ({
+            label: `Livery: ${p.name}`, value: p.id, description: costText(kitText(p.kitPoints), p.unlock),
+            emoji: emoji.named(p.emoji), default: p.id == s.pattern,
+        })),
     ])]
     const page = s.page ?? pageOf(s.palette), pages = colorPages()
     const turn = k => (page + k + pages) % pages
     rows.push(menu('color', code, `Color: ${palette.name}`, [
         { label: '◀ Previous colors', value: 'prev', description: `Page ${turn(-1) + 1} of ${pages}` },
         ...data.palettes.slice(page * COLOR_PAGE, (page + 1) * COLOR_PAGE).map(p => ({
-            label: `Color: ${p.name}`, value: p.id, description: p.group, emoji: emoji.named(p.emoji), default: p.id == s.palette,
+            label: `Color: ${p.name}`, value: p.id, description: costText(p.group, kitText(p.kitPoints), p.unlock),
+            emoji: emoji.named(p.emoji), default: p.id == s.palette,
         })),
         { label: 'Next colors ▶', value: 'next', description: `Page ${turn(1) + 1} of ${pages}` },
     ]))
     rows.push(menu('patina', code, 'Patina', data.patinas.map(p => ({
-        label: `Patina: ${p.name}`, value: p.id, emoji: emoji.named(p.emoji), default: p.id == s.patina,
+        label: `Patina: ${p.name}`, value: p.id, description: costText(kitText(p.kitPoints), p.unlock),
+        emoji: emoji.named(p.emoji), default: p.id == s.patina,
     }))))
     return rows
 }
