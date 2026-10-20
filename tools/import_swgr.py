@@ -126,7 +126,8 @@ class Emojis:
     def __init__(self):
         self.by_name = {}
 
-    def add(self, name, src):
+    def add(self, name, src, pips=0):
+        """pips: a part's rarity pips, drawn on its icon (part_pips)."""
         if not src:
             return None
         name = re.sub(r"[^A-Za-z0-9_]", "", name)[:32]
@@ -138,7 +139,7 @@ class Emojis:
             self.by_name[name] = src
             im = Image.open(src).convert("RGBA")
             im.thumbnail((128, 128), Image.LANCZOS)
-            self.save(name, im)
+            self.save(name, part_pips(im, pips))
         return name
 
     def add_file(self, name, src):
@@ -173,6 +174,32 @@ PIP_TINTS = {
     "Epic": (0.685493, 0.831495, 0.940104),
     "Legendary": (1.0, 0.56339, 0.1221),
 }
+
+
+# Part rarity (affixes.csv Rarity, EGfnRarity) -> name and pips. Rarity names are CampaignText Rarity_*
+# (Salvaged/Common/Premium/Prototype read Common/Rare/Epic/Legendary); the game draws rarity as 1-4 pips.
+RARITY = {"": ("Common", 1), "Low": ("Rare", 2), "High": ("Epic", 3), "Highest": ("Legendary", 4),
+          "Faulty": ("Faulty", 0), "Experimental": ("Experimental", 0)}
+
+
+def part_pips(im, pips):
+    """A part icon with its rarity pips in the cream band along its bottom, as the game's part tiles show them
+    (WBP_AffixRarity): four round slots in a row about half the tile wide, the first `pips` lit in #102A31 (the
+    tile's own dark teal) and the rest that colour at 25%. Measured against in-game captures on the 128px tiles (the
+    band runs y 104-126 on every part icon). Faulty parts (no pips) are left as they are."""
+    if not pips:
+        return im
+    im = im.copy()
+    s = im.width / 128
+    size, gap, cy = 13 * s, 4 * s, 115 * s
+    x0 = (im.width - (4 * size + 3 * gap)) / 2
+    layer = Image.new("RGBA", im.size)
+    draw = ImageDraw.Draw(layer)
+    for i in range(4):
+        x = x0 + i * (size + gap)
+        draw.ellipse([x, cy - size / 2, x + size - 1, cy + size / 2 - 1], fill=(16, 42, 49, 255 if i < pips else 64))
+    im.alpha_composite(layer)
+    return im
 
 
 def rarity_pips(emojis, textures):
@@ -566,7 +593,8 @@ def main():
         name = a.get("Name") or (props.get("PlayerFacingName") or {}).get("LocalizedString") or asset
         rich = part_rich(props, values)
         description = a.get("Description") or rich_text(re.sub(r"\{emoji:\w+\}\s*", "", rich or "").replace("**", ""))
-        return {"name": name, "description": description, "rich": rich, "emoji": emojis.add(camel(name), icon)}
+        pips = RARITY.get(a["Rarity"], ("", 0))[1] if a else 0
+        return {"name": name, "description": description, "rich": rich, "emoji": emojis.add(camel(name), icon, pips)}
 
     def ability(ref):
         asset = ref["ObjectName"].split("'")[1].removesuffix("_C")
@@ -1013,10 +1041,7 @@ def main():
         })
 
     # --- parts (affixes) ---
-    # Rarity names are CampaignText Rarity_* (Salvaged/Common/Premium/Prototype read Common/Rare/Epic/Legendary);
-    # the game draws rarity as 1-4 pips. Families (the I/II/III/IV tiers) come from DA_VehicleUpgradeConfig.
-    RARITY = {"": ("Common", 1), "Low": ("Rare", 2), "High": ("Epic", 3), "Highest": ("Legendary", 4),
-              "Faulty": ("Faulty", 0), "Experimental": ("Experimental", 0)}
+    # Families (the I/II/III/IV tiers) come from DA_VehicleUpgradeConfig.
     upgrade_cfg = load_json(game / "Vehicles" / "Common" / "Upgrades" / "DA_VehicleUpgradeConfig.json")[0]["Properties"]
     family_of = {}
     for fam in upgrade_cfg.get("AffixFamilyLists", []):
@@ -1082,7 +1107,7 @@ def main():
                        unlock_text(r["UnlockedBy"]) if r["UnlockedBy"] and r["UnlockedBy"] != "Unlock.Cam.Affixes.Base" else None),
             "special": r["Folder"] == "Mystery",
             "asset": r["Asset"],
-            "emoji": emojis.add(camel(r["Name"]), icon),
+            "emoji": emojis.add(camel(r["Name"]), icon, pips),
             "icon": save_art(large, f"parts/{pid}.webp", max_size=256),
             "usedIn": used_in.get(r["Name"], {"events": [], "scenarios": []}),
         })

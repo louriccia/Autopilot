@@ -115,7 +115,7 @@ const shownTimes = (kind, target) => {
     return board.filter(t => t.rank <= 5 || (mine && Math.abs(t.rank - mine) <= 1) || (rival && t.user == rival))
 }
 // Submit a time, then rate the event / scenario with the three thumbs (counts on the buttons), then the matching
-// speedrun.com board (src/speedrun.js) when there is one
+// speedrun.com board (src/speedrun.js) when there is one, as its trophy icon alone
 function recordButtons(kind, target) {
     const counts = records.feedbackCounts(kind, target)
     const src = speedrun.boardUrl(kind, target)
@@ -123,7 +123,7 @@ function recordButtons(kind, target) {
         new ButtonBuilder().setCustomId(`time_open_${kind}_${target}`).setLabel('Submit').setEmoji(emoji.named('stopwatch')).setStyle(ButtonStyle.Primary),
         ...[['up', emoji.thumbsUp], ['neutral', emoji.thumbsNeutral], ['down', emoji.thumbsDown]].map(([r, e]) =>
             new ButtonBuilder().setCustomId(`rate_${kind}_${target}_${r}`).setLabel(String(counts[r])).setEmoji(emoji.component(e)).setStyle(ButtonStyle.Secondary)),
-        ...(src ? [new ButtonBuilder().setURL(src).setLabel('View on src').setStyle(ButtonStyle.Link)] : []))
+        ...(src ? [new ButtonBuilder().setURL(src).setEmoji(emoji.component(emoji.named('src'))).setStyle(ButtonStyle.Link)] : []))
 }
 // A board's leaderboard text with "Set a bounty" beside it (like the track button beside an event's details), which
 // posts a bounty on the board from your credits (interactions/bounty.js)
@@ -379,10 +379,10 @@ function statLines(build, maxEnergy) {
 }
 
 function addBuild(container, files, b, title, { kind, target, expanded = false } = {}) {
-    const parts = b.parts.length, abilities = abilitiesOf(b).length
+    // The parts and abilities as their icons, a shorthand for the build (named in the menu when it's shown)
+    const icons = [...b.parts.map(x => emoji.named(data.partByName(x.name)?.emoji)), ...abilitiesOf(b).map(a => emoji.named(a.emoji))].filter(Boolean).join('')
     container.addSectionComponents(new SectionBuilder()
-        .addTextDisplayComponents(text([`${cls(b.vehicleClass)} **${title}**`, `${emoji.named(b.speed.emoji)} ${b.speed.value} km/h`,
-            [parts && `${parts} part${parts == 1 ? '' : 's'}`, abilities && `${abilities} abilit${abilities == 1 ? 'y' : 'ies'}`].filter(Boolean).join(', ')].filter(Boolean).join(' / ')))
+        .addTextDisplayComponents(text([`${cls(b.vehicleClass)} **${title}**`, `${emoji.named(b.speed.emoji)} ${b.speed.value} km/h`, icons].filter(Boolean).join(' / ')))
         .setButtonAccessory(new ButtonBuilder().setCustomId(`details_${kind}_${target}_${expanded ? 'hide' : 'show'}`)
             .setEmoji(emoji.component(emoji.named(expanded ? 'chevron_up' : 'chevron_down')))
             .setStyle(ButtonStyle.Secondary)))
@@ -420,9 +420,9 @@ function arcadeEvent(eventId, { expanded = false } = {}) {
 
     container.addSeparatorComponents(separator())
     addBuild(container, files, e, e.vehicle, { kind: 'arcade', target: e.id, expanded })
-    // the event's speeder as the game dresses it, in the garage
-    const open = garage.openId(e.livery)
-    if (open) container.addActionRowComponents(buttons([open, 'Customize', emoji.vehicle[e.vehicleClass]]))
+    // with the details shown: the event's speeder as the game dresses it, in the garage
+    const open = expanded && garage.openId(e.livery)
+    if (open) container.addActionRowComponents(buttons([open, 'View Livery', emoji.vehicle[e.vehicleClass]]))
 
     // Leaderboard, fastest first: the medal rivals, staff times (Fuse's logo, or the publisher's), the community's
     // top 5 and the viewer's own best with its neighbours. A viewer with a time sees the medals still ahead of it and
