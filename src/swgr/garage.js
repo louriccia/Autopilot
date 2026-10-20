@@ -174,7 +174,7 @@ async function card(s, message = null) {
     container.addActionRowComponents(new ActionRowBuilder().addComponents(...TABS.map(([id, label]) =>
         new ButtonBuilder().setCustomId(`cust_tab${id}_${code}`).setLabel(label).setDisabled(id == tab)
             .setStyle(id == tab ? ButtonStyle.Primary : ButtonStyle.Secondary)),
-        new ButtonBuilder().setCustomId(`cust_save_${code}`).setLabel(saved ? 'Saved' : 'Save').setEmoji(saved ? '★' : '☆')
+        new ButtonBuilder().setCustomId(`cust_save_${code}`).setLabel(saved ? '★ Saved' : '☆ Save')  // text stars: Discord won't take them as emojis
             .setStyle(saved ? ButtonStyle.Success : ButtonStyle.Secondary)))
     if (tab == 'model') {
         container.addActionRowComponents(classRow(s, code), modelRow(s, code, slots, stock))
