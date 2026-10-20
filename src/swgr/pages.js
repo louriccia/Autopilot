@@ -416,6 +416,9 @@ function arcadeEvent(eventId, { expanded = false } = {}) {
 
     container.addSeparatorComponents(separator())
     addBuild(container, files, e, e.vehicle, { kind: 'arcade', target: e.id, expanded })
+    // the event's speeder as the game dresses it, in the garage
+    const open = garage.openId(e.livery)
+    if (open) container.addActionRowComponents(buttons([open, 'Customize', emoji.vehicle[e.vehicleClass]]))
 
     // Leaderboard, fastest first: the medal rivals, staff times (Fuse's logo, or the publisher's), the community's
     // top 5 and the viewer's own best with its neighbours. A viewer with a time sees the medals still ahead of it and
@@ -1247,6 +1250,9 @@ function characterInfo(racerId) {
             !pod && patina?.emoji && `Patina ${emoji.named(patina.emoji)}`].filter(Boolean).join(' / ')
         // the button carries the model's manufacturer badge, as the garage's model tiles do (a pod has none)
         sectionWithButton(container, [line || '​'], linked ? null : [`vehicle_${vehicle.id}`, vehicle.name, emoji.named(vehicle.emoji) || emoji.vehicle[v.vehicleClass]])
+        // and right under it, the garage on that exact speeder (the classes with previews)
+        const open = garage.openId(v)
+        if (open) container.addActionRowComponents(buttons([open, 'Customize', emoji.vehicle[v.vehicleClass]]))
     }
 
     const shownAbilities = new Set()  // button ids must be unique within the message

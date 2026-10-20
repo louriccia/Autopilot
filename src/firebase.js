@@ -12,6 +12,7 @@
 //   submitters/<discord id>   may submit times for others (/submitter)
 //   staff/<event id>/<name>   staff times (src/records.js); profiles/<discord id> { name, avatar } for the website (src/profiles.js)
 //   credits/, balances/, backers/, bounties/, fills/   the credits economy (src/credits.js)
+//   garage/<discord id>/<build key>   saved garage builds, when each was saved (ms) (src/swgr/garage.js)
 // Access (database.rules.json, `firebase deploy --only database`): the bot's service account bypasses the rules; anyone
 // may read times, staff, profiles, balances, credits, backers, bounties, feedback and rivals (for the community website,
 // documented in DATABASE.md); nothing else is readable and nothing is writable from outside.

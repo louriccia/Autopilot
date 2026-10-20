@@ -117,6 +117,7 @@ client.once(Events.ClientReady, () => {
     console.log(`Ready! Logged in as ${client.user.tag}${testing ? ' (testing)' : ''}`)
     require('./feeds/index.js').start(client, reportError).catch(error => reportError('Feeds', error))
     require('./records.js').listen()
+    require('./swgr/garage.js').listen()  // saved garage builds
     // Credits (src/credits.js), and an hourly sweep that returns expired bounties to their funders
     const credits = require('./credits.js')
     credits.listen()

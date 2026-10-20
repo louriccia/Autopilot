@@ -623,6 +623,7 @@ def main():
             "condition": r["Condition"].replace(".", ", ").replace("BlueHour", "Blue Hour"),
             "vehicleClass": r["Vehicle class"],
             "vehicle": r["Vehicle"],
+            "preset": r["Preset"],  # resolved into "livery" once the liveries are read (below), then dropped
             "medals": medals,
             "speed": speed_of(cls_name, build, memory=props.get("bUseMemoryHud")),
             "direction": direction(props, r["Track"]),
@@ -2093,6 +2094,22 @@ def main():
             classes = ["Podracer"] if key.startswith("Plane") else [v["vehicleClass"] for v in r["vehicles"] if v["vehicleClass"] != "Podracer"]
             r["byMode"][key] = (asset, style, mp_build(build_path, classes) if build_path and key.endswith("InstantAction") else None)
     racers_out = sorted(racers_out.values(), key=lambda x: x["name"].lower())
+
+    # Each arcade event's speeder as the game dresses it: its customisation preset (arcade_events.csv Preset, e.g.
+    # PRE_Car_Beluga_Ace02_Ace02Colour_AllPaint) read like the racers' into model, livery, colour and patina, so its
+    # card can open that build in the garage and the garage can link back
+    presets = {x["preset"]: x for x in liveries.get("presets") or []}
+    for e in arcade:
+        pre = presets.get(e.pop("preset", ""))
+        kit = pre and vehicle_by_code.get(pre["kit"])
+        if not kit:
+            continue
+        e["livery"] = {
+            "vehicle": kit["id"],
+            "palette": palette_by_tag.get(pre["palette"]),
+            "pattern": pattern_by_tag.get((e["vehicleClass"], re.sub(r"A$", "", pre["pattern"].replace("Customisation.Livery.", "")))),
+            "patina": slug(patina_names[pre["patina"]]) if pre["patina"] in patina_names else None,
+        }
     for r in racers_out:
         # one entry per style, with the modes that use it (in MP_MODES order) and its build, if a mode gives one
         styles = {}
