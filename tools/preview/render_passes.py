@@ -18,7 +18,7 @@ Writes assets/passes/<Class>/:
   <kit>_<part>_<finish>_<0|1>.png  16-bit RGBA, linear light x 1/4 (so highlights up to 4.0 fit), alpha = coverage
   <kit>_<part>_data.png            16-bit RGB: R, G = livery UV ((uv + 0.5) / 2), B = 1 on livery surfaces
   <kit>_<part>_depth.png           16-bit grey: camera distance mapped over the class's depth range
-  <kit>_<part>_patina.png          16-bit RGB: R, G = each mesh's PatinaUV (its cell in the patina's 4x4 grid), B = 1 on
+  <kit>_<part>_patina.png          16-bit RGB: R, G = each mesh's PatinaUV (where it reads the patina grid), B = 1 on
                                    livery surfaces (--patina-only renders just these, for passes made before them)
   passes.json                      camera, depth range, and each part's top-down bounds
 """
@@ -227,7 +227,7 @@ def pass_material(root):
     aov = nt.nodes.new("ShaderNodeOutputAOV")
     aov.aov_name = "lv"
     nt.links.new(comb.outputs[0], aov.inputs["Color"])
-    # the mesh's PatinaUV (set on each object by build()): its cell in the patina's 4x4 grid
+    # the mesh's PatinaUV (set on each object by build()): where it reads the patina grid
     pt = nt.nodes.new("ShaderNodeAttribute")
     pt.attribute_type, pt.attribute_name = "OBJECT", "swgr_patina_uv"
     pt_aov = nt.nodes.new("ShaderNodeOutputAOV")
@@ -253,7 +253,7 @@ _patina_uv = {}
 
 def patina_uv(mesh_path):
     """A mesh's PatinaUV (its StaticMesh's PatinaUserData; SwgrDump dump .../Customisation --match "^SM_"): where it
-    samples the patina's 4x4 grid, one finish for the whole mesh (a part's base mesh and each panel apart). (0, 0) when
+    samples the patina grid, one finish for the whole mesh (a part's base mesh and each panel apart). (0, 0) when
     it has none."""
     if mesh_path not in _patina_uv:
         rel = os.path.relpath(os.path.splitext(mesh_path)[0], biv.EXPORT_ROOT)
@@ -347,49 +347,91 @@ def uv_projection(channel):
             nt.links.new(uv.outputs["UV"], tex.inputs["Vector"])
 
 
-PATINA_GRIDS = {"mix": [[255, 105, 0, 255], [105, 0, 255, 105], [0, 0, 255, 105], [0, 255, 105, 0]],
-                "rsm": [[105, 255, 105, 255]] * 4}
-
-
-def debug_patina(root, spec):
-    """experiment: each mesh's livery surfaces flat in the finish its PatinaUV picks from a patina grid, under one of
-    the eight orientations: spec "<mix|rsm>:<transpose><flipx><flipy>", e.g. "mix:001". Paint dark grey, rust
-    orange, steel light."""
-    which, o = spec.split(":")
-    tr, fx, fy = (c == "1" for c in o)
-    grid = PATINA_GRIDS[which]
-    colours = {0: (0.06, 0.06, 0.07), 105: (0.5, 0.16, 0.03), 255: (0.8, 0.8, 0.82)}
+def debug_patina(root, patina):
+    """experiment: each mesh's livery surfaces flat in the finish its PatinaUV picks from a patina (an id in
+    src/data/swgr/liveries.json: column floor(n x), row floor(n y), as preview.js does). Paint dark grey, rust orange,
+    steel light."""
+    p = next(p for p in json.load(open(os.path.join(ROOT, "src", "data", "swgr", "liveries.json"), encoding="utf-8"))["patinas"]
+             if p["id"] == patina)
+    grid = p.get("grid") or [p.get("finish") or "paint"]
+    n = round(len(grid) ** 0.5)
+    colours = {"paint": (0.06, 0.06, 0.07), "rust": (0.5, 0.16, 0.03), "metal": (0.8, 0.8, 0.82)}
     mats = {}
-    for v, rgb in colours.items():
-        m = bpy.data.materials.new(f"finish_{v}")
+    for f, rgb in colours.items():
+        m = bpy.data.materials.new(f"finish_{f}")
         m.use_nodes = True
         b = next(n for n in m.node_tree.nodes if n.type == "BSDF_PRINCIPLED")
         b.inputs["Base Color"].default_value = (*rgb, 1)
         b.inputs["Roughness"].default_value = 0.6
-        mats[v] = m
+        mats[f] = m
+    at = lambda x: min(n - 1, max(0, round(x * (n - 1))))
     for ob in root.users_collection[0].objects:
         if ob.type != "MESH":
             continue
         x, y = patina_uv(ob.get("swgr_mesh_path", ""))
-        c, r = min(3, int(x * 4)), min(3, int(y * 4))
-        if tr:
-            c, r = r, c
-        if fx:
-            c = 3 - c
-        if fy:
-            r = 3 - r
-        for sl in ob.material_slots:
-            if sl.material and "livery" in sl.material.name.lower():
-                sl.material = mats[grid[r][c]]
+        livery = [sl for sl in ob.material_slots if sl.material and "livery" in sl.material.name.lower()]
+        for sl in livery:
+            sl.material = mats[grid[at(y) * n + at(x)]]
+        if livery:
+            _labels.append((ob, "%s %.3f %.3f %d,%d %s" % (os.path.basename(ob.get("swgr_mesh_path", "?")), x, y, at(x), at(y),
+                                                        grid[at(y) * n + at(x)])))
+
+
+_labels = []
+
+
+def print_labels(sc):
+    """after the camera is set: each labelled mesh's centre in the image (0-1, y down) and its label"""
+    from bpy_extras.object_utils import world_to_camera_view
+    dg = bpy.context.evaluated_depsgraph_get()
+    for ob, text in _labels:
+        e = ob.evaluated_get(dg)
+        vs = [e.matrix_world @ v.co for v in e.data.vertices]
+        c = sum(vs, Vector()) / max(1, len(vs))
+        p = world_to_camera_view(sc, sc.camera, c)
+        print("LBL %.4f %.4f %s" % (p.x, 1 - p.y, text))
 
 
 def top_camera(sc, meta):
     """experiment: a camera high above the vehicle, nose to the right and tilted a little, like the garage's patina shots"""
     centre, radius = Vector(meta["camera"]["centre"]), meta["camera"]["radius"]
     cam = sc.camera
-    direction = Vector((0.45, -0.9, 0.95)).normalized()
-    cam.location = centre + direction * radius * 1.25 / math.tan(cam.data.angle / 2)
+    d = [float(v) for v in opt.get("cam", "0.45,-0.9,0.95,1.25").split(",")]
+    direction = Vector(d[:3]).normalized()
+    cam.location = centre + direction * radius * d[3] / math.tan(cam.data.angle / 2)
     cam.rotation_euler = (centre - cam.location).to_track_quat("-Z", "Y").to_euler()
+
+
+def debug_ids(root, sc):
+    """experiment: every livery mesh flat (emission, Standard view) in a colour coding its index: R = 8 * (index + 1);
+    prints "ID index mesh u v"; everything else black"""
+    sc.view_settings.view_transform = "Standard"
+    sc.view_settings.look = "None"
+    sc.view_settings.exposure, sc.view_settings.gamma = 0, 1
+    sc.cycles.use_denoising = False
+    sc.world.use_nodes = False
+    sc.world.color = (0, 0, 0)
+    black = bpy.data.materials.new("id_black")
+    k = 0
+    for ob in root.users_collection[0].objects:
+        if ob.type != "MESH":
+            continue
+        livery = any(sl.material and "livery" in sl.material.name.lower() for sl in ob.material_slots)
+        mat = black
+        if livery:
+            mat = bpy.data.materials.new(f"id_{k}")
+            mat.use_nodes = True
+            nt = mat.node_tree
+            nt.nodes.clear()
+            em = nt.nodes.new("ShaderNodeEmission")
+            c = (k + 1) * 8 / 255
+            em.inputs["Color"].default_value = (c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4, 0, 0, 1)
+            o = nt.nodes.new("ShaderNodeOutputMaterial")
+            nt.links.new(em.outputs[0], o.inputs[0])
+            print("ID", k, os.path.basename(ob.get("swgr_mesh_path", "?")), "%.4f %.4f" % patina_uv(ob.get("swgr_mesh_path", "")))
+            k += 1
+        for sl in ob.material_slots:
+            sl.material = mat
 
 
 def debug_meshes(root):
@@ -524,6 +566,35 @@ def debug_region():
         bsdf.inputs["Metallic"].default_value = 0
 
 
+def patina_cell(patina, uv):
+    """the finish ("paint" / "rust" / "metal") a mesh at PatinaUV uv takes under a patina id (src/data/swgr/liveries.json):
+    the grid's nearest texel, round(u (n - 1)), as preview.js does"""
+    p = next(p for p in json.load(open(os.path.join(ROOT, "src", "data", "swgr", "liveries.json"), encoding="utf-8"))["patinas"]
+             if p["id"] == patina)
+    grid = p.get("grid") or [p.get("finish") or "paint"]
+    n = round(len(grid) ** 0.5)
+    at = lambda x: min(n - 1, max(0, round(x * (n - 1))))
+    return grid[at(uv[1]) * n + at(uv[0])]
+
+
+def patina_reference(v, patina):
+    """the importer's own look under a mixed patina: the vehicle imported once per finish (All Paint / Rust / Steel),
+    each livery mesh kept from the import of the finish its cell picks, everything else from the paint one"""
+    roots = []
+    for f, tag in (("paint", "AllPaint"), ("rust", "AllRust"), ("metal", "AllSteel")):
+        biv.PATINA = tag
+        root = biv.import_vehicle(v, (0.0, 0.0, 0.0))
+        roots.append(root)
+        for ob in list(root.users_collection[0].objects):
+            if ob.type != "MESH":
+                continue
+            livery = any(sl.material and "livery" in sl.material.name.lower() for sl in ob.material_slots)
+            keep = patina_cell(patina, patina_uv(ob.get("swgr_mesh_path", ""))) == f if livery else f == "paint"
+            if not keep:
+                bpy.data.objects.remove(ob, do_unlink=True)
+    return roots[0]
+
+
 def reference():
     """one combination the importer's own way (its livery material, patterns and wear), from the passes' camera and
     lights: what compose.py's output is checked against.  --reference Boa --part Front=Taipan --palette Nomad ..."""
@@ -540,13 +611,19 @@ def reference():
     sc.view_settings.view_transform, sc.view_settings.exposure = "Standard", 0
     sc.render.image_settings.color_depth = "8"
     place_camera(sc, meta)
-    root = biv.import_vehicle(v, (0.0, 0.0, 0.0))
+    if opt.get("patina-grid"):
+        root = patina_reference(v, opt["patina-grid"])
+    else:
+        root = biv.import_vehicle(v, (0.0, 0.0, 0.0))
     if opt.get("view") == "top":
         top_camera(sc, meta)
     if opt.get("debug-patina"):
         debug_patina(root, opt["debug-patina"])
+        print_labels(sc)
     elif opt.get("debug-parts"):
         debug_parts(root)
+    elif opt.get("debug-ids"):
+        debug_ids(root, sc)
     elif opt.get("debug-meshes"):
         debug_meshes(root)
     elif opt.get("debug-region"):

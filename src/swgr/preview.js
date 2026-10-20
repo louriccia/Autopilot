@@ -107,14 +107,14 @@ function render(state) {
     const palette = data.palette(state.palette).colors.map(hexLinear)
     const pattern = state.pattern && data.pattern(state.pattern)
     // The patina: one body finish, or (Mix 8x8, Rust Steel Mix 16x16) a grid of them, each mesh (a part's base and
-    // every panel) taking the cell at its PatinaUV (the _patina pass): column floor(n x), row floor(n y) (checked
-    // against the garage's Napaco D). The livery is painted over it either way.
+    // every panel) taking the texel nearest its PatinaUV (the _patina pass): column round((n - 1) x), row round((n - 1) y)
+    // (checked panel by panel against the garage's Napaco D). The livery is painted over it either way.
     const patina = data.patina(state.patina) ?? { finish: 'paint' }
     const bodyFinish = patina.finish ?? 'paint', grid = patina.grid
     const BODY = { paint: palette[0], rust: hexLinear(RUST), metal: hexLinear(STEEL) }
     const body = patina.body ? hexLinear(patina.body) : palette[0]
     const gn = grid ? Math.round(Math.sqrt(grid.length)) : 0
-    const at = x => Math.min(gn - 1, Math.max(0, Math.floor(x * gn)))
+    const at = x => Math.min(gn - 1, Math.max(0, Math.round(x * (gn - 1))))
     const cell = (x, y) => grid[at(y) * gn + at(x)]
     const tex = pattern?.sdf ? sdf(pattern.sdf) : null
     const maskCols = (pattern?.masks ?? []).map(k => k.color ? hexLinear(k.color) : palette[Math.min(k.swatch ?? 1, palette.length - 1)])
