@@ -202,7 +202,7 @@ async function card(s, message = null) {
 }
 
 // A line per selected piece, in the garage's order: the model (or, for a custom build, each model its parts come
-// from, with those slots), then the livery, colour and patina: its emoji and name, its Kit Points, how it's unlocked
+// from, with those slots and that model's cost and unlock: a model is bought whole, its parts come with it), then the livery, colour and patina: its emoji and name, its Kit Points, how it's unlocked
 function costLines(s, slots, stock, pattern, palette, patina) {
     const kp = n => n ? `${emoji.named('KitPoints')} ${n}` : null
     const lock = text => text ? `${emoji.named('lock')} ${text}` : null
@@ -219,8 +219,8 @@ function costLines(s, slots, stock, pattern, palette, patina) {
         for (const [kit, sls] of byKit) {
             const v = vehicleOf(s.cls, kit)
             if (!v) continue
-            const cost = sls.reduce((n, sl) => n + (v.parts.find(p => p.slot == sl.label)?.cost ?? 0), 0)
-            lines.push(line(emoji.named(v.emoji), v.name, sls.map(sl => sl.label).join(', '), kp(cost), lock(v.unlock)))
+            // parts aren't bought one by one: owning the model gives all of them, so it's the model's cost and unlock
+            lines.push(line(emoji.named(v.emoji), v.name, sls.map(sl => sl.label).join(', '), kp(v.kitPoints), lock(v.unlock)))
         }
     }
     if (pattern) lines.push(line(emoji.named(pattern.emoji), pattern.name, kp(pattern.kitPoints), lock(pattern.unlock)))
@@ -289,7 +289,7 @@ function modelRow(s, code, slots, stock) {
 function partRows(s, code, slots) {
     return slots.map(sl => menu(sl.id, code, sl.label, sl.kits.map(kit => vehicleOf(s.cls, kit)).filter(Boolean).map(v => ({
         label: `${sl.label}: ${v.name}`, value: v.codename, emoji: emoji.named(v.emoji) || emoji.vehicle[v.class],
-        description: costText(kitText(v.parts.find(p => p.slot == sl.label)?.cost), v.unlock),
+        description: costText(kitText(v.kitPoints), v.unlock),  // the model's: owning it gives all its parts
         default: v.codename == (s.parts[sl.id] ?? s.base),
     }))))
 }
