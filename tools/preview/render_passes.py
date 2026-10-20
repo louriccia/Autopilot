@@ -309,6 +309,51 @@ def place_camera(sc, meta):
     return cam, dist, radius
 
 
+def frame_class(sc, vehicles, margin=0.03):
+    """the class's camera framed on every kit at once: place_camera's direction, its centre and distance fitted (a few
+    rounds of projecting every vertex) so the whole of each vehicle lands inside the frame with a margin on the
+    tightest side. Framing on one vehicle left bigger kits cut off at the edge (the Napaco D's nose)."""
+    import numpy as np
+    pts = []
+    for v in vehicles:
+        root, coll = build(v)
+        dg = bpy.context.evaluated_depsgraph_get()
+        for ob in coll.objects:
+            if ob.type != "MESH":
+                continue
+            me = ob.evaluated_get(dg).data
+            co = np.empty(len(me.vertices) * 3, dtype=np.float64)
+            me.vertices.foreach_get("co", co)
+            co = co.reshape(-1, 3)
+            mw = np.array(ob.matrix_world)
+            w = co @ mw[:3, :3].T + mw[:3, 3]
+            pts.append(w)
+    pts = np.concatenate(pts)
+    print("frame points", len(pts), "non-finite", int((~np.isfinite(pts).all(1)).sum()), flush=True)
+    pts = pts[np.isfinite(pts).all(1)]
+    lo, hi = pts.min(0), pts.max(0)
+    meta = {"camera": {"centre": list((lo + hi) / 2), "radius": float(np.linalg.norm(hi - lo) / 2)}}
+    cam, dist, _ = place_camera(sc, meta)
+    t = math.tan(cam.data.angle / 2)
+    for _ in range(8):
+        bpy.context.view_layer.update()  # a new camera's matrix_world is identity until then
+        inv = np.array(cam.matrix_world.inverted())
+        c = pts @ inv[:3, :3].T + inv[:3, 3]
+        x, y = c[:, 0] / (-c[:, 2] * 2 * t), c[:, 1] / (-c[:, 2] * 2 * t)  # -0.5..0.5 across the frame
+        print("frame round", round(dist, 3), float(x.min()), float(x.max()), float(y.min()), float(y.max()),
+              float(c[:, 2].max()), flush=True)
+        xmid, ymid = (x.min() + x.max()) / 2, (y.min() + y.max()) / 2
+        extent = max(x.max() - x.min(), y.max() - y.min())
+        right, up = cam.matrix_world.to_3x3() @ Vector((1, 0, 0)), cam.matrix_world.to_3x3() @ Vector((0, 1, 0))
+        centre = Vector(meta["camera"]["centre"]) + (right * xmid + up * ymid) * 2 * dist * t
+        dist *= extent / (1 - 2 * margin)
+        meta["camera"] = {"centre": list(centre), "radius": dist * t}  # place_camera's dist = radius / tan(angle / 2)
+        bpy.data.objects.remove(cam, do_unlink=True)
+        cam, dist, _ = place_camera(sc, meta)
+    print("framed", len(vehicles), "kits:", meta["camera"])
+    return meta["camera"]
+
+
 def side_projection(root):
     """experiment: the livery projected from the side (X along the vehicle, Z up) instead of from above"""
     meshes = [o for o in root.users_collection[0].objects if o.type == "MESH"]
@@ -719,12 +764,16 @@ def main():
     out, depth_range = setup_compositor(sc)
     meta_path = os.path.join(OUT, "passes.json")
     meta = json.load(open(meta_path, encoding="utf-8")) if os.path.exists(meta_path) else {"parts": {}}
+    if not opt["kits"]:
+        meta["camera"] = frame_class(sc, vehicles)
+        if opt.get("frame-only"):
+            return  # a --kits run keeps the class's camera, so its parts still fit
     cam = None
     for v in vehicles:
         root, coll = build(v)
         meshes = [o for o in coll.objects if o.type == "MESH"]
         if cam is None:
-            # one camera for the class, framed on this first vehicle with room to spare; a 3/4 view from front-left
+            # one camera for the class (frame_class's, else framed on this first vehicle); a 3/4 view from front-left
             pts = [o.matrix_world @ Vector(c) for o in meshes for c in o.bound_box]
             lo = Vector((min(p.x for p in pts), min(p.y for p in pts), min(p.z for p in pts)))
             hi = Vector((max(p.x for p in pts), max(p.y for p in pts), max(p.z for p in pts)))
