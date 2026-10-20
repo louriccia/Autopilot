@@ -154,13 +154,13 @@ async function card(s, message = null) {
     const palette = data.palette(s.palette), pattern = s.pattern && data.pattern(s.pattern), patina = data.patina(s.patina)
 
     const container = new ContainerBuilder().setAccentColor(parseInt(palette.colors[0].slice(1), 16))
-    // a stock model stands in for its vehicle card: what the game says of it, its maker, cost and unlock
+    // the title with its class's icon; a stock model stands in for its vehicle card (what the game says of it); then
+    // what every piece of the build costs and how it's unlocked (costLines)
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent([
         `-# Garage / ${s.cls}`,
-        `# ${stock ? stock.name : `Custom ${s.cls}`}`,
+        `# ${emoji.vehicle[s.cls]} ${stock ? stock.name : `Custom ${s.cls}`}`,
         stock?.description && `*${stock.description}*`,
-        stock && [stock.manufacturer, stock.kitPoints && `${emoji.named('KitPoints')} ${stock.kitPoints} Kit Points`].filter(Boolean).join(' / '),
-        stock?.unlock && `-# ${emoji.named('lock')} ${stock.unlock}`,
+        ...costLines(s, slots, stock, pattern, palette, patina),
     ].filter(Boolean).join('\n')))
     container.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(item => item.setURL(`attachment://${file}`)))
     // the characters and arcade events whose speeder this is, each a button to its card
@@ -194,6 +194,33 @@ async function card(s, message = null) {
         components: [container], flags: MessageFlags.IsComponentsV2, allowedMentions: { parse: [] },
         ...kept ? { attachments: [kept] } : { files: [new AttachmentBuilder(image, { name: file })], attachments: [] },
     }
+}
+
+// A line per selected piece, in the garage's order: the model (or, for a custom build, each model its parts come
+// from, with those slots), then the livery, colour and patina: its emoji and name, its Kit Points, how it's unlocked
+function costLines(s, slots, stock, pattern, palette, patina) {
+    const kp = n => n ? `${emoji.named('KitPoints')} ${n}` : null
+    const lock = text => text ? `${emoji.named('lock')} ${text}` : null
+    const line = (label, e, name, ...rest) => `-# ${label} ${e ? `${e} ` : ''}**${name}**${rest.filter(Boolean).map(x => ` / ${x}`).join('')}`
+    const lines = []
+    if (stock) lines.push(line('Model', emoji.named(stock.emoji), stock.name, stock.manufacturer, kp(stock.kitPoints), lock(stock.unlock)))
+    else {
+        const byKit = new Map()
+        for (const sl of slots) {
+            const kit = s.parts[sl.id] ?? s.base
+            byKit.set(kit, [...byKit.get(kit) ?? [], sl])
+        }
+        for (const [kit, sls] of byKit) {
+            const v = vehicleOf(s.cls, kit)
+            if (!v) continue
+            const cost = sls.reduce((n, sl) => n + (v.parts.find(p => p.slot == sl.label)?.cost ?? 0), 0)
+            lines.push(line('Parts', emoji.named(v.emoji), v.name, sls.map(sl => sl.label).join(', '), kp(cost), lock(v.unlock)))
+        }
+    }
+    if (pattern) lines.push(line('Livery', emoji.named(pattern.emoji), pattern.name, kp(pattern.kitPoints), lock(pattern.unlock)))
+    lines.push(line('Color', emoji.named(palette.emoji), palette.name, kp(palette.kitPoints), lock(palette.unlock)))
+    if (patina) lines.push(line('Patina', emoji.named(patina.emoji), patina.name, kp(patina.kitPoints), lock(patina.unlock)))
+    return lines
 }
 
 // Choose Model, on a stock model: the characters and arcade events racing it, in any livery (the vehicle card's
