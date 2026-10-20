@@ -53,10 +53,10 @@ biv.LIVERY_PATTERNS = False  # compose.py lays the patterns; the importer only m
 # painted metal, plastic, rubber, leather and fabric carry a real Base Colour, Metallic and Roughness Base. The bare
 # metals (Nickel, Brass, Chrome...) leave Base Colour as the placeholder #FF0058 (their colour comes from a parent
 # layer the export doesn't include), so they get these, matched by eye to the garage (golden brass pipes and bright
-# steel cages on the ARZ 41), mid roughness, nudged for Smooth / Rough / Matt / Dirty names. Glass takes its Glass Colour, mostly see-through.
+# steel cages on the ARZ 41, champagne nickel pipes on the Napaco D), mid roughness, nudged for Smooth / Rough / Matt / Dirty names. Glass takes its Glass Colour, mostly see-through.
 VEHICLE_METALS = [
     ("Brass", (0.55, 0.43, 0.20), 1.0, 0.4), ("Bronze", (0.45, 0.31, 0.18), 1.0, 0.45),
-    ("Copper", (0.52, 0.33, 0.24), 1.0, 0.4), ("Nickel", (0.44, 0.43, 0.42), 1.0, 0.4),
+    ("Copper", (0.52, 0.33, 0.24), 1.0, 0.4), ("Nickel", (0.50, 0.44, 0.36), 1.0, 0.4),
     ("Chrome", (0.56, 0.56, 0.57), 1.0, 0.25), ("Aluminum", (0.50, 0.50, 0.51), 1.0, 0.4),
     ("Aluminium", (0.50, 0.50, 0.51), 1.0, 0.4), ("Magnesium", (0.42, 0.42, 0.43), 1.0, 0.45),
     ("Steel", (0.40, 0.40, 0.41), 1.0, 0.45),
@@ -434,6 +434,22 @@ def debug_ids(root, sc):
             sl.material = mat
 
 
+def debug_materials(spec):
+    """experiment: flat colours for the materials whose names contain each key: spec "Nickel:00ff00,Brass:ffff00" """
+    for item in spec.split(","):
+        key, hexc = item.split(":")
+        rgb = tuple(int(hexc[i:i + 2], 16) / 255 for i in (0, 2, 4))
+        for m in bpy.data.materials:
+            if key.lower() in m.name.lower() and m.use_nodes:
+                b = next((n for n in m.node_tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
+                if b:
+                    for sock in ("Base Color", "Metallic"):
+                        for l in list(b.inputs[sock].links):
+                            m.node_tree.links.remove(l)
+                    b.inputs["Base Color"].default_value = (*rgb, 1)
+                    b.inputs["Metallic"].default_value = 0
+
+
 def debug_meshes(root):
     """experiment: every mesh's livery surfaces in its own colour; prints mesh, colour and PatinaUV"""
     import colorsys
@@ -622,6 +638,8 @@ def reference():
         print_labels(sc)
     elif opt.get("debug-parts"):
         debug_parts(root)
+    elif opt.get("debug-materials"):
+        debug_materials(opt["debug-materials"])
     elif opt.get("debug-ids"):
         debug_ids(root, sc)
     elif opt.get("debug-meshes"):
