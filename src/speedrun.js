@@ -110,6 +110,14 @@ exports.link = async (src, discordId, { by, guild } = {}) => {
 // A run's players (embedded as { data } when the request asked for them)
 const players = run => run.players?.data ?? run.players ?? []
 
+// A run's video link as typed on src, without what runners leave around it (a trailing ")" or "." from pasting it
+// markdown-style, which breaks the [time](<link>) on our boards)
+const cleanLink = uri => {
+    let link = String(uri ?? '').trim().replace(/^<|>$/g, '')
+    while (/[).,\]>]$/.test(link) && !(link.endsWith(')') && link.split('(').length >= link.split(')').length)) link = link.slice(0, -1)
+    return link
+}
+
 // A verified src run as one of our times: { kind, target, seconds, platform, proof, date, player } or null when it isn't
 // on a board we have
 function asTime(run) {
@@ -126,7 +134,7 @@ function asTime(run) {
     const player = players(run)[0]
     return {
         kind, target: board[0].split(':')[1], seconds, platform, date,
-        proof: run.videos?.links?.[0]?.uri ?? run.weblink,
+        proof: cleanLink(run.videos?.links?.[0]?.uri) || run.weblink,
         player: player.rel == 'user' ? player.id : null,
         name: player.rel == 'user' ? player.names?.international ?? null : player.name,
         // Who it's saved for: the linked Discord id, else the placeholder
