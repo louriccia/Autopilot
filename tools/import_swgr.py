@@ -72,8 +72,9 @@ def texture(textures, asset_path):
     return p if p.exists() else None
 
 
-def save_art(src, dest, *, max_size, crop=None):
-    """Resize (and optionally crop to an aspect ratio) into a WebP under assets/. Returns the repo-relative path."""
+def save_art(src, dest, *, max_size, crop=None, pad_square=False):
+    """Resize (and optionally crop to an aspect ratio) into a WebP under assets/. Returns the repo-relative path.
+    pad_square centres the image on a transparent square instead, for section thumbnails (Discord crops those to a square)."""
     if not src:
         return None
     dest = ART_OUT / dest
@@ -87,6 +88,10 @@ def save_art(src, dest, *, max_size, crop=None):
         top = (im.height - h) // 2
         im = im.crop((0, top, im.width, top + h))
     im.thumbnail((max_size, max_size), Image.LANCZOS)
+    if pad_square and im.width != im.height:
+        square = Image.new("RGBA", (max(im.size),) * 2)
+        square.paste(im, ((square.width - im.width) // 2, (square.height - im.height) // 2))
+        im = square
     im.save(dest, "WEBP", quality=82, method=6)
     return dest.relative_to(ROOT).as_posix()
 
@@ -1297,7 +1302,7 @@ def main():
             "backer": bool(re.search(r"backer\)$", character)),
             "ranks": ranks,
             "emoji": emojis.add(f"fv_{key}", icon) if icon else None,
-            "icon": save_art(icon, f"favors/{fid}.webp", max_size=256) if icon else None,
+            "icon": save_art(icon, f"favors/{fid}.webp", max_size=256, pad_square=True) if icon else None,
         })
     favors_out.sort(key=lambda f: f["name"].lower())
 
