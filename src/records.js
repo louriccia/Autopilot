@@ -172,6 +172,7 @@ exports.setRival = async (user, rival) => {
 
 // YouTube channels -> Discord ids (src/replays.js credits a channel's videos to its owner)
 exports.youtubeOwner = channelId => youtube[channelId]?.user ?? null
+exports.youtubeLinks = () => youtube
 exports.linkYoutube = async (channelId, { user, name, by }) => {
     const value = { user, name: name ?? null, linkedBy: by ?? null, linkedAt: Date.now() }
     await database.ref(`youtube/${channelId}`).set(value)

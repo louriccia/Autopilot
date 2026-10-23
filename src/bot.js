@@ -147,6 +147,12 @@ client.once(Events.ClientReady, () => {
             .catch(error => reportError('Proof links', error))
         setTimeout(renew, 40 * 1000)
         setInterval(renew, proofs.REFRESH_EVERY)
+        // Linked YouTube channels' uploads, for runs nobody posted (src/channels.js)
+        const channels = require('./channels.js')
+        const scan = () => channels.scan(client.guilds.cache.get(main_guild))
+            .then(n => n && console.log(`[channels] saved ${n} run(s)`)).catch(error => reportError('YouTube channels', error))
+        setTimeout(scan, 60 * 1000)
+        setInterval(scan, channels.SCAN_EVERY)
     }
 })
 
