@@ -12,6 +12,8 @@ const mysteries = require('../data/swgr/mysteries.json')
 const statuses = require('../data/swgr/statuses.json')
 const sponsors = require('../data/swgr/sponsors.json')
 const tales = require('../data/swgr/tales.json')
+// Achievements (the game's list, with Steam's icons, hidden flags and progress targets) and our groups of them
+const { groups: achievementGroups, achievements } = require('../data/swgr/achievements.json')
 const { palettes, patterns, patinas } = require('../data/swgr/liveries.json')
 const characters = require('../data/swgr/characters.json')
 // A character's emoji: their headshot (the racers) or hologram portrait (everyone else)
@@ -36,6 +38,8 @@ const mysteryById = byId(mysteries)
 const statusById = byId(statuses)
 const sponsorById = byId(sponsors)
 const taleById = byId(tales)
+const achievementById = byId(achievements)
+const achievementGroupById = byId(achievementGroups)
 const paletteById = byId(palettes)
 const patinaById = byId(patinas)
 const patternById = byId(patterns)
@@ -79,6 +83,8 @@ module.exports = {
     statuses,
     sponsors,
     tales,
+    achievements,
+    achievementGroups,
     characters,
     racers,
     palettes,
@@ -100,6 +106,9 @@ module.exports = {
     status: id => statusById[id],
     sponsor: id => sponsorById[id],
     tale: id => taleById[id],
+    achievement: id => achievementById[id],
+    achievementGroup: id => achievementGroupById[id],
+    achievementsInGroup: id => achievements.filter(a => a.group == id),
     // "Soren Zaks & Ary Quill" -> Soren's; "Q-33N (Broker backer)" -> Q-33N's
     characterEmoji: name => { const n = (name ?? '').split(/ & | \(/)[0].trim(); return characterEmojiByName[name] ?? characterEmojiByName[n] ?? null },
     palette: id => paletteById[id],

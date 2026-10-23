@@ -135,6 +135,11 @@ client.once(Events.ClientReady, () => {
         setTimeout(poll, 50 * 1000)
         setInterval(poll, speedrun.POLL_EVERY)
     }).catch(error => reportError('speedrun.com', error))
+    // Steam's achievement unlock rates for the achievement cards (src/achievements.js), every 6 hours
+    const achievements = require('./achievements.js')
+    const steamRates = () => achievements.load().catch(error => console.error('[achievements]', error.message))
+    steamRates()
+    setInterval(steamRates, achievements.REFRESH_EVERY)
     // Racers' names and avatars for the website (src/profiles.js): once the times and balances have loaded, then hourly
     if (!testing) {
         const profiles = () => require('./profiles.js').refresh(client, client.guilds.cache.get(main_guild))

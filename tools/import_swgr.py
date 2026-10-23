@@ -377,6 +377,108 @@ def camel(s):
     return "".join(w[:1].upper() + w[1:] for w in re.split(r"[^A-Za-z0-9]+", s) if w)
 
 
+# --- achievements ---
+# DT_Achievements lists them (key, backend id = Steam's api name, the modes that can unlock each) and AchievementText
+# names them. Their icons, hidden flags and progress targets are only on Steam: its community stats page embeds the
+# schema (icon_achieved, hidden, max_progress), cached in tools/cache/steam so a re-run works offline.
+STEAM_APP = 4078430
+STEAM_CACHE = ROOT / "tools" / "cache" / "steam"
+# Our groups, in the order the game plays out; a key goes in the first whose prefix it starts with
+ACHIEVEMENT_GROUPS = [
+    ("Campaign", "campaign", ["Campaign_"]),
+    ("Rivals & Sidebets", "rivals", ["Rival_", "SideBet_", "Feats_SideBets"]),
+    ("Backers & Shops", "backers", ["Sponsor_", "Shop_"]),
+    ("Favors", "favors", ["Favours_"]),
+    ("Racer Styles", "styles", ["RacingStyle_"]),
+    ("Abilities & Builds", "builds", ["Tools_", "Build_", "Customisation_"]),
+    ("Feats", "feats", ["Feats_"]),
+    ("Galactic Gauntlet", "gauntlet", ["Sticker_"]),
+    ("Arcade, Scenarios & Tales", "modes", ["Arcade_", "Scenario_", "Memory_"]),
+]
+ACHIEVEMENT_MODES = [("Campaign", "Campaign"), ("Scenarios", "Scenarios"), ("Arcade", "Arcade"), ("Mp", "Multiplayer")]
+# Cards each one links to, as /search ids
+ACHIEVEMENT_RELATED = {
+    "Arcade_AllGold": ["arcade:all"], "Arcade_1stGold": ["arcade:all"],
+    "Build_Surging": ["status:surging"], "Build_Overcharged": ["status:overcharged"],
+    "Build_Afterburner": ["style:afterburner"], "Build_Ramjet": ["style:ramjet-rider"], "Feats_1stOverheat": ["style:ramjet-rider"],
+    "Campaign_Act2": ["rival:kestar-bool"], "Campaign_Complete": ["rival:kestar-bool"], "Campaign_Champion": ["rival:kestar-bool"],
+    "SideBet_Kestar": ["rival:kestar-bool"],
+    "Favours_1stMechanic": ["favor:mad-genius"],
+    "Memory_1stMemory": ["tale:memories-of-mos-espa"], "Memory_All": ["tale:memories-of-mos-espa"],
+    "RacingStyle_Brawler": ["style:brawler"], "RacingStyle_Redliner": ["style:redliner"],
+    "RacingStyle_Tools": ["style:tech-expert", "ability:ion-bolt"],
+    "Sponsor_1stExcellentRating": ["backer:the-hutt", "backer:the-broker", "backer:the-pirate"],
+    "Sponsor_1stBadRating": ["backer:the-hutt", "backer:the-broker", "backer:the-pirate"],
+    "Sponsor_AllExcellent": ["backer:the-hutt", "backer:the-broker", "backer:the-pirate"],
+}
+
+
+def fetch(url, dest):
+    """The URL's bytes, cached at dest (an earlier copy when the fetch fails)."""
+    import urllib.request
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Autopilot importer"})
+        body = urllib.request.urlopen(req, timeout=30).read()
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(body)
+        return body
+    except OSError as e:
+        print(f"  {url}: {e}{' (using the cached copy)' if dest.exists() else ''}")
+        return dest.read_bytes() if dest.exists() else None
+
+
+def steam_achievements():
+    """Steam's schema for the game's achievements, by api name ("Achievement01")."""
+    html = fetch(f"https://steamcommunity.com/stats/{STEAM_APP}/achievements/?l=english", STEAM_CACHE / "achievements.html")
+    if not html:
+        return {}
+    s = html.decode("utf-8")
+    start = s.find('\\"achievements\\":[')
+    if start < 0:
+        return {}
+    chunk = s[s.find("[", start):]
+    depth = 0
+    for n, c in enumerate(chunk):  # the array's end (it sits inside an escaped JSON string)
+        depth += {"[": 1, "]": -1}.get(c, 0)
+        if depth == 0:
+            break
+    return {a["api_name"]: a for a in json.loads(json.loads('"' + chunk[:n + 1] + '"'))}
+
+
+def achievements(game, loc, emojis):
+    table = load_json(game / "Gameplay" / "Config" / "Progression" / "DT_Achievements.json")[0]["Rows"]
+    text = loc.get("AchievementText", {})
+    steam = steam_achievements()
+    out = []
+    for key, row in table.items():
+        st = steam.get(row["BackendId"], {})
+        name = text.get(key) or text.get(f"{key}_Title") or st.get("name")
+        icon = st.get("icon_achieved") and STEAM_CACHE / st["icon_achieved"].rsplit("/", 1)[1]
+        if icon and not icon.exists():  # named by its content hash, so a cached copy is current
+            fetch(st["icon_achieved"], icon)
+        icon = icon if icon and icon.exists() else None
+        group = next(g for g in ACHIEVEMENT_GROUPS if any(key.startswith(p) for p in g[2]))
+        out.append({
+            "id": slug(name),
+            "key": key,
+            "steamId": row["BackendId"],
+            "name": name,
+            # Steam's wording is the game's, tidied ("650 km/h" for "650kph", "60 s")
+            "description": st.get("description") or text.get(f"{key}_Desc", ""),
+            "group": group[1],
+            "modes": [label for flag, label in ACHIEVEMENT_MODES if row.get(f"UnlockIn{flag}")],
+            "hidden": bool(st.get("hidden")),
+            "target": st.get("max_progress"),
+            "related": ACHIEVEMENT_RELATED.get(key, []),
+            "icon": save_art(icon, f"achievements/{slug(name)}.webp", max_size=256),
+            "emoji": emojis.add(f"ach_{row['BackendId'][-2:]}", icon),
+        })
+    out.sort(key=lambda a: ([g[1] for g in ACHIEVEMENT_GROUPS].index(a["group"]), a["steamId"]))
+    if not steam:
+        print("  no Steam achievement schema: achievements have no icons")
+    return {"groups": [{"id": g[1], "name": g[0]} for g in ACHIEVEMENT_GROUPS], "achievements": out}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--datamine", type=Path, default=ROOT.parent / "swgr-datamine")
@@ -1603,6 +1705,8 @@ def main():
     for i, t in enumerate(tales_out):  # numbered 1..12 as played (the asset numbers skip 12)
         t["number"] = i + 1
 
+    achievements_out = achievements(game, loc, emojis)
+
     # --- liveries ---
     # A speeder's livery is a palette (3 colours: body first), a pattern (per vehicle class; the datamine renders each
     # top-down in its own palette) and a patina (paint / rust / steel wear). Podracers can't be customised, so their
@@ -2169,7 +2273,7 @@ def main():
                        ("vehicles", {"classes": vehicle_classes_out, "vehicles": vehicles_out, "kitPointsEmoji": kit_points}),
                        ("favors", favors_out), ("rivals", rivals_out),
                        ("mysteries", mysteries_out), ("statuses", statuses_out),
-                       ("sponsors", sponsors_out), ("tales", tales_out),
+                       ("sponsors", sponsors_out), ("tales", tales_out), ("achievements", achievements_out),
                        ("liveries", {"palettes": palettes_out, "patterns": patterns_out, "patinas": patinas_out}),
                        ("characters", characters_out), ("racers", racers_out)]:
         (DATA_OUT / f"{name}.json").write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -2179,7 +2283,7 @@ def main():
     print(f"{len(emojis.by_name)} emoji icons in assets/emoji")
     missing += [f"{t['name']} (map)" for t in tracks if not t["map"]]
     missing += [f"{p['name']} (image)" for p in planets if not p["image"]]
-    print(f"{len(planets)} planets, {len(tracks)} tracks, {len(arcade)} arcade events, {len(scenarios_out)} scenarios, {len(styles_out)} racer styles, {len(parts_out)} parts, {len(abilities_out)} abilities, {len(vehicles_out)} vehicles, {len(favors_out)} favors, {len(rivals_out)} rivals, {len(mysteries_out)} mysteries, {len(statuses_out)} status effects, {len(sponsors_out)} sponsors, {len(tales_out)} tales, {len(palettes_out)} palettes, {len(patterns_out)} patterns, {len(racers_out)} racers")
+    print(f"{len(planets)} planets, {len(tracks)} tracks, {len(arcade)} arcade events, {len(scenarios_out)} scenarios, {len(styles_out)} racer styles, {len(parts_out)} parts, {len(abilities_out)} abilities, {len(vehicles_out)} vehicles, {len(favors_out)} favors, {len(rivals_out)} rivals, {len(mysteries_out)} mysteries, {len(statuses_out)} status effects, {len(sponsors_out)} sponsors, {len(tales_out)} tales, {len(achievements_out['achievements'])} achievements, {len(palettes_out)} palettes, {len(patterns_out)} patterns, {len(racers_out)} racers")
     if missing:
         print("missing art:", ", ".join(missing))
 

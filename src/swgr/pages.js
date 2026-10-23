@@ -12,6 +12,7 @@ const credits = require('../credits.js')
 const emoji = require('../data/discord/emoji.js')
 const garage = require('./garage.js')
 const speedrun = require('../speedrun.js')
+const achievements = require('../achievements.js')
 
 const ROOT = path.join(__dirname, '../..')
 const DEFAULT_COLOR = 0x3B88C3
@@ -1595,6 +1596,99 @@ function taleInfo(taleId) {
 // A livery is a palette (3 colours), a pattern (per vehicle class) and a finish (patina). Menus go
 // kind > group > item: livery_pgroup (palette groups), livery_palette, livery_pclass (pattern classes), livery_pattern.
 
+// --- achievements ---
+
+// Steam hides these until earned, so their descriptions are spoilers here too
+const achievementText = a => a.hidden ? `||${a.description}||` : a.description
+const steamPercent = a => {
+    const p = achievements.percent(a.steamId)
+    return p == null ? null : `${p < 10 ? p.toFixed(1) : Math.round(p)}%`
+}
+
+function achievementGroupSelect(current) {
+    return select('achgroup', 'Pick a group', data.achievementGroups.map(g => {
+        const list = data.achievementsInGroup(g.id)
+        return { label: g.name, value: g.id, emoji: emoji.named(list[0].emoji), description: `${list.length} achievement${list.length == 1 ? '' : 's'}` }
+    }), current)
+}
+
+function achievementSelect(groupId, current) {
+    return select('achievement', 'Pick an achievement', data.achievementsInGroup(groupId).map(a => ({
+        label: a.name, value: a.id, emoji: emoji.named(a.emoji),
+        description: [a.hidden ? 'Hidden' : a.description, steamPercent(a)].filter(Boolean).join(' / ').slice(0, 100),
+    })), current)
+}
+
+// The front page lists the groups with their badges; a group's page lists its achievements with how many have each
+function achievementsOverview(groupId) {
+    const container = new ContainerBuilder().setAccentColor(DEFAULT_COLOR)
+    const group = groupId && data.achievementGroup(groupId)
+    if (!group) {
+        header(container, [crumbs('Achievements'), '# Achievements',
+            `${data.achievements.length} achievements, with how many Steam players have each. Hidden ones are under spoilers.`])
+        container.addSeparatorComponents(separator())
+        container.addTextDisplayComponents(text(data.achievementGroups.map(g =>
+            `**${g.name}**\n${data.achievementsInGroup(g.id).map(a => emoji.named(a.emoji)).join(' ')}`).join('\n')))
+        return page(container, new Files(), [achievementGroupSelect()])
+    }
+    header(container, [crumbs('Achievements', group.name), `# ${group.name}`])
+    container.addSeparatorComponents(separator())
+    container.addTextDisplayComponents(text(data.achievementsInGroup(group.id).map(a =>
+        `${emoji.named(a.emoji)} **${a.name}**${steamPercent(a) ? ` / ${steamPercent(a)}` : ''}\n-# ${achievementText(a)}`).join('\n')))
+    return page(container, new Files(), [achievementGroupSelect(group.id), achievementSelect(group.id)])
+}
+
+// A related card ("style:redliner") as a menu option
+function relatedOption(value) {
+    const [kind, id] = value.split(':')
+    const item = {
+        arcade: () => ({ label: 'Arcade', description: 'All events', emoji: emoji.event.race }),
+        status: () => { const s = data.status(id); return { label: s.name, description: 'Status effect', emoji: emoji.named(s.emoji) } },
+        style: () => { const s = data.style(id); return { label: s.name, description: 'Racer style', emoji: emoji.named(s.emoji) } },
+        rival: () => { const r = data.rival(id); return { label: r.name, description: r.champion ? 'Champion' : 'Rival', emoji: face(r.name) } },
+        favor: () => { const f = data.favor(id); return { label: f.name, description: `${f.character}'s favor`, emoji: emoji.named(f.emoji) } },
+        tale: () => { const t = data.tale(id); return { label: t.name, description: 'Tales of Podracing', emoji: emoji.named(t.emoji) } },
+        ability: () => { const a = data.ability(id); return { label: a.name, description: 'Ability', emoji: emoji.named(a.emoji) } },
+        backer: () => { const s = data.sponsor(id); return { label: s.name, description: 'Backer', emoji: emoji.named(s.emoji) } },
+    }[kind]?.()
+    return item && { ...item, value }
+}
+
+// The two Arcade achievements also show who here has the golds for them, from the saved times
+function goldsSection(a) {
+    const all = achievements.GOLDS_FOR_ALL, golds = achievements.golds()
+    const target = a.key == 'Arcade_AllGold' ? all : 1
+    const done = golds.filter(g => g.golds >= target).length
+    const line = (g, i) => `${place(i + 1)} ${emoji.medal.gold} **${Math.min(g.golds, all)}**/${all} ${records.who(g.user)}${g.golds >= all ? ` ${emoji.named('tick')}` : ''}`
+    const lines = [`### On this server`,
+        `-# ${done ? `${done} racer${done == 1 ? ' has' : 's have'} ${target == 1 ? 'a gold' : `${all} golds`}` : `No one has ${target == 1 ? 'a gold' : `${all} golds`} yet`} in their saved times`,
+        ...golds.slice(0, 5).map(line)]
+    const mine = golds.findIndex(g => g.user == viewer.id())
+    if (mine >= 5) lines.push(line(golds[mine], mine))
+    return lines.join('\n')
+}
+
+function achievementInfo(achievementId) {
+    const a = data.achievement(achievementId)
+    const files = new Files()
+    const container = new ContainerBuilder().setAccentColor(DEFAULT_COLOR)
+    const group = data.achievementGroup(a.group)
+    const p = achievements.percent(a.steamId)
+    header(container, [
+        crumbs('Achievements', group.name),
+        `# ${a.name}`,
+        achievementText(a),
+        `-# ${[...a.modes, a.hidden && 'Hidden on Steam', a.target && `Progress out of ${a.target}`].filter(Boolean).join(' / ')}`,
+        p != null && `${segments(Math.round(p / 10))} **${steamPercent(a)}** of Steam players`,
+    ], files.add(a.icon))
+    if (a.key.startsWith('Arcade_')) {
+        container.addSeparatorComponents(separator())
+        container.addTextDisplayComponents(text(goldsSection(a)))
+    }
+    const related = a.related.map(relatedOption).filter(Boolean)
+    return page(container, files, [achievementGroupSelect(a.group), achievementSelect(a.group, a.id), ...(related.length ? [select('goto', 'Related', related)] : [])])
+}
+
 const LIVERY_GROUPS = ['Starter', 'Shop', 'Rivals', 'Podracing', 'Editions', 'Multiplayer']
 const kitCost = n => n ? `${emoji.named('KitPoints')} ${n}` : null
 const liveryLine = x => [x.kitPoints && kitCost(x.kitPoints), x.unlock].filter(Boolean).join(' / ') || 'Free'
@@ -1680,4 +1774,4 @@ function patternInfo(patternId) {
     return page(container, files, [patternClassSelect(c.id), patternSelect(p.class, p.id)])
 }
 
-module.exports = { bountyPosted, cumulativeView, characterInfo, charactersOverview, standingEmoji, buildExpanded, creditsCard, creditsTop, liveriesOverview, paletteGroupInfo, paletteInfo, patternClassInfo, patternInfo, taleInfo, talesOverview, backerInfo, backersOverview, statusInfo, statusesOverview, mysteryInfo, mysteriesOverview, rivalInfo, rivalsOverview, favorInfo, favorsOverview, vehicleInfo, vehicleClassInfo, vehiclesOverview, abilityInfo, abilitiesOverview, arcadeOverview, arcadeCategory, arcadeEvent, trackInfo, planetInfo, scenarioInfo, styleInfo, partInfo, parseKeywordMask }
+module.exports = { achievementInfo, achievementsOverview, bountyPosted, cumulativeView, characterInfo, charactersOverview, standingEmoji, buildExpanded, creditsCard, creditsTop, liveriesOverview, paletteGroupInfo, paletteInfo, patternClassInfo, patternInfo, taleInfo, talesOverview, backerInfo, backersOverview, statusInfo, statusesOverview, mysteryInfo, mysteriesOverview, rivalInfo, rivalsOverview, favorInfo, favorsOverview, vehicleInfo, vehicleClassInfo, vehiclesOverview, abilityInfo, abilitiesOverview, arcadeOverview, arcadeCategory, arcadeEvent, trackInfo, planetInfo, scenarioInfo, styleInfo, partInfo, parseKeywordMask }

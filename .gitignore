@@ -8,3 +8,6 @@ data/state/
 assets/
 src/data/swgr/
 src/data/flavor/welcome.js
+
+# Steam downloads (the importer's achievement schema and icons)
+tools/cache/

@@ -83,6 +83,21 @@ const KINDS = [
         page: pages.taleInfo,
     },
     {
+        kind: 'achievement',
+        items: () => data.achievements,
+        label: a => `${a.name} — Achievement · ${data.achievementGroup(a.group).name}`,
+        // a hidden one's description stays out of its keywords, so a search doesn't spoil it
+        keywords: a => [a.hidden ? null : a.description, ...a.modes, 'achievement', 'trophy'].filter(Boolean),
+        page: pages.achievementInfo,
+    },
+    {
+        kind: 'achgroup',
+        items: () => data.achievementGroups,
+        label: g => `${g.name} — Achievements · ${data.achievementsInGroup(g.id).length}`,
+        keywords: () => ['achievements', 'trophies'],
+        page: pages.achievementsOverview,
+    },
+    {
         kind: 'backer',
         items: () => data.sponsors,
         label: s => `${s.name} — Backer · ${s.person}`,
