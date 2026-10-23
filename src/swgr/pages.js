@@ -290,13 +290,13 @@ function pointsBoard(events) {
     return [
         ...ranked.filter(s => s.rank <= 10 || s.user == me || s.user == rival).map(s =>
             `${place(s.rank)} **${s.points.toLocaleString('en-US')}** pts ${records.who(s.user)}${s.user == rival ? ` ${emoji.named('rival')}` : ''}`),
-        `-# Points for each event's top 5: ${records.POINTS.map((p, i) => `${ordinal(i + 1)} ${p}`).join(' / ')}`,
+        `-# ${records.POINTS.map((p, i) => `${place(i + 1)} ${p}`).join(' ')} (${(events.length * records.POINTS[0]).toLocaleString('en-US')} max)`,  // the points each place on an event scores, and the most there are
     ]
 }
 
 // Podiums: each event's top 3, PODIUM_PAGE events a page (the whole of the main set would go past Discord's 4000
 // characters)
-const PODIUM_PAGE = 10
+const PODIUM_PAGE = 12
 function podiumsBoard(events, page) {
     const rival = records.rivalOf(viewer.id())
     const shown = events.slice(page * PODIUM_PAGE, (page + 1) * PODIUM_PAGE)
@@ -304,7 +304,7 @@ function podiumsBoard(events, page) {
         ...shown.map(e => {
             const top = records.leaderboard('arcade', e.id).slice(0, 3)
             // 2nd and 3rd as their gap to 1st
-            return `${emoji.planet[e.planet]} ${emoji.vehicle[e.vehicleClass]} **${e.name}**\n${top.length ? top.map((t, i) => `${place(i + 1)} ${i ? `\`+${formatTime(t.time - top[0].time)}\`` : boardTime(t.time)} ${records.who(t.user)}${t.user == rival ? ` ${emoji.named('rival')}` : ''}`).join(' / ') : '-# No times yet'}`
+            return `${emoji.planet[e.planet]} **${e.name}**\n-# ${top.length ? top.map((t, i) => `${i ? `\`+${formatTime(t.time - top[0].time)}\`` : boardTime(t.time)} ${records.who(t.user)}${t.user == rival ? ` ${emoji.named('rival')}` : ''}`).join(' ') : 'No times yet'}`
         }),
         events.length > PODIUM_PAGE && `-# Events ${page * PODIUM_PAGE + 1}-${page * PODIUM_PAGE + shown.length} of ${events.length}`,
     ].filter(Boolean)
