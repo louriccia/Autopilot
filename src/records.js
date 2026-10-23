@@ -70,7 +70,25 @@ exports.cumulative = (kind, targets) => {
     return { ranked, done }
 }
 
-exports.feedbackCounts = (kind, target) => {
+// Points across several boards, for everyone with a time on any of them: each board's top 5 score POINTS by place
+// (1st most). Most points first; a tie goes to more 1sts, then more 2nds and so on, and people level on all of that
+// share the place. Each entry: { user, points, places: [how many 1sts, 2nds, ... 5ths], rank }
+exports.POINTS = [10, 7, 5, 3, 1]
+exports.points = (kind, targets) => {
+    const scores = {}
+    for (const target of targets) exports.leaderboard(kind, target).slice(0, exports.POINTS.length).forEach((t, i) => {
+        const s = scores[t.user] ??= { user: t.user, points: 0, places: exports.POINTS.map(() => 0) }
+        s.points += exports.POINTS[i]
+        s.places[i]++
+    })
+    const key = s => [s.points, ...s.places]
+    const compare = (a, b) => key(b).reduce((d, v, i) => d || v - key(a)[i], 0)
+    const ranked = Object.values(scores).sort(compare)
+    ranked.forEach((s, i) => { s.rank = i && !compare(ranked[i - 1], s) ? ranked[i - 1].rank : i + 1 })
+    return ranked
+}
+
+exports.feedbackCounts =(kind, target) => {
     const counts = { up: 0, neutral: 0, down: 0 }
     for (const f of Object.values(feedback[kind]?.[target] ?? {})) counts[f.rating] = (counts[f.rating] ?? 0) + 1
     return counts

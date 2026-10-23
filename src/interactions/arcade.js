@@ -1,5 +1,5 @@
 const { navigate } = require('../respond.js')
-const { arcadeOverview, arcadeCategory, arcadeEvent } = require('../swgr/pages.js')
+const { arcadeOverview, arcadeCategory, arcadeEvent, cumulativeView } = require('../swgr/pages.js')
 const { racerOf } = require('../commands/timesheet.js')
 
 // arcade_category / arcade_event selects (and the timesheet's arcade_event_recent) (the category menu's "overview" goes back to the arcade's front page), or an
@@ -8,7 +8,9 @@ module.exports = {
     name: 'arcade',
     async execute({ interaction, args } = {}) {
         const value = interaction.values?.[0] ?? args[1]
-        if (args[0] == 'category') await navigate(interaction, value == 'overview' ? arcadeOverview(await racerOf(interaction, interaction.user.id)) : arcadeCategory(value))
+        // another category keeps the cumulative board's view (its first page)
+        const view = { view: cumulativeView(interaction.message) }
+        if (args[0] == 'category') await navigate(interaction, value == 'overview' ? arcadeOverview(await racerOf(interaction, interaction.user.id), view) : arcadeCategory(value, view))
         if (args[0] == 'event') await navigate(interaction, arcadeEvent(value.split(':')[0]))  // a recent run's <event>:<n>
     }
 }

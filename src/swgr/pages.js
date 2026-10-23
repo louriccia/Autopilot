@@ -264,10 +264,12 @@ function trackSelect(tracks, current) {
 // The main arcade set: every event but the Deluxe pack's (paid extras not everyone has)
 const MAIN_EVENTS = () => data.events.filter(e => e.category != 'Deluxe')
 
-// A cumulative leaderboard over some events: the summed medal times, then everyone with a time on all of them by their
-// summed bests (top 5, the viewer and their rival), fastest first; plus how many have them all, and the viewer's count
-// target: the bounty board it is ('main' or a category id), whose open bounties lead it
-function cumulativeBoard(events, target) {
+// A cumulative board (the arcade's front page over the main set, or a category) has three views, switched by the
+// buttons under it (cumulativeView): points standings, total time, and each event's podium.
+//
+// Time: the summed medal times, then everyone with a time on all of the events by their summed bests (top 10, the
+// viewer and their rival), fastest first
+function cumulativeBoard(events) {
     const { ranked } = records.cumulative('arcade', events.map(e => e.id))
     const me = viewer.id(), rival = records.rivalOf(me)
     const board = [
@@ -275,16 +277,77 @@ function cumulativeBoard(events, target) {
             const seconds = events.reduce((n, e) => n + e.medals[m].seconds, 0)
             return { seconds, line: `${emoji.medal[m]} ${boardTime(seconds)} ${m[0].toUpperCase() + m.slice(1)} medals` }
         }),
-        ...ranked.filter(t => t.rank <= 5 || t.user == me || t.user == rival).map(t => ({ seconds: t.time, line: timeLine(t, t.rank) })),
+        ...ranked.filter(t => t.rank <= 10 || t.user == me || t.user == rival).map(t => ({ seconds: t.time, line: timeLine(t, t.rank) })),
     ].sort((a, b) => a.seconds - b.seconds)
-    return [...bountyLines('aggregate', target), ...board.map(b => b.line), `-# Total time across all ${events.length} events`].join('\n')
+    return [...board.map(b => b.line), `-# Total time across all ${events.length} events`]
+}
+
+// Points, which count without a time on every event: each event's top 5 score records.POINTS by place, summed (top 10,
+// the viewer and their rival)
+function pointsBoard(events) {
+    const ranked = records.points('arcade', events.map(e => e.id))
+    const me = viewer.id(), rival = records.rivalOf(me)
+    return [
+        ...ranked.filter(s => s.rank <= 10 || s.user == me || s.user == rival).map(s =>
+            `${place(s.rank)} **${s.points.toLocaleString('en-US')}** pts ${records.who(s.user)}${s.user == rival ? ` ${emoji.named('rival')}` : ''}`),
+        `-# Points for each event's top 5: ${records.POINTS.map((p, i) => `${ordinal(i + 1)} ${p}`).join(' / ')}`,
+    ]
+}
+
+// Podiums: each event's top 3, PODIUM_PAGE events a page (the whole of the main set would go past Discord's 4000
+// characters)
+const PODIUM_PAGE = 10
+function podiumsBoard(events, page) {
+    const rival = records.rivalOf(viewer.id())
+    const shown = events.slice(page * PODIUM_PAGE, (page + 1) * PODIUM_PAGE)
+    return [
+        ...shown.map(e => {
+            const top = records.leaderboard('arcade', e.id).slice(0, 3)
+            // 2nd and 3rd as their gap to 1st
+            return `${emoji.planet[e.planet]} ${emoji.vehicle[e.vehicleClass]} **${e.name}**\n${top.length ? top.map((t, i) => `${place(i + 1)} ${i ? `\`+${formatTime(t.time - top[0].time)}\`` : boardTime(t.time)} ${records.who(t.user)}${t.user == rival ? ` ${emoji.named('rival')}` : ''}`).join(' / ') : '-# No times yet'}`
+        }),
+        events.length > PODIUM_PAGE && `-# Events ${page * PODIUM_PAGE + 1}-${page * PODIUM_PAGE + shown.length} of ${events.length}`,
+    ].filter(Boolean)
+}
+
+// [view, label, icon]: the game's Championship crown for points, the stopwatch for time, the game's Position keyword (a racer on a step) for podiums
+const CUMULATIVE_VIEWS = [['points', 'Points', 'crown'], ['time', 'Time', 'stopwatch'], ['podiums', 'Podiums', 'podium']]
+// The view a card's cumulative board is showing (its disabled view button), so moving to another category keeps it
+const cumulativeView = message => {
+    const find = c => !c ? null : Array.isArray(c) ? c.map(find).find(Boolean)
+        : c.custom_id?.startsWith('board_') && c.disabled && !/_-?\d+$/.test(c.custom_id) ? c.custom_id.split('_')[1] : find(c.components)
+    return find(message?.components?.map(c => c.toJSON?.() ?? c))
+}
+
+// The cumulative board in its view, its open bounties first (the bounty button beside it on Time), then the view buttons
+// (and the podiums' page turners): board_<view>_<target>_<racer>[_<page>], the racer being whose timesheet the card is
+// ('-' for none)
+function addCumulative(container, events, target, { view = 'points', page = 0, racer } = {}) {
+    view = CUMULATIVE_VIEWS.some(([v]) => v == view) ? view : 'points'
+    const pages = Math.ceil(events.length / PODIUM_PAGE)
+    page = Math.min(Math.max(+page || 0, 0), pages - 1)
+    const lines = view == 'time' ? cumulativeBoard(events) : view == 'podiums' ? podiumsBoard(events, page) : pointsBoard(events)
+    // the overview / timesheet lists its open bounties on Time only
+    const content = [...(target != 'main' || view == 'time' ? bountyLines('aggregate', target) : []), ...lines].join('\n')
+    // the bounty button only on total time, which is what a bounty here is won on
+    if (view == 'time') addLeaderboard(container, 'aggregate', target, content)
+    else container.addTextDisplayComponents(text(content))
+    const id = `board_%_${target}_${racer?.id ?? '-'}`
+    const button = (customId, label, icon, current) => new ButtonBuilder().setCustomId(customId).setLabel(label)
+        .setEmoji(emoji.component(emoji.named(icon))).setStyle(current ? ButtonStyle.Primary : ButtonStyle.Secondary).setDisabled(!!current)
+    const row = new ActionRowBuilder().addComponents(CUMULATIVE_VIEWS.map(([v, label, icon]) => button(id.replace('%', v), label, icon, v == view)))
+    if (view == 'podiums' && pages > 1) row.addComponents(
+        new ButtonBuilder().setCustomId(`${id.replace('%', 'podiums')}_${page - 1}`).setLabel('◀').setStyle(ButtonStyle.Secondary).setDisabled(page == 0),
+        new ButtonBuilder().setCustomId(`${id.replace('%', 'podiums')}_${page + 1}`).setLabel('▶').setStyle(ButtonStyle.Secondary).setDisabled(page == pages - 1))
+    container.addActionRowComponents(row)
 }
 
 // The arcade's front page and a racer's timesheet in one card (/arcade, the category menu's Overview, /timesheet):
 // their profile (credits and backer; events with a time over the main set as a stat bar; medals and podium places;
 // their rival and the head to head), then the all-events leaderboard, with the categories in the menu.
 // racer: { id, name, avatar } (the viewer, or /timesheet's racer); without one, just the leaderboard.
-function arcadeOverview(racer) {
+// view: the cumulative board's { view, page } (addCumulative)
+function arcadeOverview(racer, view) {
     const files = new Files()
     const container = new ContainerBuilder().setAccentColor(DEFAULT_COLOR)
     const events = MAIN_EVENTS()
@@ -294,12 +357,14 @@ function arcadeOverview(racer) {
         const mine = events.map(e => results[e.id]).filter(Boolean)
         const count = (key, value) => mine.filter(r => r[key] == value).length
         const rival = records.rivalOf(racer.id)
+        const points = records.points('arcade', events.map(e => e.id)).find(s => s.user == racer.id)
         header(container, [
             `# ${racer.name}`,
             creditsLine(racer.id),
             gap,
             `${mine.length}/${events.length} events ${segments(Math.round(mine.length / events.length * 10))}`,
             mine.length && `${emoji.named('stopwatch')} ${boardTime(mine.reduce((n, r) => n + r.time, 0))}`,  // their bests summed
+            points && `${emoji.named('crown')} **${points.points.toLocaleString('en-US')}** pts / ${ordinal(points.rank)}`,  // their points and place in the standings
             ['gold', 'silver', 'bronze'].map(m => `${emoji.medal[m]} ${count('medal', m)}`).join(' / '),
             [1, 2, 3].map(n => `${place(n)} ${count('rank', n)}`).join(' / '),
             ...(rival ? [gap, `${emoji.named('rival')} <@${rival}>`, rivalSummary(headToHead(events, results, arcadeResults(rival)), racer.id == viewer.id())] : []),
@@ -308,7 +373,7 @@ function arcadeOverview(racer) {
         header(container, ['## Arcade'])
     }
     container.addSeparatorComponents(separator())
-    addLeaderboard(container, 'aggregate', 'main', cumulativeBoard(events, 'main'))
+    addCumulative(container, events, 'main', { ...view, racer })
     const recent = racer && recentSelect(racer.id)
     return page(container, files, [categorySelect(), recent].filter(Boolean))
 }
@@ -343,17 +408,16 @@ function recentSelect(userId) {
     }))
 }
 
-function arcadeCategory(categoryId) {
+function arcadeCategory(categoryId, view) {
     const category = data.category(categoryId)
     const events = data.eventsInCategory(categoryId)
     const files = new Files()
     const container = new ContainerBuilder().setAccentColor(DEFAULT_COLOR)
     header(container, [crumbs('Arcade'), `## ${categoryEmoji(category)} ${category.name}`], files.add(category.icon))
 
-    // The cumulative leaderboard (cumulativeBoard): summed medal times and each racer's summed bests, with the bounty
-    // button beside it
+    // The cumulative board (addCumulative), with the bounty button beside it and its views under it
     container.addSeparatorComponents(separator())
-    addLeaderboard(container, 'aggregate', categoryId, cumulativeBoard(events, categoryId))
+    addCumulative(container, events, categoryId, view)
     return page(container, files, [categorySelect(categoryId), eventSelect(events)])
 }
 
@@ -1616,4 +1680,4 @@ function patternInfo(patternId) {
     return page(container, files, [patternClassSelect(c.id), patternSelect(p.class, p.id)])
 }
 
-module.exports = { bountyPosted, characterInfo, charactersOverview, standingEmoji, buildExpanded, creditsCard, creditsTop, liveriesOverview, paletteGroupInfo, paletteInfo, patternClassInfo, patternInfo, taleInfo, talesOverview, backerInfo, backersOverview, statusInfo, statusesOverview, mysteryInfo, mysteriesOverview, rivalInfo, rivalsOverview, favorInfo, favorsOverview, vehicleInfo, vehicleClassInfo, vehiclesOverview, abilityInfo, abilitiesOverview, arcadeOverview, arcadeCategory, arcadeEvent, trackInfo, planetInfo, scenarioInfo, styleInfo, partInfo, parseKeywordMask }
+module.exports = { bountyPosted, cumulativeView, characterInfo, charactersOverview, standingEmoji, buildExpanded, creditsCard, creditsTop, liveriesOverview, paletteGroupInfo, paletteInfo, patternClassInfo, patternInfo, taleInfo, talesOverview, backerInfo, backersOverview, statusInfo, statusesOverview, mysteryInfo, mysteriesOverview, rivalInfo, rivalsOverview, favorInfo, favorsOverview, vehicleInfo, vehicleClassInfo, vehiclesOverview, abilityInfo, abilitiesOverview, arcadeOverview, arcadeCategory, arcadeEvent, trackInfo, planetInfo, scenarioInfo, styleInfo, partInfo, parseKeywordMask }

@@ -4,7 +4,10 @@
 //               they compare with their declared rival, and their progression
 //   podium()    a top-3 change worth announcing: on a board with at least MIN_RACERS racers, someone moves into the top
 //               3 or up within it, or lowers the record at #1
-//   announce()  posts it to ANNOUNCE_CHANNEL_ID (#autopilot; TEST_CHANNEL_ID while testing), without pinging anyone
+//   standings() a move into or up within the top 5 of the points standings over the main 50 events (records.points),
+//               once at least MIN_POINTS_RACERS racers have points
+//   announce()  posts them to ANNOUNCE_CHANNEL_ID (#autopilot; TEST_CHANNEL_ID while testing), without pinging anyone:
+//               a points move rides on the podium announcement when the save makes one, else it's posted on its own
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js')
 const { testing } = require('../config.js')
 const { announce_channel, test_channel } = require('./data/discord/channel.js')
@@ -12,6 +15,7 @@ const emoji = require('./data/discord/emoji.js')
 const records = require('./records.js')
 
 const MIN_RACERS = 5
+const MIN_POINTS_RACERS = 10, POINTS_TOP = 5
 const MEDALS = ['gold', 'silver', 'bronze']
 const fmt = s => {
     const cs = Math.round(s * 100), m = Math.floor(cs / 6000), rest = (cs % 6000) / 100
@@ -92,6 +96,28 @@ exports.podium = ({ kind, item, user, time, proof, before, after }) => {
     }
 }
 
+// A points standings move worth announcing, or null: { user, rank, points, passed: [users now behind them who were
+// ahead], entered: whether they weren't in the top 5 before }. before / after: records.points() around the save.
+exports.standings = ({ user, before, after }) => {
+    if (after.length < MIN_POINTS_RACERS) return null
+    const now = after.find(s => s.user == user), was = before.find(s => s.user == user)
+    if (!now || now.rank > POINTS_TOP || (was && was.rank <= now.rank)) return null
+    const rankAfter = u => after.find(s => s.user == u)?.rank ?? Infinity
+    return {
+        user, rank: now.rank, points: now.points,
+        passed: before.filter(s => s.user != user && s.rank <= POINTS_TOP && (!was || s.rank < was.rank) && rankAfter(s.user) > now.rank).map(s => s.user),
+        entered: !was || was.rank > POINTS_TOP,
+    }
+}
+const standingsText = (s, alone) => {
+    const move = s.entered ? `into the points top 5 at **#${s.rank}**` : `up to **#${s.rank}** in the points standings`
+    const names = s.passed.map(u => records.who(u)), passing = names.length ? `, passing ${names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0]}` : ''
+    return alone
+        ? `${emoji.named('crown')} ${records.who(s.user)} moves ${move} with **${s.points.toLocaleString('en-US')}** pts${passing}`
+        : `\n${emoji.named('crown')} and moves ${move} (**${s.points.toLocaleString('en-US')}** pts)${passing}`
+}
+const viewButton = customId => new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(customId).setLabel('View board').setStyle(ButtonStyle.Secondary))
+
 // A bounty claimed by a save, announced like a podium change
 exports.announceBounty = async (client, b) => {
     const channelId = testing ? test_channel : announce_channel
@@ -108,11 +134,13 @@ exports.announceBounty = async (client, b) => {
     })
 }
 
-exports.announce = async (client, p) => {
+// p: podium() (or null), s: standings() (or null)
+exports.announce = async (client, p, s) => {
     const channelId = testing ? test_channel : announce_channel
-    if (!p || !channelId) return
+    if ((!p && !s) || !channelId) return
     const channel = await client.channels.fetch(channelId).catch(() => null)
     if (!channel) return
+    if (!p) return channel.send({ content: standingsText(s, true), allowedMentions: { parse: [] }, components: [viewButton('arcade_category_overview')] })
     const time = p.proof ? `[**\`${fmt(p.time)}\`**](<${p.proof}>)` : `**\`${fmt(p.time)}\`**`
     const board = `**${p.item.name}**${p.kind == 'scenario' ? ' (scenario)' : ''}`
     const text = p.lowered
@@ -121,9 +149,8 @@ exports.announce = async (client, p) => {
             p.passed.length && `passing ${p.passed.map(u => `${records.who(u)}`).join(' and ')}`,
             p.dropped && !p.passed.includes(p.dropped) && `bumping ${records.who(p.dropped)} off the podium`].filter(Boolean).join(', ')
     await channel.send({
-        content: text,
+        content: text + (s ? standingsText(s, false) : ''),
         allowedMentions: { parse: [] },
-        components: [new ActionRowBuilder().addComponents(new ButtonBuilder()
-            .setCustomId(p.kind == 'arcade' ? `arcade_event_${p.item.id}` : `scenario_${p.item.id}`).setLabel('View board').setStyle(ButtonStyle.Secondary))],
+        components: [viewButton(p.kind == 'arcade' ? `arcade_event_${p.item.id}` : `scenario_${p.item.id}`)],
     })
 }

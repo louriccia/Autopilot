@@ -450,6 +450,14 @@ def main():
     emojis.add("credits", ui_icons / "T_UI_CreditCurrency_Icn.png")  # the credits currency
     emojis.add("bounty", ui_icons / "T_UI_Risk_Targeted_Icn.png")  # bounties: the game's targeted marker
     emojis.add("tick", ui_icons / "T_UI_Tick_Icn.png")  # a board you have a time on, but outside the top 10 (event menus)
+    # The cumulative boards' Podiums view: the game's Position keyword (a racer on a step), trimmed of the wide empty
+    # border it has and centred on a square so it isn't tiny on a button
+    podium = Image.open(ui_icons / "Keywords" / "T_UI_Keyword_Position_Icn.png").convert("RGBA")
+    podium = podium.crop(podium.getchannel("A").point(lambda a: 255 if a > 20 else 0).getbbox())
+    side = max(podium.size) + 4
+    square = Image.new("RGBA", (side, side))
+    square.alpha_composite(podium, ((side - podium.width) // 2, (side - podium.height) // 2))
+    emojis.add_image("podium", square.resize((128, 128), Image.LANCZOS))
     # Show / hide details: the game's worn filled triangle (it points left), turned to point down and up
     chevron = Image.open(ui_icons / "T_UI_Arrow_Icn.png").convert("RGBA")
     chevron = chevron.crop(chevron.getbbox())

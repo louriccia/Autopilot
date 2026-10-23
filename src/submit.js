@@ -66,6 +66,9 @@ exports.submit = async ({ kind, target, member, memberId, racer, time: rawTime, 
     const existing = records.allTimes().find(t => t.kind == kind && t.target == target && t.user == user && t.time == time)
     if (existing?.platform && !picked) platform = ''
     const before = records.leaderboard(kind, target)
+    // The points standings over the main 50, around the save, for its announcement
+    const main = kind == 'arcade' && credits.aggregateEvents('main').some(e => e.id == target) && credits.aggregateEvents('main').map(e => e.id)
+    const pointsBefore = main && records.points('arcade', main)
     const { id: timeId, duplicate, updated } = await records.addTime({ kind, target, user, submittedBy: memberId, time, platform, proof, notes: exports.clean(notes).slice(0, 120), date, youtube, src: src?.run, srcUser: src?.user, srcName: src?.name })
     const board = records.leaderboard(kind, target)
     const rank = board.findIndex(t => t.user == user) + 1
@@ -74,7 +77,8 @@ exports.submit = async ({ kind, target, member, memberId, racer, time: rawTime, 
     const history = records.allTimes().filter(t => t.kind == kind && t.target == target && t.user == user).sort((a, b) => a.date - b.date)
     let receipt = progress.receipt({ item, kind, user, forSelf: user == memberId, time, platform, before, after: board, history, duplicate, updated })
     if (!duplicate && announce && member?.client) {
-        await progress.announce(member.client, progress.podium({ kind, item, user, time, proof, before, after: board })).catch(error => console.error('[podium]', error))
+        const standings = main && progress.standings({ user, before: pointsBefore, after: records.points('arcade', main) })
+        await progress.announce(member.client, progress.podium({ kind, item, user, time, proof, before, after: board }), standings).catch(error => console.error('[podium]', error))
     }
 
     // Credits (src/credits.js): what the run earns, the podium of a board it fills, and any bounty it wins (also when a
