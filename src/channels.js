@@ -43,6 +43,9 @@ async function scan(channelId, link, guild) {
         if (!match) continue
         const done = database.ref(`youtube-scan/videos/${v.id}`)
         if ((await done.get()).exists()) continue
+        // A time from speedrun.com keeps its verified run's video (src/speedrun.js), even over another upload of it
+        const fromSrc = records.allTimes().find(t => t.kind == 'arcade' && t.target == match.event.id && t.user == link.user && t.time == match.seconds && t.src)
+        if (fromSrc) { await done.set({ time: fromSrc.id, at: Date.now() }); continue }
         try {
             const r = await submit({
                 kind: 'arcade', target: match.event.id, member: member ?? { id: link.user, client: guild?.client, guild }, memberId: link.user,
