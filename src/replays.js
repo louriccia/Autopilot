@@ -56,9 +56,9 @@ const medalKey = seconds => [...seconds].sort((a, b) => a - b).map(mmss).join(' 
 const MEDALS = new Map(data.events.map(e => [medalKey(['bronze', 'silver', 'gold'].map(m => e.medals[m].seconds)), e]))
 const readMedals = times => medalKey(times.map(t => readTime(t.includes('.') ? t : `${t}.00`) ?? -1))
 
-// A time is plausible for an event between 60% of gold and 1.5x bronze, which keeps out other games' tracks that
+// A time is plausible for an event between half of gold (skips: Cavern Drift has a 26.71 on a 45s gold) and 1.5x bronze, which keeps out other games' tracks that
 // share a name and misreads
-const plausible = (event, seconds) => seconds != null && seconds >= event.medals.gold.seconds * 0.6 && seconds <= event.medals.bronze.seconds * 1.5
+const plausible = (event, seconds) => seconds != null && seconds >= event.medals.gold.seconds * 0.5 && seconds <= event.medals.bronze.seconds * 1.5
 // "01:13.59" -> 73.59; "3:54:88" (hundredths after a colon) is read as 3:54.88
 const readTime = s => records.parseTime(String(s ?? '').trim().replace(/^(\d{1,2}:\d{2}):(\d{2})$/, '$1.$2'))
 
@@ -133,9 +133,17 @@ async function readScreen(url) {
     return JSON.parse(body.choices[0].message.content)
 }
 
-// The row for a racer when a screen lists several (friend times): the one whose name matches one of theirs
+// The row for a racer when a screen lists several (friend times): the one whose name matches one of theirs, else the
+// only one containing one of them or contained in one ("TheSpacedCowboy" for SpacedCowboy; 5+ letters)
 const words1 = s => s.toLowerCase().replace(/[^a-z0-9]+/g, '')
-const rowFor = (rows, names) => rows.length == 1 ? rows[0] : rows.find(r => names.some(n => n && words1(n) == words1(r.name)))
+const rowFor = (rows, names) => {
+    if (rows.length == 1) return rows[0]
+    const keys = names.filter(Boolean).map(words1)
+    const exact = rows.find(r => keys.includes(words1(r.name)))
+    if (exact) return exact
+    const near = rows.filter(r => (n => keys.some(k => Math.min(k.length, n.length) >= 5 && (n.includes(k) || k.includes(n))))(words1(r.name)))
+    return near.length == 1 ? near[0] : undefined
+}
 
 // A read screen -> { event, seconds, title } or null. names: the racer's Discord names, to pick their row.
 exports.matchScreen = (s, names = []) => {
