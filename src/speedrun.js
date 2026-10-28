@@ -1,8 +1,10 @@
 // speedrun.com (src): the game's individual-level boards mirror ours, so verified runs there are saved here as times,
 // and cards link to the board they match ("View on src").
 // The game (SRC_GAME, default Star_Wars_Galactic_Racer) has two per-level categories, Arcade and Scenarios, each a
-// subcategory variable with a value per event / scenario (on its one level, "Event Time"); values are matched to ours by
-// name when the bot starts (load()), so nothing here hardcodes src's ids.
+// subcategory variable with a value per event / scenario (on its one level, "Event Time"), and full-game categories
+// (Any%, Sebulba%, the NG+ ones, Arcade%: real-time runs, each a board of ours, kind 'fullgame', with the run's
+// Difficulty variable kept on the time). Categories and values are matched to ours by name when the bot starts (load()),
+// so nothing here hardcodes src's ids.
 //
 // Database (the live bot only polls, since a testing copy shares the database):
 //   speedrun/users/<src user id>   { user (discord id), name (src name), linkedBy, linkedAt }: whose runs a src account's are
@@ -22,7 +24,7 @@ const GAME = process.env.SRC_GAME || 'Star_Wars_Galactic_Racer'
 const API = 'https://www.speedrun.com/api/v1'
 exports.POLL_EVERY = 10 * 60 * 1000
 
-let game = null  // { id, weblink, boards: { 'arcade:<id>': { category, level, variable, value } }, kinds: { <category id>: 'arcade' | 'scenario' }, platforms: { <value id>: 'PC' | 'PS5' | 'Xbox' } }
+let game = null  // { id, weblink, boards: { 'arcade:<id>': { category, level, variable, value } | 'fullgame:<id>': { category } }, kinds: { <category id>: 'arcade' | 'scenario' | 'fullgame' }, platforms: { <value id>: 'PC' | 'PS5' | 'Xbox' }, difficulties: { <value id>: 'Cadet'... } }
 let users = {}, runs = {}
 
 const get = async path => {
@@ -48,6 +50,18 @@ exports.load = async () => {
             if (item) boards[`${kind}:${item.id}`] = { category: category.id, level, variable: variable.id, value }
         }
     }
+    // Full-game categories, by name
+    for (const c of data.fullGame) {
+        const category = g.categories.data.find(x => x.type == 'per-game' && key(x.name) == key(c.name))
+        if (!category) continue
+        kinds[category.id] = 'fullgame'
+        boards[`fullgame:${c.id}`] = { category: category.id }
+    }
+    // The Difficulty variable's values as the game's difficulties
+    const difficulties = {}
+    for (const v of g.variables.data.filter(v => key(v.name) == 'difficulty')) {
+        for (const [id, { label }] of Object.entries(v.values.values)) difficulties[id] = data.difficulties.find(d => key(d) == key(label)) ?? null
+    }
     // The Platform variable's values as our three platforms
     const platforms = {}
     for (const v of g.variables.data.filter(v => key(v.name) == 'platform')) {
@@ -55,7 +69,7 @@ exports.load = async () => {
             platforms[id] = /PC/i.test(label) ? 'PC' : /PS|PlayStation/i.test(label) ? 'PS5' : /Xbox/i.test(label) ? 'Xbox' : ''
         }
     }
-    game = { id: g.id, weblink: g.weblink, boards, kinds, platforms }
+    game = { id: g.id, weblink: g.weblink, boards, kinds, platforms, difficulties }
     if (database) {
         database.ref('speedrun/users').on('value', s => { users = s.val() ?? {} })
         database.ref('speedrun/runs').on('value', s => { runs = s.val() ?? {} })
@@ -66,7 +80,7 @@ exports.load = async () => {
 // The src board for one of our boards ("View on src"); null until load() has run or for a board src doesn't have
 exports.boardUrl = (kind, target) => {
     const b = game?.boards[`${kind}:${target}`]
-    return b ? `${game.weblink}?x=l_${b.level}-${b.category}-${b.variable}.${b.value}` : null
+    return !b ? null : b.level ? `${game.weblink}?x=l_${b.level}-${b.category}-${b.variable}.${b.value}` : `${game.weblink}?x=${b.category}`
 }
 
 // --- accounts ---
@@ -118,22 +132,23 @@ const cleanLink = uri => {
     return link
 }
 
-// A verified src run as one of our times: { kind, target, seconds, platform, proof, date, player } or null when it isn't
-// on a board we have
+// A verified src run as one of our times: { kind, target, seconds, platform, difficulty, proof, date, player } or null
+// when it isn't on a board we have
 function asTime(run) {
     const kind = game.kinds[run.category]
-    const board = kind && Object.entries(game.boards).find(([, b]) => b.category == run.category && run.values?.[b.variable] == b.value)
+    const board = kind && Object.entries(game.boards).find(([, b]) => b.category == run.category && (!b.variable || run.values?.[b.variable] == b.value))
     if (!board || players(run).length != 1) return null
-    // The game's own clock when the run has it, else src's primary time
-    const seconds = Math.round((run.times.ingame_t || run.times.primary_t) * 100) / 100
+    // The game's own clock when the run has it, else src's primary time; full-game runs are ranked by real time
+    const seconds = Math.round((kind == 'fullgame' ? run.times.realtime_t || run.times.primary_t : run.times.ingame_t || run.times.primary_t) * 100) / 100
     if (!(seconds > 0)) return null
     const platform = Object.values(run.values ?? {}).map(v => game.platforms[v]).find(Boolean) ?? ''
+    const difficulty = Object.values(run.values ?? {}).map(v => game.difficulties[v]).find(Boolean) ?? null
     // run.date is the day it was run; the submission time when that's the same day
     const submitted = Date.parse(run.submitted ?? '')
     const date = run.date && new Date(submitted || 0).toISOString().slice(0, 10) != run.date ? Date.parse(`${run.date}T12:00:00Z`) : submitted || Date.now()
     const player = players(run)[0]
     return {
-        kind, target: board[0].split(':')[1], seconds, platform, date,
+        kind, target: board[0].split(':')[1], seconds, platform, difficulty, date,
         proof: cleanLink(run.videos?.links?.[0]?.uri) || run.weblink,
         player: player.rel == 'user' ? player.id : null,
         name: player.rel == 'user' ? player.names?.international ?? null : player.name,
@@ -158,7 +173,7 @@ async function save(run, guild, { announce }) {
         kind: t.kind, target: t.target, member: member ?? { id: user, client: guild?.client, guild }, memberId: user,
         // "1:43.67": plain seconds only parse under a minute
         time: formatTime(same?.time ?? t.seconds), platform: t.platform, keepPlatform: true, proof: t.proof, proofType: 'video',
-        notes: '', trusted: true, date: t.date, announce, pay: linked, src: { run: run.id, user: t.player, name: t.name },
+        notes: '', trusted: true, date: t.date, announce, pay: linked, src: { run: run.id, user: t.player, name: t.name }, difficulty: t.difficulty,
     })
     if (r.error) throw new Error(`run ${run.id}: ${r.error}`)
     const saved = records.allTimes().find(x => x.src == run.id)
@@ -243,13 +258,37 @@ async function verifiedSince(since) {
     }
 }
 
+// Every verified run on the full-game boards (first poll after a start): the poll ignored those categories before they
+// had boards, and its checkpoint is past them. Runs already saved are skipped (speedrun/runs), so it's cheap to repeat.
+async function fullGameRuns() {
+    const out = []
+    for (const b of Object.values(game.boards).filter(b => !b.level)) {
+        for (let offset = 0; ; offset += 200) {
+            const page = await get(`/runs?category=${b.category}&status=verified&orderby=verify-date&direction=asc&max=200&offset=${offset}&embed=players`)
+            out.push(...page.data)
+            if (page.data.length < 200) break
+        }
+    }
+    return out
+}
+let swept = false
+
 // New verified runs since the last check: saved (podiums announced), or auto-linked first. Then runs saved earlier
 // under an unlinked account get the same-run check (sameRunner) again, for a Discord time submitted after them.
 exports.poll = async guild => {
     if (!game || !database) return 0
     const checked = (await database.ref('speedrun/checked').get()).val()
-    const found = (await verifiedSince(checked ?? 0)).filter(r => game.kinds[r.category]).reverse()  // oldest first
     let saved = 0, failed = null
+    if (!swept) {
+        for (const run of await fullGameRuns()) {
+            try {
+                await autoLink(run, guild)
+                if (await save(run, guild, { announce: false })) saved++
+            } catch (error) { console.error('[speedrun]', run.weblink, error) }
+        }
+        swept = true
+    }
+    const found = (await verifiedSince(checked ?? 0)).filter(r => game.kinds[r.category]).reverse()  // oldest first
     for (const run of found) {
         try {
             await autoLink(run, guild)

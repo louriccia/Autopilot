@@ -2,6 +2,11 @@
 // re-run the importer so it stays in step with the datamine.
 const planets = require('../data/swgr/planets.json')
 const tracks = require('../data/swgr/tracks.json')
+// The multiplayer tours, each ending on a fixed final race (its board: kind 'tour')
+const tours = require('../data/swgr/tours.json')
+// speedrun.com's full-game categories (hand-maintained: they're the community's, not the game's), each a board of
+// real-time runs (kind 'fullgame'), and the campaign difficulties a run can be on
+const { difficulties, categories: fullGame } = require('../data/community/fullgame.json')
 const { categories, vehicleClasses, events } = require('../data/swgr/arcade.json')
 const scenarios = require('../data/swgr/scenarios.json')
 const { families: abilityFamilies, abilities } = require('../data/swgr/abilities.json')
@@ -28,6 +33,8 @@ const planetById = byId(planets)
 const trackById = byId(tracks)
 const eventById = byId(events)
 const categoryById = byId(categories)
+const tourById = byId(tours)
+const fullGameById = byId(fullGame)
 const scenarioById = byId(scenarios)
 const abilityById = byId(abilities)
 const vehicleById = byId(vehicles)
@@ -52,6 +59,16 @@ const partByName = Object.fromEntries(parts.map(p => [p.name, p]))
 // A part's family as a list of parts (a part without tiers is a family of one); its key is the first tier's id
 const familyOf = p => p.family.length > 1 ? p.family.map(id => partById[id]) : [p]
 
+// The cumulative arcade boards (bests summed, points, each event's podium: pages.addCumulative): the main 50 (every event
+// but the Deluxe pack's, paid extras not everyone has; the arcade's front page) and each category. id: the category
+// menu's value and an aggregate bounty's target; label: how a bounty or ledger entry names it.
+const MAIN = events.filter(e => e.category != 'Deluxe')
+const boardSets = [
+    { id: 'main', name: `All ${MAIN.length} events`, label: `all ${MAIN.length} events`, items: MAIN },
+    ...categories.map(c => ({ id: c.id, category: c, name: c.name, label: `all of ${c.name}`, items: events.filter(e => e.category == c.id) })),
+]
+const boardSetById = byId(boardSets)
+
 // Autocomplete: names that start with the query rank above names that merely contain it.
 function search(list, query, label = item => item.name) {
     const q = query.trim().toLowerCase()
@@ -72,6 +89,10 @@ module.exports = {
     events,
     categories,
     scenarios,
+    tours,
+    fullGame,
+    difficulties,
+    boardSets,
     styles,
     abilities,
     abilityFamilies,
@@ -96,6 +117,11 @@ module.exports = {
     track: id => trackById[id],
     event: id => eventById[id],
     category: id => categoryById[id],
+    tour: id => tourById[id],
+    fullGameCategory: id => fullGameById[id],
+    boardSet: id => boardSetById[id],
+    // The cumulative boards an arcade event counts toward
+    boardSetsWith: id => boardSets.filter(s => s.items.some(e => e.id == id)),
     scenario: id => scenarioById[id],
     ability: id => abilityById[id],
     vehicle: id => vehicleById[id],

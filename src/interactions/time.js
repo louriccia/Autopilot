@@ -7,13 +7,15 @@ const viewer = require('../viewer.js')
 const { database } = require('../firebase.js')
 const { submit } = require('../submit.js')
 
-// Submitting a time for an arcade event or scenario, like Botto's random challenge "Submit" button:
+// Submitting a time for an arcade event, scenario or tour (its final race), like Botto's random challenge "Submit" button:
 //   time_open_<kind>_<target>   the card's Submit time button: opens the form
 //   time_save_<kind>_<target>   the form: saves the time (src/submit.js) and redraws the card with it on the leaderboard
 // People who may submit for others (server managers, /submitter) get a "Racer" picker in the form.
 const KINDS = {
     arcade: { item: data.event, page: pages.arcadeEvent },
     scenario: { item: data.scenario, page: pages.scenarioInfo },
+    tour: { item: data.tour, page: pages.tourInfo },
+    fullgame: { item: data.fullGameCategory, page: pages.fullGameInfo },
 }
 const whisper = (interaction, content) => interaction.reply({ content, flags: MessageFlags.Ephemeral })
 
@@ -40,15 +42,20 @@ module.exports = {
             const platform = new StringSelectMenuBuilder().setCustomId('platform').setRequired(false).setMinValues(0).setMaxValues(1)
                 .setPlaceholder(forOthers ? "Leave empty for the racer's usual platform" : 'Pick a platform')
                 .addOptions(records.PLATFORMS.map(p => ({ label: p, value: p, emoji: emoji.named(`platform_${p}`), default: p == usual })))
+            // A full-game run asks for its difficulty where the others have notes (a form holds five fields)
+            const fullGame = kind == 'fullgame'
+            const difficulty = new StringSelectMenuBuilder().setCustomId('difficulty').setRequired(false).setMinValues(0).setMaxValues(1)
+                .setPlaceholder('Pick the difficulty').addOptions(data.difficulties.map(d => ({ label: d, value: d })))
             const modal = new ModalBuilder()
                 .setCustomId(`time_save_${kind}_${target}`)
                 .setTitle(`Submit a time: ${item.name}`.slice(0, 45))
                 .addLabelComponents(
-                    new LabelBuilder().setLabel('Time').setTextInputComponent(field('time', TextInputStyle.Short, { required: true, placeholder: '1:08.92 or 10892', max: 12 })),
+                    new LabelBuilder().setLabel('Time').setTextInputComponent(field('time', TextInputStyle.Short, { required: true, placeholder: fullGame ? '2:44:44.35 (real time)' : '1:08.92 or 10892', max: 12 })),
                     new LabelBuilder().setLabel('Platform').setStringSelectMenuComponent(platform),
                     new LabelBuilder().setLabel('Proof (optional)').setDescription('A link to a video or screenshot')
                         .setTextInputComponent(field('proof', TextInputStyle.Short, { placeholder: 'https://youtu.be/…', max: 200 })),
-                    new LabelBuilder().setLabel('Notes (optional)').setTextInputComponent(field('notes', TextInputStyle.Short, { max: 120 })))
+                    fullGame ? new LabelBuilder().setLabel('Difficulty').setStringSelectMenuComponent(difficulty)
+                        : new LabelBuilder().setLabel('Notes (optional)').setTextInputComponent(field('notes', TextInputStyle.Short, { max: 120 })))
             if (forOthers) {
                 modal.addLabelComponents(new LabelBuilder().setLabel('Racer').setDescription('Leave empty to submit your own time')
                     .setUserSelectMenuComponent(new UserSelectMenuBuilder().setCustomId('racer').setMinValues(0).setMaxValues(1).setRequired(false)))
@@ -60,7 +67,8 @@ module.exports = {
         const f = interaction.fields
         const racer = (() => { try { return f.getSelectedUsers('racer') } catch { return null } })()?.first()
         const result = await submit({ kind, target, member: interaction.member, memberId: member_id, racer,
-            time: f.getTextInputValue('time'), platform: f.getStringSelectValues('platform')[0], proof: f.getTextInputValue('proof'), notes: f.getTextInputValue('notes') })
+            time: f.getTextInputValue('time'), platform: f.getStringSelectValues('platform')[0], proof: f.getTextInputValue('proof'),
+            ...(kind == 'fullgame' ? { difficulty: f.getStringSelectValues('difficulty')[0] } : { notes: f.getTextInputValue('notes') }) })
         if (result.error) return whisper(interaction, result.error)
         if (interaction.isFromMessage()) {
             await interaction.update({ ...viewer.run(interaction.user.id, () => KINDS[kind].page(target, { expanded: pages.buildExpanded(interaction.message) })), attachments: [] })

@@ -25,8 +25,11 @@ Please cache rather than polling every few seconds: the times change when someon
 ## Conventions
 
 - People are keyed by **Discord user id** (a string of digits), never by name. `profiles/<id>` has the name to show.
-- **Boards**: `kind` is `arcade` (an arcade event) or `scenario`; `target` is the event or scenario id, a slug of its
-  in-game name (`landspeeder-ace`, `the-giants-graveyard`). Event names, medal times, tracks and so on are game data
+- **Boards**: `kind` is `arcade` (an arcade event), `scenario`, `tour` (a multiplayer tour's final race:
+  `multiplayer-tour`, `podracing-tour`) or `fullgame` (a speedrun.com full-game category, real time: `any`, `sebulba`,
+  `ng-any`, `ng-sebulba`, `ng-act-iii`, `ng-champion`, `arcade`); `target` is the event, scenario or tour id, a slug of
+  its in-game name (`landspeeder-ace`, `the-giants-graveyard`), or the category's id. A `fullgame` time may have
+  `difficulty` (`Cadet`, `Pilot`, `Ace`, `Champion` or `Mixed`). Event names, medal times, tracks and so on are game data
   and aren't in this database.
 - **Times** are in seconds (`70.13` is 1:10.13). The game shows hundredths: format to 2 decimals.
 - **Dates** are milliseconds since the Unix epoch.

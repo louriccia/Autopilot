@@ -1,0 +1,46 @@
+{
+  "difficulties": [
+    "Cadet",
+    "Pilot",
+    "Ace",
+    "Champion",
+    "Mixed"
+  ],
+  "categories": [
+    {
+      "id": "any",
+      "name": "Any%",
+      "description": "Win all three acts from a fresh save: an empty Log Book, no shop parts from earlier runs. Starts at Start New Campaign, ends crossing the line against Kestar's podracer."
+    },
+    {
+      "id": "sebulba",
+      "name": "Sebulba%",
+      "description": "Beat Sebulba in the last race of Act I from a fresh save. Starts at Start New Campaign, ends crossing the line against Sebulba."
+    },
+    {
+      "id": "ng-any",
+      "name": "NG+ Any%",
+      "description": "Win all three acts from the start of Act I after resetting the campaign; every upgrade, racer style and favor allowed. Ends crossing the line against Kestar's podracer."
+    },
+    {
+      "id": "ng-sebulba",
+      "name": "NG+ Sebulba%",
+      "description": "Beat Sebulba in the last race of Act I after resetting the campaign; earlier upgrades allowed. Ends crossing the line against Sebulba."
+    },
+    {
+      "id": "ng-act-iii",
+      "name": "NG+ Act III",
+      "description": "Start Act III again (at most 2,750 credits to start with) and beat Kestar. Starts at Continue on the loadout check, ends crossing the line against Kestar's podracer."
+    },
+    {
+      "id": "ng-champion",
+      "name": "NG+ Champion%",
+      "description": "Win all three acts from the start of Act I on Champion difficulty after resetting the campaign. Ends crossing the line against Kestar's podracer."
+    },
+    {
+      "id": "arcade",
+      "name": "Arcade%",
+      "description": "All 50 main arcade events in one sitting, in order from Landspeeder Ace to The Experiment, each at least bronze (retries allowed). Ranked by real time."
+    }
+  ]
+}

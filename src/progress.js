@@ -17,10 +17,7 @@ const records = require('./records.js')
 const MIN_RACERS = 5
 const MIN_POINTS_RACERS = 10, POINTS_TOP = 5
 const MEDALS = ['gold', 'silver', 'bronze']
-const fmt = s => {
-    const cs = Math.round(s * 100), m = Math.floor(cs / 6000), rest = (cs % 6000) / 100
-    return m ? `${m}:${rest.toFixed(2).padStart(5, '0')}` : rest.toFixed(2)
-}
+const fmt = records.formatTime
 const gap = (a, b) => (Math.round(Math.abs(a - b) * 100) / 100).toFixed(2)
 const place = rank => rank <= 10 ? emoji.named(`place_${rank}`) : `**#${rank}**`
 const medalOf = (item, time) => item.medals ? MEDALS.find(m => time <= item.medals[m].seconds) ?? null : null
@@ -126,7 +123,7 @@ exports.announceBounty = async (client, b) => {
     // A cumulative board's bounty is won by a total, which has no single proof to link
     const aggregate = b.kind == 'aggregate'
     const time = b.proof && !aggregate ? `[**\`${fmt(b.time)}\`**](<${b.proof}>)` : `**\`${fmt(b.time)}\`**`
-    const view = aggregate ? `arcade_category_${b.target == 'main' ? 'overview' : b.target}` : b.kind == 'arcade' ? `arcade_event_${b.target}` : `scenario_${b.target}`
+    const view = records.boardView(b.kind, b.target)
     await channel.send({
         content: `${emoji.named('bounty')} ${records.who(b.user)} claims the ${emoji.named('credits')} **${b.paid.toLocaleString('en-US')}** bounty on **${b.name ?? b.item.name}** with ${aggregate ? 'a total of ' : ''}${time}, under ${fmt(b.under)}`,
         allowedMentions: { parse: [] },
@@ -142,7 +139,7 @@ exports.announce = async (client, p, s) => {
     if (!channel) return
     if (!p) return channel.send({ content: standingsText(s, true), allowedMentions: { parse: [] }, components: [viewButton('arcade_category_overview')] })
     const time = p.proof ? `[**\`${fmt(p.time)}\`**](<${p.proof}>)` : `**\`${fmt(p.time)}\`**`
-    const board = `**${p.item.name}**${p.kind == 'scenario' ? ' (scenario)' : ''}`
+    const board = `**${p.item.name}**${p.kind == 'scenario' ? ' (scenario)' : p.kind == 'tour' ? ' (final race)' : p.kind == 'fullgame' ? ' (full game)' : ''}`
     const text = p.lowered
         ? `${place(1)} ${records.who(p.user)} lowers the ${board} record to ${time}, ${gap(p.lowered, 0)} faster`
         : [`${place(p.rank)} ${records.who(p.user)} takes **#${p.rank}** on ${board} with ${time}`,
@@ -151,6 +148,6 @@ exports.announce = async (client, p, s) => {
     await channel.send({
         content: text + (s ? standingsText(s, false) : ''),
         allowedMentions: { parse: [] },
-        components: [viewButton(p.kind == 'arcade' ? `arcade_event_${p.item.id}` : `scenario_${p.item.id}`)],
+        components: [viewButton(records.boardView(p.kind, p.item.id))],
     })
 }

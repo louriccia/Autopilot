@@ -9,11 +9,8 @@ const emoji = require('../data/discord/emoji.js')
 // managers and /submitter people can remove anyone's. The entry is picked from an autocomplete of the times you
 // may remove, searchable by event, scenario, time or racer.
 const reply = (interaction, content) => interaction.reply({ content, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } })
-const nameOf = t => (t.kind == 'arcade' ? data.event(t.target) : data.scenario(t.target))?.name ?? t.target
-const formatTime = s => {
-    const cs = Math.round(s * 100), m = Math.floor(cs / 6000), rest = (cs % 6000) / 100
-    return m ? `${m}:${rest.toFixed(2).padStart(5, '0')}` : rest.toFixed(2)
-}
+const nameOf = t => ({ arcade: data.event, scenario: data.scenario, tour: data.tour, fullgame: data.fullGameCategory }[t.kind]?.(t.target))?.name ?? t.target
+const formatTime = records.formatTime
 // What a member may remove: their own times, or everyone's if they can submit for others
 const removable = interaction => {
     const all = records.allTimes()

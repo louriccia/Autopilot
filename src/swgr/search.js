@@ -170,6 +170,20 @@ const KINDS = [
         keywords: () => ['events', 'medals'],
         page: () => pages.arcadeOverview(),
     },
+    {
+        kind: 'tour',
+        items: () => data.tours,
+        label: t => `${t.name} — Multiplayer · final race on ${data.track(t.final.track).name}`,
+        keywords: t => ['multiplayer', 'tour', 'leaderboard', data.track(t.final.track).name, data.planet(t.final.planet).name],
+        page: pages.tourInfo,
+    },
+    {
+        kind: 'fullgame',
+        items: () => data.fullGame,
+        label: c => `${c.name} — Full-game speedrun · real time`,
+        keywords: c => ['speedrun', 'full game', 'rta', 'speedrun.com', c.description],
+        page: pages.fullGameInfo,
+    },
 ]
 const byKind = Object.fromEntries(KINDS.map(k => [k.kind, k]))
 

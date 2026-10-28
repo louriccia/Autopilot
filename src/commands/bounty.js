@@ -17,7 +17,7 @@ module.exports = {
         .setName('bounty')
         .setDescription('put credits on a board (an event, a scenario or a total) for the first time under a target')
         .addSubcommand(sub => sub.setName('post').setDescription('post a bounty from your credits')
-            .addStringOption(o => o.setName('board').setDescription('the arcade event or scenario').setRequired(true).setAutocomplete(true))
+            .addStringOption(o => o.setName('board').setDescription('the arcade event, scenario, tour or total').setRequired(true).setAutocomplete(true))
             .addStringOption(o => o.setName('under').setDescription('the time to beat, e.g. 1:08.50').setRequired(true))
             .addIntegerOption(o => o.setName('credits').setDescription('how many credits (at least 100)').setRequired(true).setMinValue(100)))
         .addSubcommand(sub => sub.setName('add').setDescription('add credits to an open bounty')
@@ -38,7 +38,7 @@ module.exports = {
         }
         // post
         const [kind, target] = interaction.options.getString('board').split(':')
-        const exists = kind == 'aggregate' ? target == 'main' || data.category(target) : kind == 'arcade' ? data.event(target) : data.scenario(target)
+        const exists = { aggregate: data.boardSet, arcade: data.event, scenario: data.scenario, tour: data.tour, fullgame: data.fullGameCategory }[kind]?.(target)
         if (!target || !exists) return reply(interaction, 'Pick a board from the list.')
         const under = records.parseTime(interaction.options.getString('under'))
         if (under == null) return reply(interaction, "That isn't a time. Use minutes:seconds like 1:08.50, or just the digits like 10850.")
@@ -52,9 +52,9 @@ module.exports = {
             return interaction.respond(credits.openBounties().map(b => ({ name: `${b.pot} credits: ${boardName(b.kind, b.target)} under ${formatTime(b.under)}`.slice(0, 100), value: b.id }))
                 .filter(o => o.name.toLowerCase().includes(q)).slice(0, 25))
         }
-        // Every board a bounty can go on: the cumulative ones (all 50, each category) and each event and scenario
-        const aggregate = [{ value: 'aggregate:main', name: 'All 50 events (total time)' },
-            ...data.categories.map(c => ({ value: `aggregate:${c.id}`, name: `All of ${c.name} (total time)` }))]
+        // Every board a bounty can go on: the cumulative ones (all 50, each category) and each event, scenario, tour and
+        // full-game category
+        const aggregate = data.boardSets.map(s => ({ value: `aggregate:${s.id}`, name: `${s.label[0].toUpperCase()}${s.label.slice(1)} (total time)` }))
         await interaction.respond([...aggregate, ...boards()].filter(b => b.name.toLowerCase().includes(q)).slice(0, 25))
     },
 }

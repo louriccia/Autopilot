@@ -6,17 +6,21 @@
 //                                         far as we know (the earlier of upload and post for replays; else when saved)
 //   youtube/<channel id>                { user, name, linkedBy, linkedAt }: whose runs a YouTube channel's videos are
 //   rivals/<discord id>                 { rival (discord id), setAt }: the racer they measure themselves against
+//   gamertags/<discord id>/<key>        an in-game name of theirs, as a screenshot showed it: a tour results row picked
+//                                       by its person icon (src/replays.js), so their next screenshot is matched by name
 //   feedback/<kind>/<target>/<user>     { rating: up | neutral | down, date }
 //   submitters/<discord id>             { addedBy, addedAt }: may submit times for other people
 //   staff/<event id>/<name>              { seconds, from: developer | publisher }: staff times on arcade cards
 //                                       (by name: staff aren't necessarily on the server; /times staff)
-// kind is 'arcade' (target = event id) or 'scenario' (target = scenario id). Pages read the in-memory copies below,
+// kind is 'arcade' (target = event id), 'scenario' (target = scenario id), 'tour' (target = tour id: its final race,
+// data/swgr/tours.json) or 'fullgame' (target = a speedrun.com full-game category, data/community/fullgame.json: a
+// real-time run, with the campaign difficulty it was on as difficulty). Pages read the in-memory copies below,
 // kept current by listeners that start with the bot (listen()), so building a card never waits on the database.
 const { PermissionFlagsBits } = require('discord.js')
 const { database } = require('./firebase.js')
 const { submitter_roles } = require('./data/discord/guild.js')
 
-let times = {}, feedback = {}, submitters = {}, staff = {}, youtube = {}, rivals = {}
+let times = {}, feedback = {}, submitters = {}, staff = {}, youtube = {}, rivals = {}, gamertags = {}
 exports.listen = () => {
     if (!database) return
     database.ref('times').on('value', s => { times = s.val() ?? {} })
@@ -25,6 +29,7 @@ exports.listen = () => {
     database.ref('staff').on('value', s => { staff = s.val() ?? {} })
     database.ref('youtube').on('value', s => { youtube = s.val() ?? {} })
     database.ref('rivals').on('value', s => { rivals = s.val() ?? {} })
+    database.ref('gamertags').on('value', s => { gamertags = s.val() ?? {} })
 }
 
 // "1:08.92", "68.92", "1:01:08.9" -> seconds to the hundredth (the game's precision); null if it isn't a time.
@@ -32,8 +37,10 @@ exports.listen = () => {
 // "1:10:00" -> 1:10.00 (no run takes an hour).
 // Digits alone get the separators by length, from the right (hundredths, seconds, minutes, hours):
 // "5555" -> 55.55, "10329" -> 1:03.29, "1010329" -> 1:01:03.29
-exports.parseTime = text => {
-    let s = String(text ?? '').trim().replace(/^(\d{1,2}):(\d{2}):(\d{2})$/, '$1:$2.$3')
+// hours: a full-game run, where three parts are hours:minutes:seconds ("2:44:44").
+exports.parseTime = (text, { hours = false } = {}) => {
+    let s = String(text ?? '').trim()
+    if (!hours) s = s.replace(/^(\d{1,2}):(\d{2}):(\d{2})$/, '$1:$2.$3')
     if (/^\d{3,8}$/.test(s)) {
         const hu = s.slice(-2), sec = s.slice(-4, -2), mi = s.slice(-6, -4), h = s.slice(0, -6)
         s = [h, mi, sec].filter(Boolean).join(':') + '.' + hu
@@ -44,6 +51,14 @@ exports.parseTime = text => {
     if ((m[1] != null && Number(m[3]) >= 60) || (m[2] != null && mi >= 60)) return null  // "1:75" isn't a time
     const seconds = h * 3600 + mi * 60 + Number(m[3])
     return seconds > 0 && seconds < 24 * 3600 ? Math.round(seconds * 100) / 100 : null
+}
+
+// Seconds -> the game's time format, to hundredths: 70.41 -> "1:10.41", 56.84 -> "56.84"; full-game runs and totals
+// past an hour get hours: 9884.35 -> "2:44:44.35"
+exports.formatTime = s => {
+    const cs = Math.round(s * 100), h = Math.floor(cs / 360000), m = Math.floor(cs / 6000) % 60, rest = (cs % 6000) / 100
+    const sec = rest.toFixed(2).padStart(5, '0')
+    return h ? `${h}:${String(m).padStart(2, '0')}:${sec}` : m ? `${m}:${sec}` : rest.toFixed(2)
 }
 
 // Each person's best time, fastest first
@@ -130,12 +145,12 @@ const replaces = (f, next, old) => !(f == 'proof' && exports.isVideo(old) && !ex
 // it in. None of those counts as an updated detail.
 exports.addTime = async entry => {
     entry = { ...entry, date: entry.date ?? Date.now() }
-    for (const f of ['youtube', 'src', 'srcUser', 'srcName']) if (!entry[f]) delete entry[f]
+    for (const f of ['youtube', 'src', 'srcUser', 'srcName', 'difficulty']) if (!entry[f]) delete entry[f]
     const same = Object.entries(times).find(([, t]) => t.kind == entry.kind && t.target == entry.target && t.user == entry.user && t.time == entry.time)
     if (same) {
         const [id, old] = same
         const changes = Object.fromEntries(DETAILS.filter(f => entry[f] && entry[f] != old[f] && replaces(f, entry[f], old[f])).map(f => [f, entry[f]]))
-        const quiet = { ...(entry.date < old.date ? { date: entry.date } : {}), ...Object.fromEntries(['youtube', 'src', 'srcUser', 'srcName'].filter(f => entry[f] && !old[f]).map(f => [f, entry[f]])) }
+        const quiet = { ...(entry.date < old.date ? { date: entry.date } : {}), ...Object.fromEntries(['youtube', 'src', 'srcUser', 'srcName', 'difficulty'].filter(f => entry[f] && !old[f]).map(f => [f, entry[f]])) }
         if (Object.keys(changes).length || Object.keys(quiet).length) {
             await database.ref(`times/${id}`).update({ ...changes, ...quiet })
             times[id] = { ...old, ...changes, ...quiet }
@@ -161,6 +176,13 @@ exports.who = user => {
     return name ? `[${plain(name)}](<https://www.speedrun.com/users/${encodeURIComponent(name)}>)` : 'a speedrun.com runner'
 }
 
+// The custom id of a board's card, for "View board" buttons (announcements, replies): an event, scenario or tour, or a
+// cumulative board (aggregate, target 'main', the arcade's front page, or a category id)
+exports.boardView = (kind, target) => ({
+    arcade: `arcade_event_${target}`, scenario: `scenario_${target}`, tour: `tour_${target}`, fullgame: `fullgame_${target}`,
+    aggregate: `arcade_category_${target == 'main' ? 'overview' : target}`,
+})[kind]
+
 // Declared rivals (/times rival): one each; null clears
 exports.rivalOf = user => rivals[user]?.rival ?? null
 exports.setRival = async (user, rival) => {
@@ -168,6 +190,15 @@ exports.setRival = async (user, rival) => {
     await database.ref(`rivals/${user}`).set(value)
     if (value) rivals[user] = value
     else delete rivals[user]
+}
+
+// In-game names seen for a racer (gamertags/)
+exports.gamertagsOf = user => Object.values(gamertags[user] ?? {})
+exports.addGamertag = async (user, name) => {
+    const key = name.toLowerCase().replace(/[.#$\[\]/\s]+/g, '_')
+    if (!database || !exports.isDiscord(user) || gamertags[user]?.[key]) return
+    await database.ref(`gamertags/${user}/${key}`).set(name)
+    ;(gamertags[user] ??= {})[key] = name
 }
 
 // YouTube channels -> Discord ids (src/replays.js credits a channel's videos to its owner)

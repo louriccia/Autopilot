@@ -36,10 +36,7 @@ const BACKER_HOLD = DAY
 
 const MAIN = () => data.events.filter(e => e.category != 'Deluxe')
 const MEDALS = ['bronze', 'silver', 'gold']
-const fmt = s => {
-    const cs = Math.round(s * 100), m = Math.floor(cs / 6000), rest = (cs % 6000) / 100
-    return m ? `${m}:${rest.toFixed(2).padStart(5, '0')}` : rest.toFixed(2)
-}
+const fmt = records.formatTime
 
 let ledger = {}, balances = {}, backers = {}, bounties = {}, fills = {}
 exports.listen = () => {
@@ -235,15 +232,15 @@ exports.openBounties = (kind, target) => Object.entries(bounties).map(([id, b]) 
 exports.bounty = id => bounties[id] ? { id, ...bounties[id] } : null
 const BOUNTY_DAYS = 14, BOUNTY_FEE = 0.05, BOUNTY_MIN = 100
 
-// Bounty boards: an arcade event or scenario (kind arcade | scenario, target its id), or a cumulative leaderboard
-// (kind aggregate, target 'main' for all the main events or a category id), won by a racer's total across its events
-exports.aggregateEvents = target => target == 'main' ? MAIN() : data.eventsInCategory(target)
-exports.boardName = (kind, target) => kind == 'aggregate'
-    ? (target == 'main' ? `all ${MAIN().length} events` : `all of ${data.category(target)?.name ?? target}`)
-    : (kind == 'arcade' ? data.event(target) : data.scenario(target))?.name ?? target
+// Bounty boards: an arcade event, scenario, tour or full-game category (kind arcade | scenario | tour | fullgame, target
+// its id), or a cumulative leaderboard (kind aggregate, target a data.boardSet id: 'main' for all the main events or a
+// category id), won by a racer's total across its events
+const setTotal = (set, user) => records.cumulative('arcade', set.items.map(e => e.id)).ranked.find(t => t.user == user)?.time
+exports.boardName = (kind, target) => kind == 'aggregate' ? data.boardSet(target)?.label ?? target
+    : ({ arcade: data.event, scenario: data.scenario, tour: data.tour, fullgame: data.fullGameCategory }[kind]?.(target))?.name ?? target
 // The best time (or total) on a bounty board so far
 exports.bestOn = (kind, target) => kind == 'aggregate'
-    ? records.cumulative('arcade', exports.aggregateEvents(target).map(e => e.id)).ranked[0]?.time ?? null
+    ? (set => set && records.cumulative('arcade', set.items.map(e => e.id)).ranked[0]?.time)(data.boardSet(target)) ?? null
     : records.leaderboard(kind, target)[0]?.time ?? null
 
 // Posts a bounty for a time under `under` on a board, held from the poster's balance. Returns { id } or { error }.
@@ -276,10 +273,10 @@ exports.claimBounties = async ({ kind, target, user, time, proof, proofHint, mem
     const won = []
     // The board's own bounties, by this time; and, for an arcade event, the cumulative boards it belongs to, by the
     // racer's total across them once they have every one
-    const aggregate = kind == 'arcade' ? exports.openBounties().filter(b => b.kind == 'aggregate' && exports.aggregateEvents(b.target).some(e => e.id == target)) : []
+    const sets = new Set(kind == 'arcade' ? data.boardSetsWith(target).map(s => s.id) : [])
     const candidates = [
         ...exports.openBounties(kind, target).map(b => ({ b, score: time })),
-        ...aggregate.map(b => ({ b, score: records.cumulative('arcade', exports.aggregateEvents(b.target).map(e => e.id)).ranked.find(t => t.user == user)?.time })),
+        ...exports.openBounties().filter(b => b.kind == 'aggregate' && sets.has(b.target)).map(b => ({ b, score: setTotal(data.boardSet(b.target), user) })),
     ]
     for (const { b, score } of candidates) {
         if (score == null || score >= b.under || b.funders?.[user]) continue

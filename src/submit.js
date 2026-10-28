@@ -10,16 +10,15 @@ const emoji = require('./data/discord/emoji.js')
 const BOARDS = {
     arcade: { item: data.event },
     scenario: { item: data.scenario },
+    tour: { item: data.tour },  // its final race
+    fullgame: { item: data.fullGameCategory },  // a speedrun.com full-game category, real time
 }
 exports.board = (kind, target) => BOARDS[kind]?.item(target) ?? null
 
 // Free text that ends up on a leaderboard line: no markdown, mentions or line breaks
 exports.clean = s => String(s ?? '').replace(/[`*_~|<>\\]/g, '').replace(/@(everyone|here)/gi, '$1').replace(/\s+/g, ' ').trim()
 
-exports.formatTime = s => {
-    const cs = Math.round(s * 100), m = Math.floor(cs / 6000), rest = (cs % 6000) / 100
-    return m ? `${m}:${rest.toFixed(2).padStart(5, '0')}` : rest.toFixed(2)
-}
+exports.formatTime = records.formatTime
 
 // Returns { error } or { message, receipt, duplicate, updated }: message is a one-line summary (logs, imports), receipt
 // the submitter's private reply (src/progress.js). A save that changes a big enough board's top 3 is announced
@@ -29,13 +28,15 @@ exports.formatTime = s => {
 // empty instead of filling in the racer's usual one (imports).
 // proofType: 'video' | 'screenshot' | 'claim' when the caller knows better than the proof link (a typed claim's proof is
 // its message link; a screenshot post's too). pay: false skips credits (backfills that pay separately).
-// src: { run, user, name }, the speedrun.com run and account the time comes from (src/speedrun.js).
-exports.submit = async ({ kind, target, member, memberId, racer, time: rawTime, platform, proof, notes, trusted, date, youtube, keepPlatform, announce = true, proofType, pay = true, src }) => {
+// src: { run, user, name }, the speedrun.com run and account the time comes from (src/speedrun.js). difficulty: a
+// full-game run's campaign difficulty (data.difficulties).
+exports.submit = async ({ kind, target, member, memberId, racer, time: rawTime, platform, proof, notes, trusted, date, youtube, keepPlatform, announce = true, proofType, pay = true, src, difficulty }) => {
     if (!database) return { error: "Times can't be saved right now (no database)." }
     const item = exports.board(kind, target)
-    if (!item) return { error: "That isn't an arcade event or scenario." }
-    const time = records.parseTime(rawTime)
-    if (time == null) return { error: `"${exports.clean(rawTime)}" isn't a time. Use minutes:seconds like 1:08.92, or just the digits like 10892.` }
+    if (!item) return { error: "That isn't an arcade event, scenario, tour or speedrun category." }
+    const time = records.parseTime(rawTime, { hours: kind == 'fullgame' })
+    if (time == null) return { error: kind == 'fullgame' ? `"${exports.clean(rawTime)}" isn't a time. Use hours:minutes:seconds like 2:44:44.35.` : `"${exports.clean(rawTime)}" isn't a time. Use minutes:seconds like 1:08.92, or just the digits like 10892.` }
+    if (!data.difficulties.includes(difficulty)) difficulty = null
     proof = String(proof ?? '').trim()
     if (proof && !/^https?:\/\/\S+$/i.test(proof)) return { error: 'The proof needs to be a link (starting with https://).' }
     let user = memberId
@@ -67,9 +68,9 @@ exports.submit = async ({ kind, target, member, memberId, racer, time: rawTime, 
     if (existing?.platform && !picked) platform = ''
     const before = records.leaderboard(kind, target)
     // The points standings over the main 50, around the save, for its announcement
-    const main = kind == 'arcade' && credits.aggregateEvents('main').some(e => e.id == target) && credits.aggregateEvents('main').map(e => e.id)
+    const main = kind == 'arcade' && data.boardSetsWith(target).some(s => s.id == 'main') && data.boardSet('main').items.map(e => e.id)
     const pointsBefore = main && records.points('arcade', main)
-    const { id: timeId, duplicate, updated } = await records.addTime({ kind, target, user, submittedBy: memberId, time, platform, proof, notes: exports.clean(notes).slice(0, 120), date, youtube, src: src?.run, srcUser: src?.user, srcName: src?.name })
+    const { id: timeId, duplicate, updated } = await records.addTime({ kind, target, user, submittedBy: memberId, time, platform, proof, notes: exports.clean(notes).slice(0, 120), date, youtube, src: src?.run, srcUser: src?.user, srcName: src?.name, difficulty: kind == 'fullgame' ? difficulty : null })
     const board = records.leaderboard(kind, target)
     const rank = board.findIndex(t => t.user == user) + 1
     const best = board[rank - 1]

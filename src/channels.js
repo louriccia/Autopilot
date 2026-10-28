@@ -1,6 +1,6 @@
 // YouTube channels linked to racers (youtube/, src/replays.js and /times youtube) are scanned for runs nobody posted:
-// every upload whose title names one arcade event and a plausible time (replays.matchTitle, as for a posted link) is
-// saved through src/submit.js for the channel's owner, the video as proof, dated by its upload. A repeat of a time
+// every upload whose title names one arcade event and a plausible time, or a tour's final (replays.matchVideoTitle, as
+// for a posted link), is saved through src/submit.js for the channel's owner, the video as proof, dated by its upload. A repeat of a time
 // already saved only fills in what's new (a video over a screenshot), as usual.
 // Uses the YouTube Data API (YOUTUBE_API_KEY): a channel's uploads playlist, 50 videos a quota unit. Until a scan has
 // gone through all of a channel's uploads without a failure, it reads them all and announces nothing (a backfill);
@@ -34,21 +34,22 @@ async function uploads(channelId, { all }) {
 async function scan(channelId, link, guild) {
     const state = (await database.ref(`youtube-scan/channels/${channelId}`).get()).val()
     const found = (await uploads(channelId, { all: !state?.backfilled })).filter(v => v.uploaded > (state?.checked ?? 0)).sort((a, b) => a.uploaded - b.uploaded)
-    const { matchTitle } = require('./replays.js')
+    const { matchVideoTitle } = require('./replays.js')
     const { submit, formatTime } = require('./submit.js')
     const member = await guild?.members.fetch(link.user).catch(() => null)
     let saved = 0, failed = null
     for (const v of found) {
-        const match = matchTitle(v.title)
+        const match = matchVideoTitle(v.title)
         if (!match) continue
+        const [kind, item] = match.tour ? ['tour', match.tour] : ['arcade', match.event]  // an arcade event or a tour final
         const done = database.ref(`youtube-scan/videos/${v.id}`)
         if ((await done.get()).exists()) continue
         // A time from speedrun.com keeps its verified run's video (src/speedrun.js), even over another upload of it
-        const fromSrc = records.allTimes().find(t => t.kind == 'arcade' && t.target == match.event.id && t.user == link.user && t.time == match.seconds && t.src)
+        const fromSrc = records.allTimes().find(t => t.kind == kind && t.target == item.id && t.user == link.user && t.time == match.seconds && t.src)
         if (fromSrc) { await done.set({ time: fromSrc.id, at: Date.now() }); continue }
         try {
             const r = await submit({
-                kind: 'arcade', target: match.event.id, member: member ?? { id: link.user, client: guild?.client, guild }, memberId: link.user,
+                kind, target: item.id, member: member ?? { id: link.user, client: guild?.client, guild }, memberId: link.user,
                 racer: { id: link.user, bot: false }, trusted: true, time: formatTime(match.seconds), proof: `https://youtu.be/${v.id}`,
                 proofType: 'video', date: v.uploaded, youtube: channelId, announce: !!state?.backfilled,
             })

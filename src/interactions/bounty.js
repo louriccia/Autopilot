@@ -11,12 +11,14 @@ const { racerOf } = require('../commands/timesheet.js')
 //   bounty_open_<kind>_<target>   opens the form: the time to beat and the credits
 //   bounty_save_<kind>_<target>   posts it from the poster's balance, redraws the card with the bounty on it and
 //                                 announces it in the channel
-// kind: arcade | scenario (target: its id), or aggregate (a cumulative leaderboard: target 'main' or a category id)
+// kind: arcade | scenario | tour | fullgame (target: its id), or aggregate (a cumulative leaderboard: target 'main' or a category id)
 const BOARDS = {
     arcade: { exists: data.event, page: (target, interaction) => pages.arcadeEvent(target, { expanded: pages.buildExpanded(interaction.message) }) },
     scenario: { exists: data.scenario, page: (target, interaction) => pages.scenarioInfo(target, { expanded: pages.buildExpanded(interaction.message) }) },
+    tour: { exists: data.tour, page: target => pages.tourInfo(target) },
+    fullgame: { exists: data.fullGameCategory, page: target => pages.fullGameInfo(target) },
     aggregate: {
-        exists: target => target == 'main' || data.category(target),
+        exists: data.boardSet,
         page: async (target, interaction) => target == 'main' ? pages.arcadeOverview(await racerOf(interaction, interaction.user.id)) : pages.arcadeCategory(target),
     },
 }

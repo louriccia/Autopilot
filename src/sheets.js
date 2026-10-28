@@ -10,11 +10,12 @@ const { submit, formatTime, clean } = require('./submit.js')
 exports.HEADERS = ['entry_id', 'kind', 'board', 'board_name', 'discord_id', 'username', 'time', 'seconds', 'platform', 'proof', 'notes', 'date', 'submitted_by']
 const MAX_ROWS = 5000
 
-const boardOf = (kind, id) => kind == 'arcade' ? data.event(id) : kind == 'scenario' ? data.scenario(id) : null
+const BOARDS = { arcade: data.events, scenario: data.scenarios, tour: data.tours, fullgame: data.fullGame }
+const boardOf = (kind, id) => BOARDS[kind]?.find(x => x.id == id) ?? null
 const boardByName = name => {
     const n = String(name ?? '').trim().toLowerCase()
-    const arcade = data.events.find(e => e.name.toLowerCase() == n), scenario = data.scenarios.find(s => s.name.toLowerCase() == n)
-    return arcade ? ['arcade', arcade] : scenario ? ['scenario', scenario] : []
+    for (const [kind, list] of Object.entries(BOARDS)) { const hit = list.find(x => x.name.toLowerCase() == n); if (hit) return [kind, hit] }
+    return []
 }
 
 // --- CSV ---

@@ -7,7 +7,7 @@ const { database } = require('../firebase.js')
 
 // Feedback on an arcade event or scenario, like Botto's thumbs: rate_<kind>_<target>_<up|neutral|down>. Anyone can
 // rate (no time needed); one rating per person, pressing it again takes it back. The card redraws with the counts.
-const PAGE = { arcade: [data.event, pages.arcadeEvent], scenario: [data.scenario, pages.scenarioInfo] }
+const PAGE = { arcade: [data.event, pages.arcadeEvent], scenario: [data.scenario, pages.scenarioInfo], tour: [data.tour, pages.tourInfo], fullgame: [data.fullGameCategory, pages.fullGameInfo] }
 
 module.exports = {
     name: 'rate',

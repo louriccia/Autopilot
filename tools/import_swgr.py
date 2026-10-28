@@ -453,9 +453,12 @@ def achievements(game, loc, emojis):
     for key, row in table.items():
         st = steam.get(row["BackendId"], {})
         name = text.get(key) or text.get(f"{key}_Title") or st.get("name")
-        icon = st.get("icon_achieved") and STEAM_CACHE / st["icon_achieved"].rsplit("/", 1)[1]
+        # a full URL, or (the page since 2026-10) just the file name under the app's community images
+        url = st.get("icon_achieved") and (st["icon_achieved"] if "/" in st["icon_achieved"]
+                                           else f"https://cdn.fastly.steamstatic.com/steamcommunity/public/images/apps/{STEAM_APP}/{st['icon_achieved']}")
+        icon = url and STEAM_CACHE / url.rsplit("/", 1)[1]
         if icon and not icon.exists():  # named by its content hash, so a cached copy is current
-            fetch(st["icon_achieved"], icon)
+            fetch(url, icon)
         icon = icon if icon and icon.exists() else None
         group = next(g for g in ACHIEVEMENT_GROUPS if any(key.startswith(p) for p in g[2]))
         out.append({
@@ -2266,7 +2269,36 @@ def main():
         r["favors"] = [f["id"] for f in favors_out if f["character"] == r["name"]]
         r["rival"] = next((x["id"] for x in rivals_out if x["name"] == r["name"]), None)
 
-    for name, data in [("planets", planets), ("tracks", tracks),
+    # --- multiplayer tours ---
+    # The Multiplayer Tour (DA_PvpRunDef) and the Podracing Tour (DA_PvpPlaneRunDef): a race on each planet of their
+    # TourDef in order, each drawn from the planet's track pool, except the last planet's, which has one track: the final
+    # is always the same race (The Galactic Gauntlet at night; Mos Espa Speedway), so its time is a fair board. The
+    # Podracing Tour's first five stops are racing memories (PLA_Mystery) across several planets.
+    planet_by_code = {p["codename"]: p["id"] for p in planets}
+    tours_out = []
+    for run in ("DA_PvpRunDef", "DA_PvpPlaneRunDef"):
+        rprops = load_json(pvp / f"{run}.json")[0]["Properties"]
+        tdef = rprops["Tour"]["ObjectName"].split("'")[1]
+        stops = []
+        for pl in load_json(pvp / "Tours" / f"{tdef}.json")[0]["Properties"]["Planets"]:
+            sprops = load_json(pvp / "Tours" / "Planets" / f"{pl['ObjectName'].split(chr(39))[1]}.json")[0]["Properties"]
+            code = sprops["PlanetPresentation"]["ObjectName"].split("'")[1].removeprefix("PLA_")
+            entries = [(x["Track"]["ObjectName"].split("'")[1], x.get("TrackConditionsOverride") or []) for x in sprops["Tracks"]]
+            names = list(dict.fromkeys(route_of[a.lower()]["TrackName"] for a, _ in entries if a.lower() in route_of))
+            stops.append({"planet": planet_by_code.get(code),  # None for a racing memory
+                          "tracks": [track_id[n] for n in names if n in track_id],
+                          "conditions": sorted({cond(c.removeprefix("TrackCondition.")) for _, cs in entries for c in cs}),
+                          "laps": track_laps(entries[0][0]) if len(entries) and len({a for a, _ in entries}) == 1 else None})
+        final = stops[-1]
+        tours_out.append({
+            "id": slug(rprops["PlayerFacingName"]["LocalizedString"]),
+            "name": rprops["PlayerFacingName"]["LocalizedString"],
+            "vehicles": "Podracer" if "ForceVehicleTypeOnAllPlayers" in rprops else "Speeders",
+            "stops": stops[:-1],
+            "final": {"planet": final["planet"], "track": final["tracks"][0], "conditions": final["conditions"], "laps": final["laps"]},
+        })
+
+    for name, data in [("planets", planets), ("tracks", tracks), ("tours", tours_out),
                        ("arcade", {"categories": categories, "vehicleClasses": vehicle_classes, "events": arcade}),
                        ("scenarios", scenarios_out), ("styles", styles_out), ("parts", {"keywords": keywords_out, "parts": parts_out}),
                        ("abilities", {"families": ability_families, "abilities": abilities_out}),

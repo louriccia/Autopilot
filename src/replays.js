@@ -8,7 +8,9 @@
 //   Screenshots    read by an OpenAI vision model (OPENAI_API_KEY, OPENAI_MODEL): an arcade results screen is
 //                  identified by its three medal times (unique per event) and records its leaderboard row's time (the
 //                  game stores that, a hundredth off the big SUCCESS time at times); an event card by its name and its
-//                  one best time. Credited to the poster, or to the one person a submitter mentions. Proof is the post.
+//                  one best time; a multiplayer Tour Completed screen by its player row (the person icon), saved on
+//                  that tour's final-race board (which tour: tourOf). Credited to the poster, or to the one person a
+//                  submitter mentions. Proof is the post.
 // Forwarded messages count too: their links and images are read from the forwarded copy, and the original message
 // is looked up for its author and time. Anything else (campaign runs, chat, a title naming no event or two) is left
 // alone. Needs the GuildMessages and Message Content (privileged) intents.
@@ -22,6 +24,8 @@ const pages = require('./swgr/pages.js')
 const records = require('./records.js')
 
 const VIDEO = /(?:youtube\.com\/(?:watch\?(?:\S*?&)?v=|shorts\/|live\/)|youtu\.be\/)([\w-]{11})/g
+// A Twitch video (a past broadcast or highlight): its id
+const TWITCH = /twitch\.tv\/(?:\w+\/)?videos\/(\d+)/g
 const VISION_MODEL = process.env.OPENAI_MODEL || 'gpt-5.4-mini'
 // Lowercase words separated by single spaces, padded so names only match whole words
 // (apostrophes dropped, so "Scrappers Run" matches "Scrapper's Run")
@@ -60,7 +64,7 @@ const readMedals = times => medalKey(times.map(t => readTime(t.includes('.') ? t
 // share a name and misreads
 const plausible = (event, seconds) => seconds != null && seconds >= event.medals.gold.seconds * 0.5 && seconds <= event.medals.bronze.seconds * 1.5
 // "01:13.59" -> 73.59; "3:54:88" (hundredths after a colon) is read as 3:54.88
-const readTime = s => records.parseTime(String(s ?? '').trim().replace(/^(\d{1,2}:\d{2}):(\d{2})$/, '$1.$2'))
+const readTime = s => records.parseTime(String(s ?? '').trim().replace(/(\d),(\d{2})$/, '$1.$2').replace(/^(\d{1,2}:\d{2}):(\d{2})$/, '$1.$2'))  // "04:15,01" in French
 
 // A video title -> { event, seconds } or null. Exactly one event name (longest names first, each match taken out so
 // a shorter name inside it doesn't count again) and a plausible time.
@@ -76,6 +80,30 @@ exports.matchTitle = (title, { anyTime = false } = {}) => {
     const candidates = [...title.matchAll(/(?<![\d:.])(?:\d{1,2}:)?\d{1,2}[.:]\d{2}(?![\d:.])/g)].map(m => readTime(m[0]))
     const seconds = candidates.find(s => plausible(found[0], s)) ?? candidates[0] ?? null
     return anyTime || plausible(found[0], seconds) ? { event: found[0], seconds } : null
+}
+
+// A video title with a tour's final race: it names a tour ("Multiplayer Tour", "pod tour"), or the place the final is
+// raced (Derven Acos or The Galactic Gauntlet for the Multiplayer Tour, Mos Espa for the Podracing Tour) and no arcade
+// event, with a time a final takes. Arcade events on Derven Acos are all under 3:01 even at bronze and the tour's
+// final takes 3:30 and up, so that planet's or track's name with a time from 3:10 is the tour's. -> { tour, seconds }
+const FINAL_PLACES = [['multiplayer-tour', /der?ven\s*acos|galactic\s*gauntlet/i, 190], ['podracing-tour', /mos\s*espa/i, 60]]  // "Deven Acos" happens
+exports.matchTourTitle = title => {
+    title = unitTimes(title)
+    const named = TOUR_NAMES.filter(([, re]) => re.test(title))
+    const placed = FINAL_PLACES.filter(([, re]) => re.test(title))
+    const [id, min] = named.length == 1 ? [named[0][0], 60] : !named.length && placed.length == 1 ? [placed[0][0], placed[0][2]] : []
+    if (!id) return null
+    const seconds = [...title.matchAll(/(?<![\d:.])(?:\d{1,2}:)?\d{1,2}[.:]\d{2}(?![\d:.])/g)].map(m => readTime(m[0])).find(s => s >= min && s <= 900)
+    return seconds ? { tour: data.tour(id), seconds } : null
+}
+// A posted or uploaded video's run: an arcade event's (matchTitle), else a tour final's (matchTourTitle)
+exports.matchVideoTitle = title => exports.matchTitle(title) ?? exports.matchTourTitle(title)
+
+// A Twitch video's { title, created (ms) }, by the Helix API (TWITCH_ID / TWITCH_SECRET); null without them
+async function twitchVideo(id) {
+    if (!process.env.TWITCH_ID || !process.env.TWITCH_SECRET) return null
+    const v = (await require('./feeds/twitch.js').helix(`videos?id=${id}`))?.[0]
+    return v ? { title: v.title, created: Date.parse(v.created_at) || Infinity } : null
 }
 
 // Video id -> { title, channelId, channelName, uploaded (ms) }
@@ -95,27 +123,38 @@ async function videos(ids) {
     return out
 }
 
-// What a screenshot shows, read by the vision model: { screen, event_name, success_time, medal_times, rows }
+// What a screenshot shows, read by the vision model: { screen, event_name, success_time, medal_times, vehicle, rows }
 const SCREEN = {
     type: 'object', additionalProperties: false,
-    required: ['screen', 'event_name', 'success_time', 'medal_times', 'rows'],
+    required: ['screen', 'event_name', 'success_time', 'medal_times', 'vehicle', 'rows'],
     properties: {
-        screen: { type: 'string', enum: ['arcade_results', 'arcade_event_card', 'other'] },
+        screen: { type: 'string', enum: ['arcade_results', 'arcade_event_card', 'tour_completed', 'race_standings', 'tour_summary', 'other'] },
+        vehicle: { type: ['string', 'null'], description: 'tour_summary only: the vehicle class named at the top of the BUILD panel (e.g. PODRACER, SPEEDER BIKE)' },
         event_name: { type: ['string', 'null'], description: 'The arcade event name if printed on screen' },
         success_time: { type: ['string', 'null'], description: 'The large time under SUCCESS, exactly as shown' },
         medal_times: { type: 'array', items: { type: 'string' }, description: 'Medal target times left to right, exactly as shown' },
         rows: {
             type: 'array', description: 'Leaderboard / best-time rows: player name and time exactly as shown',
-            items: { type: 'object', additionalProperties: false, required: ['rank', 'name', 'time'], properties: { rank: { type: ['integer', 'null'] }, name: { type: 'string' }, time: { type: 'string' } } },
+            items: { type: 'object', additionalProperties: false, required: ['rank', 'name', 'time', 'is_player'], properties: {
+                rank: { type: ['integer', 'null'] }, name: { type: 'string' }, time: { type: 'string' },
+                is_player: { type: 'boolean', description: 'tour_completed and race_standings only: the row with the person silhouette left of its place number (not a platform logo by the name)' },
+            } },
         },
     },
 }
-const SCREEN_PROMPT = `You read screenshots of the racing game STAR WARS Galactic Racer. Transcribe exactly what is on screen; never guess. Use null or empty lists for anything not visible.
+const SCREEN_PROMPT = `You read screenshots of the racing game STAR WARS Galactic Racer. Transcribe exactly what is on screen; never guess. Use null or empty lists for anything not visible. The game may be in another language (French, Spanish, German...): recognise the screens by their layout, and copy times as shown, decimal commas included.
 Screens to recognise:
 - arcade_results: a panel titled ARCADE with SUCCESS and a large time, three medal times with rival names under it, and a RANK / NAME / TIME table. Give every table row.
 - arcade_event_card: an arcade event's card with its name (often after the planet, e.g. "SENTINEL I ACID RINGER"), a START EVENT button, and a BEST TIMES or FRIEND TIMES panel listing player names with times. Give every time in that panel as a row, with the player name printed next to or under it.
+- tour_completed: a multiplayer tour's end screen titled TOUR COMPLETED (or its translation: TOURNOI TERMINÉ, RECORRIDO COMPLETADO...), with three characters on a podium and a column of standings down the right: each row a place number with a time under it, then a banner with the racer's name, points and their form. Give every row: rank (the place number), name (on the banner), time (the time under the place number), and is_player true for the one row whose place number has a small person silhouette (a head and shoulders) printed just left of the digit, in the left column above that row's time; exactly one row has it. The monitor and PlayStation / Xbox logos after names are platform icons, not this marker, and a row drawn with a white outline is only the camera's selection: neither makes is_player true.
+- race_standings: the same standings column as tour_completed (place numbers with times under them, name banners with points and five form boxes ending in a flag) but without the TOUR COMPLETED title in view: a cropped screenshot, a photo of a screen, or the column shown over the race view after finishing (with Previous / Next Position buttons; only finished racers have times). Give the rows the same way, is_player included.
+- tour_summary: a tour's summary page with a LAST RACE RESULT panel (a place and a time), a FINAL BET RESULT panel, a TIMELINE of planets and a BUILD panel down the left. An image can stack several of these pages; give one row per LAST RACE RESULT panel: rank its place, name "", time as shown, is_player true.
 - other: anything else, including races against rivals in the campaign.`
 async function readScreen(url) {
+    // Sent as data rather than a link: OpenAI fetching a large Discord file can time out
+    const image = await fetch(url)
+    if (!image.ok) throw new Error(`image: ${image.status}`)
+    url = `data:${image.headers.get('content-type') || 'image/png'};base64,${Buffer.from(await image.arrayBuffer()).toString('base64')}`
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
@@ -134,19 +173,72 @@ async function readScreen(url) {
 }
 
 // The row for a racer when a screen lists several (friend times): the one whose name matches one of theirs, else the
-// only one containing one of them or contained in one ("TheSpacedCowboy" for SpacedCowboy; 5+ letters)
+// only one containing one of them or contained in one ("TheSpacedCowboy" for SpacedCowboy; 5+ letters), else the only
+// one a letter off (the model reads "Pollito" as "Polito" now and then; 5+ letters)
 const words1 = s => s.toLowerCase().replace(/[^a-z0-9]+/g, '')
+const oneOff = (a, b) => {  // the same but for one letter added, dropped or changed
+    if (Math.abs(a.length - b.length) > 1 || a == b) return a == b
+    let i = 0
+    while (i < a.length && a[i] == b[i]) i++
+    return [a.slice(i + 1) == b.slice(i + 1), a.slice(i + 1) == b.slice(i), a.slice(i) == b.slice(i + 1)].some(Boolean)
+}
 const rowFor = (rows, names) => {
     if (rows.length == 1) return rows[0]
     const keys = names.filter(Boolean).map(words1)
     const exact = rows.find(r => keys.includes(words1(r.name)))
     if (exact) return exact
     const near = rows.filter(r => (n => keys.some(k => Math.min(k.length, n.length) >= 5 && (n.includes(k) || k.includes(n))))(words1(r.name)))
-    return near.length == 1 ? near[0] : undefined
+    if (near.length == 1) return near[0]
+    const typo = rows.filter(r => (n => keys.some(k => Math.min(k.length, n.length) >= 5 && oneOff(k, n)))(words1(r.name)))
+    return typo.length == 1 ? typo[0] : undefined
 }
 
-// A read screen -> { event, seconds, title } or null. names: the racer's Discord names, to pick their row.
-exports.matchScreen = (s, names = []) => {
+// Which tour a Tour Completed screen ends: more than 8 racers is the Multiplayer Tour (a grid of 12 speeders; the
+// Podracing Tour's is 8 pods). Otherwise (a cropped photo) the AI racers on it are characters who race one tour or the
+// other (their styles' modes; "Dud Bolt 2" is Dud Bolt), so the tour most of them race; with no AI racers either, a
+// final under three minutes is the Podracing Tour's Mos Espa Speedway, else the Multiplayer Tour's Galactic Gauntlet
+const TOUR_OF = new Map(data.racers.map(r => {
+    const modes = new Set(r.styles.flatMap(s => s.modes ?? []))
+    const tours = data.tours.filter(t => modes.has(t.name))
+    return [words1(r.name), tours.length == 1 ? tours[0] : null]
+}))
+const tourOf = (rows, seconds) => {
+    if (rows.length > 8) return data.tour('multiplayer-tour')
+    const votes = new Map()
+    for (const r of rows) { const t = TOUR_OF.get(words1(r.name.replace(/\s+\d+$/, ''))); if (t) votes.set(t, (votes.get(t) ?? 0) + 1) }
+    const [top] = [...votes].sort((a, b) => b[1] - a[1])
+    return top?.[0] ?? data.tour(seconds < 180 ? 'podracing-tour' : 'multiplayer-tour')
+}
+
+// A read screen -> { event, seconds, title } (an arcade event) or { tour, seconds, title } (a tour's final race) or
+// null. names: the racer's Discord names, to pick their row. text: the post's own words; the standings column without
+// the TOUR COMPLETED title (a crop, a photo, the view after the finish) counts with more than 8 racers (a speeder
+// tour's 12) or when they say it's from a tour (Quick Race and Quick Podrace end on the same column), and a tour they
+// name ("multiplayer tour") is the one.
+const TOURISH = /\btour\b|multi\s*player|\bmp\b|gauntlet|der?ven\s*acos|mos\s*espa/i
+exports.matchScreen = (s, names = [], text = '') => {
+    const said = TOUR_NAMES.filter(([, re]) => re.test(text)).map(([id]) => data.tour(id))
+    const final = seconds => seconds >= 60 && seconds <= 900  // a final race takes a minute to 15
+    // The summary page: its LAST RACE RESULT time (the fastest, when an image stacks several); the build panel says
+    // which tour (a podracer, else speeders)
+    if (s.screen == 'tour_summary') {
+        const seconds = Math.min(...s.rows.map(r => readTime(r.time)).filter(final))
+        if (seconds == Infinity) return null
+        const tour = said.length == 1 ? said[0] : s.vehicle ? data.tour(/pod/i.test(s.vehicle) ? 'podracing-tour' : 'multiplayer-tour') : tourOf([], seconds)
+        return { tour, seconds, title: 'tour summary' }
+    }
+    if ((s.screen == 'tour_completed' || (s.screen == 'race_standings' && (s.rows.length > 8 || TOURISH.test(text)))) && s.rows.length) {
+        // The racer's row by their Discord name, else the one with the person icon (the model misses or misplaces that
+        // marker more often, and a read that flags several rows has misread it); a time for the final race (a minute
+        // to 15)
+        const flagged = s.rows.filter(r => r.is_player)
+        const named = s.rows.length > 1 ? rowFor(s.rows, names) : null
+        const row = named ?? (flagged.length == 1 ? flagged[0] : null)
+        const seconds = readTime(row?.time)
+        if (!final(seconds)) return null
+        // gamertag: the in-game name of a row found by its icon, to remember for the racer (records.addGamertag)
+        return { tour: said.length == 1 ? said[0] : tourOf(s.rows, seconds), seconds, title: 'tour results', gamertag: named ? null : row.name }
+    }
     if (s.screen == 'arcade_results') {
         const event = MEDALS.get(readMedals(s.medal_times))
         if (!event) return null
@@ -224,7 +316,7 @@ function confirm(message, saved) {
 const viewButtons = saved => {
     const boards = [...new Set(saved.map(r => `${r.kind}:${r.target}`))].slice(0, 5).map(b => b.split(':'))
     return boards.length ? [new ActionRowBuilder().addComponents(boards.map(([kind, target]) => new ButtonBuilder()
-        .setCustomId(kind == 'arcade' ? `arcade_event_${target}` : `scenario_${target}`)
+        .setCustomId(records.boardView(kind, target))
         .setLabel(boards.length > 1 ? `View ${(boardOf(kind, target)?.name ?? 'board').slice(0, 70)}` : 'View board')
         .setStyle(ButtonStyle.Secondary)))] : []
 }
@@ -242,11 +334,13 @@ exports.handle = async (message, { announce = true, anywhere = false, racer: cho
     if (!anywhere && src.forward && !src.author && await mentionFollows(message)) return []
     const results = []
     const save = async (match, { racer, date, proof, youtube, label, proofType }) => {
+        // an arcade event, or a tour's final race (a Tour Completed screen)
+        const [kind, item] = match.tour ? ['tour', match.tour] : ['arcade', match.event]
         const result = await submit({
-            kind: 'arcade', target: match.event.id, member: message.member, memberId: message.author.id, racer, trusted: true,
+            kind, target: item.id, member: message.member, memberId: message.author.id, racer, trusted: true,
             time: formatTime(match.seconds), proof, date, youtube, announce, proofType,
         })
-        results.push({ label, event: match.event.name, time: formatTime(match.seconds), racer: racer.id, ...result })
+        results.push({ label, event: item.name, time: formatTime(match.seconds), racer: racer.id, ...result })
     }
 
     // The one person a submitter's message mentions names the racer: for a screenshot, and for a forward whose author
@@ -261,7 +355,7 @@ exports.handle = async (message, { announce = true, anywhere = false, racer: cho
     const info = await videos(ids)
     for (const id of ids) {
         const v = info[id]
-        const match = v?.title && exports.matchTitle(v.title)
+        const match = v?.title && exports.matchVideoTitle(v.title)
         if (!match) { results.push({ label: v?.title ?? id, skipped: true }); continue }
         let owner = chosen?.id ?? (v.channelId && records.youtubeOwner(v.channelId))
         const claimant = named ?? (src.author && !src.author.bot ? src.author : null)
@@ -273,22 +367,34 @@ exports.handle = async (message, { announce = true, anywhere = false, racer: cho
         await save(match, { racer: { id: owner, bot: false }, date: Math.min(v.uploaded ?? Infinity, src.posted), proof: `https://youtu.be/${id}`, youtube: v.channelId, label: v.title })
     }
 
+    // Twitch videos: their titles read like YouTube ones; credited to the racer named, else the poster (Twitch channels
+    // aren't linked to racers)
+    for (const id of new Set([...src.content.matchAll(TWITCH)].map(m => m[1]))) {
+        const v = await twitchVideo(id).catch(() => null)
+        const match = v?.title && exports.matchVideoTitle(v.title)
+        if (!match) { results.push({ label: v?.title ?? `twitch.tv/videos/${id}`, skipped: true }); continue }
+        const owner = chosen ?? named ?? (src.author && !src.author.bot ? src.author : null)
+        if (!owner) { unclaimed++; results.push({ label: v.title, skipped: true, why: "can't tell whose run it is" }); continue }
+        await save(match, { racer: owner, date: Math.min(v.created, src.posted), proof: `https://www.twitch.tv/videos/${id}`, proofType: 'video', label: v.title })
+    }
+
     // Screenshots: credited to the poster, or to the one person a submitter mentions
     const images = src.attachments.filter(a => a.contentType?.startsWith('image/'))
     if (images.length && process.env.OPENAI_API_KEY) {
         const racer = named ?? src.author
         for (const image of images) {
             // The model now and then misses a row on an arcade screen; one more read usually gets it
-            const names = racer ? [racer.username, racer.globalName, racer.id == src.author?.id ? src.member?.displayName : null] : []
+            const names = racer ? [racer.username, racer.globalName, racer.id == src.author?.id ? src.member?.displayName : null, ...records.gamertagsOf(racer.id)] : []
             let screen = await readScreen(image.url).catch(error => ({ error }))
-            let match = !screen.error && exports.matchScreen(screen, names)
-            if (!match && screen.screen?.startsWith('arcade')) {
+            let match = !screen.error && exports.matchScreen(screen, names, src.content)
+            if (!match && (screen.error || /^(arcade|tour|race)/.test(screen.screen ?? ''))) {  // one more try after an error too
                 screen = await readScreen(image.url).catch(error => ({ error }))
-                match = !screen.error && exports.matchScreen(screen, names)
+                match = !screen.error && exports.matchScreen(screen, names, src.content)
             }
             if (match && (!racer || racer.bot)) { unclaimed++; results.push({ label: image.name, skipped: true, why: "a run, but whose? (forward without a mention)" }); continue }
             if (!match) { results.push({ label: image.name, skipped: true, why: screen.error?.message ?? screen.screen }); continue }
             await save(match, { racer, date: src.posted, proof: image.url, proofType: 'screenshot', label: `${image.name} (${match.title})` })
+            if (match.gamertag) await records.addGamertag(racer.id, match.gamertag).catch(error => console.error('[replays] gamertag', error))
         }
     }
 
@@ -318,6 +424,21 @@ exports.matchClaim = text => {
     for (const token of text.match(/\d[\d:.]*\d|\d/g) ?? []) {
         const seconds = readTime(token)
         if (plausible(event, seconds)) return { event, seconds }
+    }
+    return null
+}
+
+// A typed multiplayer tour time: the tour's name ("Multiplayer Tour", "Podracing Tour", or "MP" / "pod" tour, a word or
+// two between allowed: "multiplayer standard tour") and a time
+// for its final race (a minute to 15)
+const TOUR_NAMES = [['multiplayer-tour', /\b(multiplayer|mp)(\s+\w+){0,2}?\s+tour\b/i], ['podracing-tour', /\bpod(racing|race|racer)?(\s+\w+){0,2}?\s+tour\b/i]]
+exports.matchTour = text => {
+    text = unitTimes(text)
+    const found = TOUR_NAMES.filter(([, re]) => re.test(text)).map(([id]) => data.tour(id)).filter(Boolean)
+    if (found.length != 1) return null
+    for (const token of text.match(/\d[\d:.]*\d|\d/g) ?? []) {
+        const seconds = readTime(token)
+        if (seconds >= 60 && seconds <= 900) return { tour: found[0], seconds }
     }
     return null
 }
@@ -354,8 +475,11 @@ exports.handleMention = async message => {
     // An event and time written out: "@Autopilot Ramjet Run 1:13.59". The proof is a video in the message (or the one
     // it goes with), else the message holding the screenshot, else the claim itself.
     const text = message.content.replace(/<@[!&]?\d+>/g, ' ').replace(/https?:\/\/\S+/g, ' ')  // no mentions or links (their digits aren't times)
-    const given = exports.matchClaim(text)
+    // a multiplayer tour's final ("@Autopilot Multiplayer Tour 3:56.09") first: its digits could read as an event's time
+    const tour = exports.matchTour(text)
+    const given = tour ?? exports.matchClaim(text)
     if (given) {
+        const [kind, item] = tour ? ['tour', tour.tour] : ['arcade', given.event]
         const video = [...`${message.content} ${src.content} ${tsrc.content}`.matchAll(VIDEO)][0]?.[1]
         const shot = message.attachments.size || src.attachments.length ? message : tsrc.attachments.length ? target : null
         // an attached video file is video proof, like a YouTube link; a file's own link is the proof (the post's when
@@ -363,11 +487,11 @@ exports.handleMention = async message => {
         const files = [...message.attachments.values(), ...src.attachments, ...tsrc.attachments]
         const clip = files.find(a => a.contentType?.startsWith('video/')), image = files.find(a => a.contentType?.startsWith('image/'))
         const result = await submit({
-            kind: 'arcade', target: given.event.id, member: message.member, memberId: message.author.id, racer, trusted: true,
+            kind, target: item.id, member: message.member, memberId: message.author.id, racer, trusted: true,
             time: formatTime(given.seconds), proof: video ? `https://youtu.be/${video}` : (clip ?? image)?.url ?? (shot ?? message).url, date: tsrc.posted,
             proofType: video || clip ? 'video' : shot ? 'screenshot' : 'claim',
         })
-        console.log(`[mention] ${message.author.username} for ${racer.username}: "${given.event.name} ${formatTime(given.seconds)}" -> ${result.error ?? result.message}`)
+        console.log(`[mention] ${message.author.username} for ${racer.username}: "${item.name} ${formatTime(given.seconds)}" -> ${result.error ?? result.message}`)
         if (!result.error) await confirm(message, [result])
         return reply(result.error ?? result.message, result.error ? [] : viewButtons([result]))
     }
@@ -379,6 +503,6 @@ exports.handleMention = async message => {
     if (saved.length) return reply(saved.map(r => r.message).join('\n'), viewButtons(saved))
     if (results.some(r => r.error)) return reply(results.find(r => r.error).error)
     return reply(target != message || src.content || src.attachments.length
-        ? "I couldn't find an arcade run in that. Add the event and time, like `@Autopilot Ramjet Run 1:13.59`."
+        ? "I couldn't find an arcade run or tour result in that. Add the event and time, like `@Autopilot Ramjet Run 1:13.59` (or `@Autopilot Multiplayer Tour 3:34.34`)."
         : 'Mention me with an event and a time (`@Autopilot Ramjet Run 1:13.59`), or with a screenshot or YouTube link of the run.')
 }
