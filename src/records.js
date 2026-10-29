@@ -21,9 +21,17 @@ const { database } = require('./firebase.js')
 const { submitter_roles } = require('./data/discord/guild.js')
 
 let times = {}, feedback = {}, submitters = {}, staff = {}, youtube = {}, rivals = {}, gamertags = {}
+// Called after the times change in the database, from anywhere (saves, removals, imports; src/roles.js)
+exports.onChange = []
+let loaded = false
+exports.loaded = () => loaded
 exports.listen = () => {
     if (!database) return
-    database.ref('times').on('value', s => { times = s.val() ?? {} })
+    database.ref('times').on('value', s => {
+        times = s.val() ?? {}
+        loaded = true
+        for (const fn of exports.onChange) fn()
+    })
     database.ref('feedback').on('value', s => { feedback = s.val() ?? {} })
     database.ref('submitters').on('value', s => { submitters = s.val() ?? {} })
     database.ref('staff').on('value', s => { staff = s.val() ?? {} })

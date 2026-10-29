@@ -116,7 +116,14 @@ client.on(Events.InteractionCreate, async interaction => {
 client.once(Events.ClientReady, () => {
     console.log(`Ready! Logged in as ${client.user.tag}${testing ? ' (testing)' : ''}`)
     require('./feeds/index.js').start(client, reportError).catch(error => reportError('Feeds', error))
-    require('./records.js').listen()
+    // Achievement roles (src/roles.js) follow the times, a couple of seconds after they settle (an import saves many)
+    const records = require('./records.js'), roles = require('./roles.js')
+    let rolesTimer
+    records.onChange.push(() => {
+        clearTimeout(rolesTimer)
+        rolesTimer = setTimeout(() => roles.sync(client), 3000)
+    })
+    records.listen()
     require('./swgr/garage.js').listen()  // saved garage builds
     // Credits (src/credits.js), and an hourly sweep that returns expired bounties to their funders
     const credits = require('./credits.js')
@@ -199,6 +206,7 @@ client.on(Events.MessageReactionAdd, async (reaction, user) => {
 client.on(Events.GuildMemberAdd, member => {
     if (!switchGuard(member.guild.id)) return
     require('./welcome.js').welcome(member).catch(error => reportError('Welcome', error))
+    require('./roles.js').sync(client)  // a linked racer joining takes up their achievement roles
 })
 
 // Global error handling — prevent crashes and report to the log channel when live
