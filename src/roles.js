@@ -3,7 +3,7 @@
 //   champions  the #1 of the points standings (records.points) over the main 50 events, each category and each speeder
 //              class (podracers are the Podracing category already); racers level on points and places share it
 //   Gold Standard        gold on every one of the main 50 events
-//   World Record Holder  first on any arcade event's leaderboard (Deluxe too)
+//   World Record Holder  first on any arcade event's leaderboard (Deluxe too) or any full-game category's
 // Only Discord members can hold them: a time from an unlinked speedrun.com account (records.isDiscord) leaves its role
 // empty until they join and link. Proof doesn't matter. sync() runs when the times change (records.onChange) and when
 // someone joins; the first one after a start is quiet, later ones announce each role gained with an embed in
@@ -40,8 +40,9 @@ const ROLES = [
         },
     },
     {
-        key: 'record', name: 'World Record Holder', description: 'Holds an arcade world record',
-        holders: () => [...new Set(data.events.map(e => records.leaderboard('arcade', e.id)[0]?.user).filter(Boolean))],
+        key: 'record', name: 'World Record Holder', description: 'Holds an arcade or full-game world record',
+        holders: () => [...new Set([...data.events.map(e => ['arcade', e.id]), ...data.fullGame.map(c => ['fullgame', c.id])]
+            .map(([kind, target]) => records.leaderboard(kind, target)[0]?.user).filter(Boolean))],
     },
 ]
 exports.ROLES = ROLES
