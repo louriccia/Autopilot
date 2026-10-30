@@ -84,8 +84,30 @@ const boardTime = s => `**\`${formatTime(s)}\`**`
 const place = rank => rank <= 10 ? emoji.named(`place_${rank}`) : `**#${rank}**`
 // A time's platform as the game's logo (platform_PC / _PS5 / _Xbox); anything else in words
 const platformMark = p => !p ? '' : records.PLATFORMS.includes(p) ? ` ${emoji.named(`platform_${p}`)}` : ` / ${p}`
-// The viewer's declared rival (/times rival) gets the rival marker; a full-game run says its difficulty
-const timeLine = (t, rank) => `${place(rank)} ${t.proof ? `[${boardTime(t.time)}](<${t.proof}>)` : boardTime(t.time)} ${records.who(t.user)}${platformMark(t.platform)}${t.difficulty ? ` *${t.difficulty}*` : ''}${t.user == records.rivalOf(viewer.id()) ? ` ${emoji.named('rival')}` : ''}`
+// A racer on a leaderboard: the viewer as a mention (Discord highlights it for them), everyone else by name, linked to
+// their speedrun.com profile when they've linked one; an unlinked src runner as records.who shows them. A racer whose
+// name isn't known yet (no profile, not in the member cache) stays a mention.
+const racerName = user => {
+    if (!records.isDiscord(user)) return records.who(user)
+    const name = user != viewer.id() && records.nameOf(user)
+    if (!name) return `<@${user}>`
+    const src = speedrun.profileOf(user)
+    return src ? `[${records.escape(name)}](<${src}>)` : records.escape(name)
+}
+// Boards show what changed over the last day: runs from it are marked new, and racers who moved since get an arrow
+// with how many places (their place on the board as its runs stood a day ago: records.leaderboard's before)
+const DAY = 24 * 60 * 60 * 1000
+const fresh = t => t.date > Date.now() - DAY ? ` ${emoji.newRecord}` : ''
+// (a single place is the marker alone)
+const moved = (rank, was) => !was || was == rank ? '' : ` ${emoji.named(was > rank ? 'chevron_up' : 'chevron_down')}${Math.abs(was - rank) > 1 ? Math.abs(was - rank) : ''}`
+const ranksBefore = board => Object.fromEntries(board.map(t => [t.user, t.rank]))
+const RATINGS = { up: 'thumbsUp', neutral: 'thumbsNeutral', down: 'thumbsDown' }
+// The viewer's declared rival (/times rival) gets the rival marker; the racer's own rating of the board (the thumbs)
+// follows their name; a full-game run says its difficulty; then new and moved (t.was: their place a day ago)
+const timeLine = (t, rank) => {
+    const rating = t.kind && RATINGS[records.ratingOf(t.kind, t.target, t.user)]
+    return `${place(rank)} ${t.proof ? `[${boardTime(t.time)}](<${t.proof}>)` : boardTime(t.time)} ${racerName(t.user)}${rating ? ` ${emoji[rating]}` : ''}${platformMark(t.platform)}${t.difficulty ? ` *${t.difficulty}*` : ''}${t.user == records.rivalOf(viewer.id()) ? ` ${emoji.named('rival')}` : ''}${t.date ? fresh(t) : ''}${moved(rank, t.was)}`
+}
 // A board's open bounties (/bounty): the pot, the time to beat and when it ends
 // (at the top of its leaderboard): "[bounty] 54.00 [credits] 100 (expires in 14 days)"
 const bountyLines = (kind, target) => credits.openBounties(kind, target).map(b =>
@@ -108,20 +130,22 @@ function bountyPosted(b) {
     }
 }
 // A board's community times as shown: the top 5, plus whoever is looking (src/viewer.js) with the places either side
-// of theirs, and their rival if they're further down
+// of theirs, and their rival if they're further down; each with its place a day ago (was)
 const shownTimes = (kind, target) => {
-    const board = records.leaderboard(kind, target).map((t, i) => ({ ...t, rank: i + 1 }))
+    const was = ranksBefore(records.leaderboard(kind, target, { before: Date.now() - DAY }).map((t, i) => ({ ...t, rank: i + 1 })))
+    const board = records.leaderboard(kind, target).map((t, i) => ({ ...t, rank: i + 1, was: was[t.user] }))
     const me = viewer.id(), rival = records.rivalOf(me)
     const mine = board.find(t => t.user == me)?.rank
     return board.filter(t => t.rank <= 5 || (mine && Math.abs(t.rank - mine) <= 1) || (rival && t.user == rival))
 }
 // A board's size, the last line under its leaderboard: everyone with a time there and every time saved there, slower
-// ones included ("-# 22 racers / 31 times"); null with none yet
+// ones included, and how many came in the last day ("-# 22 racers / 31 times / 2 today"); null with none yet
 function boardCount(kind, target) {
     const all = records.allTimes().filter(t => t.kind == kind && t.target == target)
     if (!all.length) return null
     const racers = new Set(all.map(t => t.user)).size
-    return `-# ${racers} racer${racers == 1 ? '' : 's'} / ${all.length} time${all.length == 1 ? '' : 's'}`
+    const today = all.filter(t => t.date > Date.now() - DAY).length
+    return `-# ${racers} racer${racers == 1 ? '' : 's'} / ${all.length} time${all.length == 1 ? '' : 's'}${today ? ` / ${today} today` : ''}`
 }
 // Submit a time, then rate the event / scenario with the three thumbs (counts on the buttons), then the matching
 // speedrun.com board (src/speedrun.js) when there is one, as its trophy icon alone
@@ -198,8 +222,12 @@ const BOARD_KINDS = () => [
     ['fullgame', 'Full game', `speedrun.com's ${data.fullGame.length} full-game categories, real time`, emoji.named('src')],
     ['tour', 'Multiplayer', 'Each tour\'s final race', emoji.planet[data.tours[0]?.final.planet]],
 ]
+// The arcade and the scenarios, which open boards over all of theirs, show the viewer's place in those points standings
+// like the category menu (setEmoji)
 function boardsSelect(current) {
-    return select('boards', 'Leaderboards', BOARD_KINDS().map(([value, label, description, e]) => ({ label, value, description, emoji: e })), current)
+    const me = viewer.id()
+    const sets = { arcade: () => data.boardSet('main'), scenario: SCENARIO_SET }
+    return select('boards', 'Leaderboards', BOARD_KINDS().map(([value, label, description, e]) => ({ label, value, description, emoji: (sets[value] && setEmoji(sets[value](), me)) ?? e })), current)
 }
 // A single board's option: the viewer's place on it (place_1-10, else the tick) like an event's, and its record
 const placedEmoji = (kind, id, fallback) => {
@@ -220,18 +248,19 @@ function categorySelect(current = 'overview') {
         : { label: set.name, value: set.id, description: count(set), emoji: setEmoji(set, me) ?? setIcon(set) }), current)
 }
 
-// How the viewer stands on a whole set of events once they have a time on every one, like standingEmoji for one event:
-// their worst medal across the set (the tick if any is below bronze), upgraded to their place on the set's cumulative
-// leaderboard when that's gold and in the top 10. null until the set is complete.
+// How the viewer stands on a whole set of boards (an arcade set, or the scenarios): their place in the set's points
+// standings (records.points) when that's in the top 10, which needs no time on every board; otherwise, once they have
+// a time on every event, their worst medal across them (the tick if any is below bronze). null without either.
 function setEmoji(set, me) {
     if (!me) return null
+    const rank = records.points(kindOf(set), set.items.map(e => e.id)).find(s => s.user == me)?.rank
+    if (rank <= 10) return emoji.named(`place_${rank}`)
+    if (!set.items[0]?.medals) return null
     const bests = set.items.map(e => records.leaderboard('arcade', e.id).find(t => t.user == me))
     if (bests.some(t => !t)) return null
     const medals = ['gold', 'silver', 'bronze']
     const worst = Math.max(...set.items.map((e, i) => { const m = medals.findIndex(m => bests[i].time <= e.medals[m].seconds); return m < 0 ? 3 : m }))
-    if (worst == 3) return emoji.named('tick')
-    const rank = records.cumulative('arcade', set.items.map(e => e.id)).ranked.find(t => t.user == me)?.rank
-    return worst == 0 && rank <= 10 ? emoji.named(`place_${rank}`) : emoji.medal[medals[worst]]
+    return worst == 3 ? emoji.named('tick') : emoji.medal[medals[worst]]
 }
 
 // Each event's emoji is how the viewer stands on it: the best medal their time beats, upgraded to their place
@@ -298,29 +327,39 @@ const MAIN_EVENTS = () => data.boardSet('main').items
 // A cumulative board (data.boardSets: the arcade's front page over the main set, or a category) has three views,
 // switched by the buttons under it (cumulativeView): points standings, total time, and each event's podium.
 //
-// Time: the summed medal times, then everyone with a time on all of the events by their summed bests (top 10, the
-// viewer and their rival), fastest first
+// The scenarios get the same board over all of them (scenariosOverview): a set of kind 'scenario', which has no medals.
+// A set's boards are its kind's ('arcade' unless it says)
+const SCENARIO_SET = () => ({ id: 'scenarios', kind: 'scenario', name: 'Scenarios', items: data.scenarios })
+const kindOf = set => set.kind ?? 'arcade'
+const itemsWord = set => set.kind == 'scenario' ? 'scenarios' : 'events'
+
+// Time: the summed medal times (arcade), then everyone with a time on all of the events by their summed bests (top 10,
+// the viewer and their rival), fastest first
 function cumulativeBoard(set) {
-    const { ranked } = records.cumulative('arcade', set.items.map(e => e.id))
+    const ids = set.items.map(e => e.id)
+    const { ranked } = records.cumulative(kindOf(set), ids)
+    const was = ranksBefore(records.cumulative(kindOf(set), ids, { before: Date.now() - DAY }).ranked)
     const me = viewer.id(), rival = records.rivalOf(me)
     const board = [
-        ...['gold', 'silver', 'bronze'].map(m => {
+        ...(set.items[0]?.medals ? ['gold', 'silver', 'bronze'] : []).map(m => {
             const seconds = set.items.reduce((n, e) => n + e.medals[m].seconds, 0)
             return { seconds, line: `${emoji.medal[m]} ${boardTime(seconds)} ${m[0].toUpperCase() + m.slice(1)} medals` }
         }),
-        ...ranked.filter(t => t.rank <= 10 || t.user == me || t.user == rival).map(t => ({ seconds: t.time, line: timeLine(t, t.rank) })),
+        ...ranked.filter(t => t.rank <= 10 || t.user == me || t.user == rival).map(t => ({ seconds: t.time, line: timeLine({ ...t, was: was[t.user] }, t.rank) })),
     ].sort((a, b) => a.seconds - b.seconds)
-    return [...board.map(b => b.line), `-# Total time across all ${set.items.length} events`]
+    return [...board.map(b => b.line), `-# Total time across all ${set.items.length} ${itemsWord(set)}`]
 }
 
 // Points, which count without a time on every event: each event's top 5 score records.POINTS by place, summed (top 10,
 // the viewer and their rival)
 function pointsBoard(set) {
-    const ranked = records.points('arcade', set.items.map(e => e.id))
+    const ids = set.items.map(e => e.id)
+    const ranked = records.points(kindOf(set), ids)
+    const was = ranksBefore(records.points(kindOf(set), ids, { before: Date.now() - DAY }))
     const me = viewer.id(), rival = records.rivalOf(me)
     return [
         ...ranked.filter(s => s.rank <= 10 || s.user == me || s.user == rival).map(s =>
-            `${place(s.rank)} **${s.points.toLocaleString('en-US')}** pts ${records.who(s.user)}${s.user == rival ? ` ${emoji.named('rival')}` : ''}`),
+            `${place(s.rank)} **${s.points.toLocaleString('en-US')}** pts ${racerName(s.user)}${s.user == rival ? ` ${emoji.named('rival')}` : ''}${moved(s.rank, was[s.user])}`),
         `-# ${records.POINTS.map((p, i) => `${place(i + 1)} ${p}`).join(' ')} (${(set.items.length * records.POINTS[0]).toLocaleString('en-US')} max)`,  // the points each place on an event scores, and the most there are
     ]
 }
@@ -333,11 +372,11 @@ function podiumsBoard(set, page) {
     const shown = set.items.slice(page * PODIUM_PAGE, (page + 1) * PODIUM_PAGE)
     return [
         ...shown.map(e => {
-            const top = records.leaderboard('arcade', e.id).slice(0, 3)
+            const top = records.leaderboard(kindOf(set), e.id).slice(0, 3)
             // 2nd and 3rd as their gap to 1st
-            return `${emoji.planet[e.planet]} **${e.name}**\n-# ${top.length ? top.map((t, i) => `${i ? `\`+${formatTime(t.time - top[0].time)}\`` : boardTime(t.time)} ${records.who(t.user)}${t.user == rival ? ` ${emoji.named('rival')}` : ''}`).join(' ') : 'No times yet'}`
+            return `${emoji.planet[e.planet]} **${e.name}**\n-# ${top.length ? top.map((t, i) => `${i ? `\`+${formatTime(t.time - top[0].time)}\`` : boardTime(t.time)} ${racerName(t.user)}${t.user == rival ? ` ${emoji.named('rival')}` : ''}${fresh(t)}`).join(' ') : 'No times yet'}`
         }),
-        set.items.length > PODIUM_PAGE && `-# Events ${page * PODIUM_PAGE + 1}-${page * PODIUM_PAGE + shown.length} of ${set.items.length}`,
+        set.items.length > PODIUM_PAGE && `-# ${itemsWord(set) == 'events' ? 'Events' : 'Scenarios'} ${page * PODIUM_PAGE + 1}-${page * PODIUM_PAGE + shown.length} of ${set.items.length}`,
     ].filter(Boolean)
 }
 
@@ -360,9 +399,11 @@ function addCumulative(container, set, { view = 'points', page = 0, racer } = {}
     page = Math.min(Math.max(+page || 0, 0), pages - 1)
     const lines = view == 'time' ? cumulativeBoard(set) : view == 'podiums' ? podiumsBoard(set, page) : pointsBoard(set)
     // the overview / timesheet lists its open bounties on Time only
-    const content = [...(target != 'main' || view == 'time' ? bountyLines('aggregate', target) : []), ...lines].join('\n')
+    // (no bounties over the scenarios: aggregate bounties are on the arcade's sets only)
+    const bounties = kindOf(set) == 'arcade' && (target != 'main' || view == 'time')
+    const content = [...(bounties ? bountyLines('aggregate', target) : []), ...lines].join('\n')
     // the bounty button only on total time, which is what a bounty here is won on
-    if (view == 'time') addLeaderboard(container, 'aggregate', target, content)
+    if (view == 'time' && kindOf(set) == 'arcade') addLeaderboard(container, 'aggregate', target, content)
     else container.addTextDisplayComponents(text(content))
     const id = `board_%_${target}_${racer?.id ?? '-'}`
     const button = (customId, label, icon, current) => new ButtonBuilder().setCustomId(customId).setLabel(label)
@@ -390,16 +431,19 @@ function arcadeOverview(racer, view) {
         const count = (key, value) => mine.filter(r => r[key] == value).length
         const rival = records.rivalOf(racer.id)
         const points = records.points('arcade', events.map(e => e.id)).find(s => s.user == racer.id)
+        // medals and podium places they have none of are left out
+        const counts = list => list.filter(([, n]) => n).map(([icon, n]) => `${icon} ${n}`).join(' / ')
         header(container, [
             `# ${racer.name}`,
             creditsLine(racer.id),
             gap,
-            `${mine.length}/${events.length} events ${segments(Math.round(mine.length / events.length * 10))}`,
+            // the game's tick once they have them all
+            `${mine.length}/${events.length} events ${mine.length == events.length ? emoji.named('tick') : segments(Math.round(mine.length / events.length * 10))}`,
             mine.length && `${emoji.named('stopwatch')} ${boardTime(mine.reduce((n, r) => n + r.time, 0))}`,  // their bests summed
             points && `${emoji.named('crown')} **${points.points.toLocaleString('en-US')}** pts / ${ordinal(points.rank)}`,  // their points and place in the standings
-            ['gold', 'silver', 'bronze'].map(m => `${emoji.medal[m]} ${count('medal', m)}`).join(' / '),
-            [1, 2, 3].map(n => `${place(n)} ${count('rank', n)}`).join(' / '),
-            ...(rival ? [gap, `${emoji.named('rival')} <@${rival}>`, rivalSummary(headToHead(events, results, arcadeResults(rival)), racer.id == viewer.id())] : []),
+            counts(['gold', 'silver', 'bronze'].map(m => [emoji.medal[m], count('medal', m)])),
+            counts([1, 2, 3].map(n => [place(n), count('rank', n)])),
+            ...(rival ? [gap, `${emoji.named('rival')} ${racerName(rival)}`, rivalSummary(headToHead(events, results, arcadeResults(rival)), racer.id == viewer.id())] : []),
         ], racer.avatar)
     } else {
         header(container, ['## Arcade'])
@@ -457,6 +501,9 @@ function arcadeCategory(categoryId, view) {
 // Whether a card message currently shows its build's details (its button offers to hide them), so a redraw of the
 // same card (a rating, a submission, a bounty) keeps them as they were
 const buildExpanded = message => /"details_[^"]*_hide"/.test(JSON.stringify(message?.components?.map(c => c.toJSON?.() ?? c) ?? []))
+// Likewise a scenario card's schedule (schedule_<target>_<show|hide>), and both together for redraws: { expanded, schedule }
+const scheduleShown = message => /"schedule_[^"]*_hide"/.test(JSON.stringify(message?.components?.map(c => c.toJSON?.() ?? c) ?? []))
+const cardState = message => ({ expanded: buildExpanded(message), schedule: scheduleShown(message) })
 
 // The build starts condensed: one line (vehicle, speed, how many parts and abilities) with "Show details" beside it,
 // like the track line; shown (expanded), the line gets "Hide details" and the full build follows. The state lives in
@@ -528,7 +575,7 @@ function arcadeEvent(eventId, { expanded = false } = {}) {
     const medals = Object.entries(e.medals).filter(([m, x]) => mine == null || m == beaten || mine > x.seconds)
     const board = [
         ...medals.map(([m, x]) => ({ seconds: x.seconds, line: `${emoji.medal[m]} ${boardTime(x.seconds)} ${x.rival}` })),
-        ...records.staffTimes(e.id).map(s => ({ seconds: s.seconds, line: `${emoji.named(s.from == 'publisher' ? 'publisher' : 'staff')} ${boardTime(s.seconds)} ${s.user ? `<@${s.user}>` : s.name}` })),
+        ...records.staffTimes(e.id).map(s => ({ seconds: s.seconds, line: `${emoji.named(s.from == 'publisher' ? 'publisher' : 'staff')} ${boardTime(s.seconds)} ${s.user ? racerName(s.user) : s.name}` })),
         ...shownTimes('arcade', e.id).map(t => ({ seconds: t.time, line: timeLine(t, t.rank) })),
     ].sort((a, b) => a.seconds - b.seconds)
     addLeaderboard(container, 'arcade', e.id, [...bountyLines('arcade', e.id), ...board.map(b => b.line), boardCount('arcade', e.id)].filter(Boolean).join('\n'))
@@ -611,9 +658,25 @@ function planetInfo(planetId) {
 
 // --- scenarios ---
 
+// The scenarios, after an Overview option (value 'overview') back to the board over all of them, which says how many
+// the viewer has a time on, like the arcade's categories
 function scenarioSelect(current) {
-    return select('scenario', 'Pick a scenario',
-        data.scenarios.map(sc => ({ label: sc.name, value: sc.id, description: `${sc.tier} · ${data.planet(sc.planet).name} · ${sc.style.name}`.slice(0, 100), emoji: emoji.vehicle[sc.vehicleClass] })), current)
+    const me = viewer.id()
+    const mine = me ? data.scenarios.filter(sc => records.leaderboard('scenario', sc.id).some(t => t.user == me)).length : null
+    return select('scenario', 'Pick a scenario', [
+        { label: 'Overview', value: 'overview', description: `${mine != null ? `${mine}/` : ''}${data.scenarios.length} scenarios: the cumulative leaderboard`, emoji: setEmoji(SCENARIO_SET(), me) ?? emoji.event.race },
+        ...data.scenarios.map(sc => ({ label: sc.name, value: sc.id, description: `${sc.tier} · ${data.planet(sc.planet).name} · ${sc.style.name}`.slice(0, 100), emoji: emoji.vehicle[sc.vehicleClass] })),
+    ], current)
+}
+
+// The board over every scenario (the Leaderboards menu's Scenarios, the picker's Overview): points, total time and
+// podiums like the arcade's (addCumulative)
+function scenariosOverview(view) {
+    const container = new ContainerBuilder().setAccentColor(DEFAULT_COLOR)
+    header(container, [crumbs('Scenarios'), `## ${emoji.event.race} Overview`])
+    container.addSeparatorComponents(separator())
+    addCumulative(container, SCENARIO_SET(), view)
+    return page(container, new Files(), [boardsSelect('scenario'), scenarioSelect('overview')])
 }
 
 // "Days 1–4", "Day 5"
@@ -630,7 +693,8 @@ function poolTrack(t, { laps: showLaps = false } = {}) {
         showLaps && track.format != 'Point-to-point' && laps(track.defaultLaps)].filter(Boolean).join(' / ')
 }
 
-function scenarioInfo(scenarioId, { expanded = false } = {}) {
+// expanded: the build's details shown (addBuild); schedule: the days shown
+function scenarioInfo(scenarioId, { expanded = false, schedule = false } = {}) {
     const sc = data.scenario(scenarioId)
     const planet = data.planet(sc.planet)
     const files = new Files()
@@ -659,12 +723,26 @@ function scenarioInfo(scenarioId, { expanded = false } = {}) {
     container.addSeparatorComponents(separator())
     addBuild(container, files, sc, sc.vehicleClass, { kind: 'scenario', target: sc.id, expanded })
 
-    // The schedule: each run of days with its event and the tracks it can draw
+    // The schedule starts condensed, like the build: one line (how many days and tracks) with a show / hide button
+    // beside it; shown, each run of days with its event and the tracks it can draw, then a menu to any of those tracks
     container.addSeparatorComponents(separator())
-    container.addTextDisplayComponents(text(sc.schedule.flatMap(d => [
-        [`${emoji.named(d.emoji)} **${dayLabel(d.days)}**`, d.event == 'Race' ? null : d.event, d.mustWin && 'must win'].filter(Boolean).join(' / '),
-        ...d.tracks.map(t => `-# ${INDENT}+ ${poolTrack(t, { laps: !/Eliminator/.test(d.event) })}`),  // eliminators are timed
-    ]).join('\n')))
+    const tracks = [...new Set(sc.schedule.flatMap(d => d.tracks.map(t => t.track)))].map(id => data.track(id)).filter(Boolean)
+    const days = Math.max(...sc.schedule.flatMap(d => d.days))
+    container.addSectionComponents(new SectionBuilder()
+        .addTextDisplayComponents(text(`${emoji.named(sc.schedule[0]?.emoji)} **Schedule** / ${days} day${days == 1 ? '' : 's'} / ${tracks.length} track${tracks.length == 1 ? '' : 's'}`))
+        .setButtonAccessory(new ButtonBuilder().setCustomId(`schedule_${sc.id}_${schedule ? 'hide' : 'show'}`)
+            .setEmoji(emoji.component(emoji.named(schedule ? 'chevron_up' : 'chevron_down')))
+            .setStyle(ButtonStyle.Secondary)))
+    if (schedule) {
+        container.addTextDisplayComponents(text(sc.schedule.flatMap(d => [
+            [`${emoji.named(d.emoji)} **${dayLabel(d.days)}**`, d.event == 'Race' ? null : d.event, d.mustWin && 'must win'].filter(Boolean).join(' / '),
+            ...d.tracks.map(t => `-# ${INDENT}+ ${poolTrack(t, { laps: !/Eliminator/.test(d.event) })}`),  // eliminators are timed
+        ]).join('\n')))
+        // each track with the days it can come up on
+        const on = id => dayLabel([...new Set(sc.schedule.filter(d => d.tracks.some(t => t.track == id)).flatMap(d => d.days))].sort((a, b) => a - b))
+        if (tracks.length) container.addActionRowComponents(select('track', 'Go to a track', tracks.map(t => ({
+            label: t.name, value: t.id, description: `${on(t.id)} · ${t.format}`.slice(0, 100), emoji: emoji.planet[t.planet] }))))
+    }
 
     // Community times: the top 5 and the viewer's own best, as many as fit under Discord's text limit
     const used = textLength(container)
@@ -799,7 +877,7 @@ function creditsTop() {
     container.addSeparatorComponents(separator())
     container.addTextDisplayComponents(text(top.length ? top.map((b, i) => {
         const rec = credits.backerRecord(b.user)
-        return `${place(i + 1)} ${emoji.named('credits')} **${b.amount.toLocaleString('en-US')}** <@${b.user}>${rec ? ` ${emoji.named(credits.BACKERS[rec.backer].emoji)}` : ''}`
+        return `${place(i + 1)} ${emoji.named('credits')} **${b.amount.toLocaleString('en-US')}** ${racerName(b.user)}${rec ? ` ${emoji.named(credits.BACKERS[rec.backer].emoji)}` : ''}`
     }).join('\n') : '-# No one has credits yet.'))
     container.addSeparatorComponents(separator())
     container.addTextDisplayComponents(text(['### Backers', ...credits.standings().map(s =>
@@ -1756,7 +1834,7 @@ function goldsSection(a) {
     const all = achievements.GOLDS_FOR_ALL, golds = achievements.golds()
     const target = a.key == 'Arcade_AllGold' ? all : 1
     const done = golds.filter(g => g.golds >= target).length
-    const line = (g, i) => `${place(i + 1)} ${emoji.medal.gold} **${Math.min(g.golds, all)}**/${all} ${records.who(g.user)}${g.golds >= all ? ` ${emoji.named('tick')}` : ''}`
+    const line = (g, i) => `${place(i + 1)} ${emoji.medal.gold} **${Math.min(g.golds, all)}**/${all} ${racerName(g.user)}${g.golds >= all ? ` ${emoji.named('tick')}` : ''}`
     const lines = [`### On this server`,
         `-# ${done ? `${done} racer${done == 1 ? ' has' : 's have'} ${target == 1 ? 'a gold' : `${all} golds`}` : `No one has ${target == 1 ? 'a gold' : `${all} golds`} yet`} in their saved times`,
         ...golds.slice(0, 5).map(line)]
@@ -1871,4 +1949,4 @@ function patternInfo(patternId) {
     return page(container, files, [patternClassSelect(c.id), patternSelect(p.class, p.id)])
 }
 
-module.exports = { tourInfo, fullGameInfo, achievementInfo, achievementsOverview, bountyPosted, cumulativeView, characterInfo, charactersOverview, standingEmoji, buildExpanded, creditsCard, creditsTop, liveriesOverview, paletteGroupInfo, paletteInfo, patternClassInfo, patternInfo, taleInfo, talesOverview, backerInfo, backersOverview, statusInfo, statusesOverview, mysteryInfo, mysteriesOverview, rivalInfo, rivalsOverview, favorInfo, favorsOverview, vehicleInfo, vehicleClassInfo, vehiclesOverview, abilityInfo, abilitiesOverview, arcadeOverview, arcadeCategory, arcadeEvent, trackInfo, planetInfo, scenarioInfo, styleInfo, partInfo, parseKeywordMask }
+module.exports = { cardState, scenariosOverview, tourInfo, fullGameInfo, achievementInfo, achievementsOverview, bountyPosted, cumulativeView, characterInfo, charactersOverview, standingEmoji, buildExpanded, creditsCard, creditsTop, liveriesOverview, paletteGroupInfo, paletteInfo, patternClassInfo, patternInfo, taleInfo, talesOverview, backerInfo, backersOverview, statusInfo, statusesOverview, mysteryInfo, mysteriesOverview, rivalInfo, rivalsOverview, favorInfo, favorsOverview, vehicleInfo, vehicleClassInfo, vehiclesOverview, abilityInfo, abilitiesOverview, arcadeOverview, arcadeCategory, arcadeEvent, trackInfo, planetInfo, scenarioInfo, styleInfo, partInfo, parseKeywordMask }

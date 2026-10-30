@@ -3,7 +3,11 @@
 //   champions  the #1 of the points standings (records.points) over the main 50 events, each category and each speeder
 //              class (podracers are the Podracing category already); racers level on points and places share it
 //   Gold Standard        gold on every one of the main 50 events
-//   World Record Holder  first on any arcade event's leaderboard (Deluxe too) or any full-game category's
+//   World Record Holder  first on any arcade event's leaderboard (Deluxe too), any full-game category's, or any
+//                        scenario's with 5 or more racers on it
+//   Clean Sweep          the most points there are on a cumulative board (data.boardSets: all 50 or a category, Deluxe
+//                        too): 1st on every one of its events, each with 5 or more racers. Permanent: a sweep is kept
+//                        at sweeps/<discord id>/<set id> (when, ms) and the role stays after the records fall.
 // Only Discord members can hold them: a time from an unlinked speedrun.com account (records.isDiscord) leaves its role
 // empty until they join and link. Proof doesn't matter. sync() runs when the times change (records.onChange) and when
 // someone joins; the first one after a start is quiet, later ones announce each role gained with an embed in
@@ -16,8 +20,30 @@ const emoji = require('./data/discord/emoji.js')
 const records = require('./records.js')
 const data = require('./swgr/data.js')
 
+const { database } = require('./firebase.js')
+
 const MAIN = data.boardSet('main').items
 const CLASSES = ['Landspeeder', 'Speeder Bike', 'Skim Speeder']
+
+// Clean sweeps: the sets each racer holds every event's record on now (boards of SWEEP_RACERS or more), and those kept
+// in the database from before ({ <discord id>: { <set id>: ms } })
+const SWEEP_RACERS = 5
+let sweeps = {}
+const sweepingNow = () => data.boardSets.flatMap(set => {
+    const firsts = set.items.map(e => records.leaderboard('arcade', e.id)).map(b => b.length >= SWEEP_RACERS ? b[0].user : null)
+    return firsts[0] && firsts.every(u => u == firsts[0]) ? [{ user: firsts[0], set: set.id }] : []
+})
+// Saves sweeps not kept yet (a testing copy only remembers them: it shares the database); returns the new ones
+async function keepSweeps() {
+    const fresh = sweepingNow().filter(s => records.isDiscord(s.user) && !sweeps[s.user]?.[s.set])
+    for (const s of fresh) {
+        ;(sweeps[s.user] ??= {})[s.set] = Date.now()
+        if (!testing) await database?.ref(`sweeps/${s.user}/${s.set}`).set(sweeps[s.user][s.set])
+    }
+    return fresh
+}
+// A racer's swept sets by name, broadest first ("all 50 events", "Advanced")
+const sweptSets = user => data.boardSets.filter(set => sweeps[user]?.[set.id]).map(set => set.id == 'main' ? `all ${set.items.length} events` : set.name)
 
 // { key, name, description, holders(): [user ids], board?: a View board custom id, single?: one holder at a time }
 const leaders = events => {
@@ -40,9 +66,15 @@ const ROLES = [
         },
     },
     {
-        key: 'record', name: 'World Record Holder', description: 'Holds an arcade or full-game world record',
-        holders: () => [...new Set([...data.events.map(e => ['arcade', e.id]), ...data.fullGame.map(c => ['fullgame', c.id])]
-            .map(([kind, target]) => records.leaderboard(kind, target)[0]?.user).filter(Boolean))],
+        key: 'record', name: 'World Record Holder', description: 'Holds an arcade, scenario or full-game world record',
+        holders: () => [...new Set([...data.events.map(e => ['arcade', e.id]), ...data.fullGame.map(c => ['fullgame', c.id]), ...data.scenarios.map(s => ['scenario', s.id, 5])]
+            .map(([kind, target, racers = 1]) => (board => board.length >= racers ? board[0].user : null)(records.leaderboard(kind, target))).filter(Boolean))],
+    },
+    {
+        key: 'sweep', name: 'Clean Sweep', description: `Took 1st on every event of a category (or all ${MAIN.length}), each with ${SWEEP_RACERS}+ racers: the most points there are`,
+        holders: () => Object.keys(sweeps),
+        // the announcement names what was swept
+        what: user => `Swept ${sweptSets(user).join(', ')}`,
     },
 ]
 exports.ROLES = ROLES
@@ -59,8 +91,12 @@ async function run(client) {
     if (!guild || !records.loaded()) return  // before the times load everyone would lose everything
     if (!guild.members.me?.permissions.has(PermissionFlagsBits.ManageRoles)) return console.error('[roles] no Manage Roles permission')
     const quiet = !synced
-    if (!synced) await guild.members.fetch()  // fills the member cache that role.members reads (GuildMembers intent)
+    if (!synced) {
+        await guild.members.fetch()  // fills the member cache that role.members reads (GuildMembers intent)
+        sweeps = (await database?.ref('sweeps').get())?.val() ?? {}
+    }
     synced = true
+    await keepSweeps()
     const should = exports.holders()
     const gained = []
     for (const r of ROLES) {
@@ -90,7 +126,7 @@ exports.announcement = ({ r, role, member, from }) => {
     const embed = new EmbedBuilder()
         .setAuthor({ name: `${member.displayName} got an achievement!`, iconURL: member.displayAvatarURL() })
         .setTitle(`${r.single ? emoji.named('crown') : r.key == 'gold' ? emoji.medal.gold : emoji.named('place_1')} ${r.name}`)
-        .setDescription(`<@&${role.id}> - ${r.description}${taken}`)
+        .setDescription(`<@&${role.id}> - ${r.description}${taken}${r.what ? `\n${r.what(member.id)}` : ''}`)
         .setColor(0xFFB900)
     const components = r.board ? [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(r.board).setLabel('View board').setStyle(ButtonStyle.Secondary))] : []
     return { embeds: [embed], components, allowedMentions: { parse: [] } }

@@ -20,7 +20,7 @@ const { PermissionFlagsBits } = require('discord.js')
 const { database } = require('./firebase.js')
 const { submitter_roles } = require('./data/discord/guild.js')
 
-let times = {}, feedback = {}, submitters = {}, staff = {}, youtube = {}, rivals = {}, gamertags = {}
+let times = {}, feedback = {}, submitters = {}, staff = {}, youtube = {}, rivals = {}, gamertags = {}, profiles = {}
 // Called after the times change in the database, from anywhere (saves, removals, imports; src/roles.js)
 exports.onChange = []
 let loaded = false
@@ -38,6 +38,7 @@ exports.listen = () => {
     database.ref('youtube').on('value', s => { youtube = s.val() ?? {} })
     database.ref('rivals').on('value', s => { rivals = s.val() ?? {} })
     database.ref('gamertags').on('value', s => { gamertags = s.val() ?? {} })
+    database.ref('profiles').on('value', s => { profiles = s.val() ?? {} })
 }
 
 // "1:08.92", "68.92", "1:01:08.9" -> seconds to the hundredth (the game's precision); null if it isn't a time.
@@ -69,11 +70,11 @@ exports.formatTime = s => {
     return h ? `${h}:${String(m).padStart(2, '0')}:${sec}` : m ? `${m}:${sec}` : rest.toFixed(2)
 }
 
-// Each person's best time, fastest first
-exports.leaderboard = (kind, target) => {
+// Each person's best time, fastest first. before: the board as it stood then (only runs dated earlier)
+exports.leaderboard = (kind, target, { before } = {}) => {
     const best = {}
     for (const [id, t] of Object.entries(times)) {
-        if (t.kind != kind || t.target != target) continue
+        if (t.kind != kind || t.target != target || (before && t.date >= before)) continue
         if (!best[t.user] || t.time < best[t.user].time) best[t.user] = { id, ...t }
     }
     return Object.values(best).sort((a, b) => a.time - b.time || a.date - b.date)
@@ -81,8 +82,8 @@ exports.leaderboard = (kind, target) => {
 
 // Totals across several boards (an arcade category): each person's best on every one of them, summed; only people
 // with a time on all of them are ranked. Also returns how many of the boards each person has a time on.
-exports.cumulative = (kind, targets) => {
-    const bests = targets.map(t => Object.fromEntries(exports.leaderboard(kind, t).map(x => [x.user, x.time])))
+exports.cumulative = (kind, targets, { before } = {}) => {
+    const bests = targets.map(t => Object.fromEntries(exports.leaderboard(kind, t, { before }).map(x => [x.user, x.time])))
     const users = new Set(bests.flatMap(b => Object.keys(b)))
     const done = {}, ranked = []
     for (const u of users) {
@@ -97,9 +98,9 @@ exports.cumulative = (kind, targets) => {
 // (1st most). Most points first; a tie goes to more 1sts, then more 2nds and so on, and people level on all of that
 // share the place. Each entry: { user, points, places: [how many 1sts, 2nds, ... 5ths], rank }
 exports.POINTS = [10, 7, 5, 3, 1]
-exports.points = (kind, targets) => {
+exports.points = (kind, targets, { before } = {}) => {
     const scores = {}
-    for (const target of targets) exports.leaderboard(kind, target).slice(0, exports.POINTS.length).forEach((t, i) => {
+    for (const target of targets) exports.leaderboard(kind, target, { before }).slice(0, exports.POINTS.length).forEach((t, i) => {
         const s = scores[t.user] ??= { user: t.user, points: 0, places: exports.POINTS.map(() => 0) }
         s.points += exports.POINTS[i]
         s.places[i]++
@@ -116,6 +117,8 @@ exports.feedbackCounts =(kind, target) => {
     for (const f of Object.values(feedback[kind]?.[target] ?? {})) counts[f.rating] = (counts[f.rating] ?? 0) + 1
     return counts
 }
+// How someone rated a board (up | neutral | down), or null
+exports.ratingOf = (kind, target, user) => feedback[kind]?.[target]?.[user]?.rating ?? null
 
 // The platform someone last submitted on, to prefill the next submission
 // The platforms a time can be on: the form's and /submit's fixed choices
@@ -175,14 +178,19 @@ exports.addTime = async entry => {
 exports.isDiscord = user => /^\d+$/.test(user ?? '')
 // A racer as shown on boards and in messages: a mention, or an unlinked runner's src name (from their times' srcName)
 // linked to their src profile
+const plain = s => s.replace(/[_*~`|\\[\]<>]/g, '\\$&')  // src names often have underscores
+exports.escape = plain
 exports.who = user => {
     if (exports.isDiscord(user)) return `<@${user}>`
-    const plain = s => s.replace(/[_*~`|\\[\]<>]/g, '\\$&')  // src names often have underscores
     const guest = String(user).match(/^src:guest:(.*)$/)?.[1]
     if (guest) return plain(guest)
     const name = Object.values(times).find(t => t.user == user && t.srcName)?.srcName
     return name ? `[${plain(name)}](<https://www.speedrun.com/users/${encodeURIComponent(name)}>)` : 'a speedrun.com runner'
 }
+// A Discord racer's name, unformatted: as the main server shows them now (memberName, set by bot.js from its member
+// cache), else their profile (profiles/, src/profiles.js), else null
+exports.memberName = () => null
+exports.nameOf = user => exports.memberName(user) ?? profiles[user]?.name ?? null
 
 // The custom id of a board's card, for "View board" buttons (announcements, replies): an event, scenario or tour, or a
 // cumulative board (aggregate, target 'main', the arcade's front page, or a category id)

@@ -39,6 +39,7 @@ const emoji = {
     medalSpin: '<a:medal_spin:1558664377589178382>',
     soundWave: '<a:sound_wave:1558664379388534784>',
     spinner: '<a:spinner:1558664380810530926>',
+    newRecord: '<a:newrecord:1565738719770583080>',  // runs from the last day on leaderboards
 }
 
 // Every application emoji by name, including the generated stat/part/ability icons the game data refers to

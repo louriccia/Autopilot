@@ -13,8 +13,8 @@ const { racerOf } = require('../commands/timesheet.js')
 //                                 announces it in the channel
 // kind: arcade | scenario | tour | fullgame (target: its id), or aggregate (a cumulative leaderboard: target 'main' or a category id)
 const BOARDS = {
-    arcade: { exists: data.event, page: (target, interaction) => pages.arcadeEvent(target, { expanded: pages.buildExpanded(interaction.message) }) },
-    scenario: { exists: data.scenario, page: (target, interaction) => pages.scenarioInfo(target, { expanded: pages.buildExpanded(interaction.message) }) },
+    arcade: { exists: data.event, page: (target, interaction) => pages.arcadeEvent(target, pages.cardState(interaction.message)) },
+    scenario: { exists: data.scenario, page: (target, interaction) => pages.scenarioInfo(target, pages.cardState(interaction.message)) },
     tour: { exists: data.tour, page: target => pages.tourInfo(target) },
     fullgame: { exists: data.fullGameCategory, page: target => pages.fullGameInfo(target) },
     aggregate: {

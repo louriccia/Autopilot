@@ -101,6 +101,8 @@ exports.discordOf = async name => {
 }
 exports.owner = srcId => users[srcId]?.user ?? null
 exports.accountOf = discordId => Object.entries(users).find(([, u]) => u.user == discordId)?.[0] ?? null
+// A Discord racer's linked src profile, or null
+exports.profileOf = discordId => (name => name ? `https://www.speedrun.com/users/${encodeURIComponent(name)}` : null)(users[exports.accountOf(discordId)]?.name)
 
 // Links a src account to a Discord id and brings in its runs (backfill). Returns how many runs were saved.
 exports.link = async (src, discordId, { by, guild } = {}) => {

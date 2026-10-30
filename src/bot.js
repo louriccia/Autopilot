@@ -124,11 +124,13 @@ client.once(Events.ClientReady, () => {
         rolesTimer = setTimeout(() => roles.sync(client), 3000)
     })
     records.listen()
+    const { main_guild, test_guild } = require('./data/discord/guild.js')
+    // Racers' names on leaderboards: as the main server shows them (its member cache, filled by roles.sync's fetch)
+    records.memberName = id => client.guilds.cache.get(main_guild)?.members.cache.get(id)?.displayName ?? null
     require('./swgr/garage.js').listen()  // saved garage builds
     // Credits (src/credits.js), and an hourly sweep that returns expired bounties to their funders
     const credits = require('./credits.js')
     credits.listen()
-    const { main_guild, test_guild } = require('./data/discord/guild.js')
     setInterval(() => credits.expireBounties(client.guilds.cache.get(testing ? test_guild : main_guild))
         .catch(error => reportError('Bounties', error)), 60 * 60 * 1000)
     // speedrun.com (src/speedrun.js): its boards for the cards' "View on src" buttons, then (live bot only) its verified
