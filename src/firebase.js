@@ -14,8 +14,8 @@
 //   submitters/<discord id>   may submit times for others (/submitter)
 //   staff/<event id>/<name>   staff times (src/records.js); profiles/<discord id> { name, avatar } for the website (src/profiles.js)
 //   credits/, balances/, backers/, bounties/, fills/   the credits economy (src/credits.js)
-//   sweeps/<discord id>/<set id>   when a racer took 1st on every event of a cumulative board, for the permanent Clean
-//                       Sweep role (src/roles.js)
+//   sweeps/<discord id>/<set id>   when a racer took 1st on every event of a cumulative board, for the permanent sweep
+//                       roles (src/roles.js)
 //   garage/<discord id>/<build key>   saved garage builds, when each was saved (ms) (src/swgr/garage.js)
 //   speedrun/users/<src user id>, speedrun/runs/<src run id>, speedrun/checked   speedrun.com accounts linked to Discord
 //                       ids, runs already saved, and the last verification seen (src/speedrun.js)

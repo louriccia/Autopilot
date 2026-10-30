@@ -5,9 +5,9 @@
 //   Gold Standard        gold on every one of the main 50 events
 //   World Record Holder  first on any arcade event's leaderboard (Deluxe too), any full-game category's, or any
 //                        scenario's with 5 or more racers on it
-//   Clean Sweep          the most points there are on a cumulative board (data.boardSets: all 50 or a category, Deluxe
-//                        too): 1st on every one of its events, each with 5 or more racers. Permanent: a sweep is kept
-//                        at sweeps/<discord id>/<set id> (when, ms) and the role stays after the records fall.
+//   sweeps     the most points there are on a cumulative board (data.boardSets: all 50, Arcade Sweep, or a category,
+//              "Acid Sweep", Deluxe too): 1st on every one of its events, each with 5 or more racers. Permanent: a sweep
+//              is kept at sweeps/<discord id>/<set id> (when, ms) and the role stays after the records fall.
 // Only Discord members can hold them: a time from an unlinked speedrun.com account (records.isDiscord) leaves its role
 // empty until they join and link. Proof doesn't matter. sync() runs when the times change (records.onChange) and when
 // someone joins; the first one after a start is quiet, later ones announce each role gained with an embed in
@@ -42,40 +42,41 @@ async function keepSweeps() {
     }
     return fresh
 }
-// A racer's swept sets by name, broadest first ("all 50 events", "Advanced")
-const sweptSets = user => data.boardSets.filter(set => sweeps[user]?.[set.id]).map(set => set.id == 'main' ? `all ${set.items.length} events` : set.name)
 
-// { key, name, description, holders(): [user ids], board?: a View board custom id, single?: one holder at a time }
+// Colors by tier, rarest brightest: sweeps kyber violet, the Arcade Champion gold, the other champions silver, Gold
+// Standard medal gold, World Record Holder bronze. Set when a role is created and put back on each sync if changed.
+const COLORS = { sweep: 0xB18CFF, arcade: 0xFFD700, champion: 0xC0C8D0, gold: 0xD4AF37, record: 0xCD7F32 }
+
+// { key, name, description, color, holders(): [user ids], board?: a View board custom id, single?: one holder at a time }
 const leaders = events => {
     const ranked = records.points('arcade', events.map(e => e.id))
     return ranked.filter(s => s.rank == 1).map(s => s.user)
 }
 const ROLES = [
-    { key: 'main', name: 'Arcade Champion', description: `Leads the points standings over all ${MAIN.length} events`, holders: () => leaders(MAIN), board: records.boardView('aggregate', 'main'), single: true },
+    { key: 'main', name: 'Arcade Champion', color: COLORS.arcade, description: `Leads the points standings over all ${MAIN.length} events`, holders: () => leaders(MAIN), board: records.boardView('aggregate', 'main'), single: true },
     ...data.boardSets.filter(s => s.category && s.id != 'Deluxe').map(s => ({
-        key: s.id, name: `${s.name} Champion`, description: `Leads the ${s.name} points standings`, holders: () => leaders(s.items), board: records.boardView('aggregate', s.id), single: true,
+        key: s.id, name: `${s.name} Champion`, color: COLORS.champion, description: `Leads the ${s.name} points standings`, holders: () => leaders(s.items), board: records.boardView('aggregate', s.id), single: true,
     })),
     ...CLASSES.map(c => ({
-        key: c, name: `${c} Champion`, description: `Leads the points standings over the ${c} events`, holders: () => leaders(MAIN.filter(e => e.vehicleClass == c)), single: true,
+        key: c, name: `${c} Champion`, color: COLORS.champion, description: `Leads the points standings over the ${c} events`, holders: () => leaders(MAIN.filter(e => e.vehicleClass == c)), single: true,
     })),
     {
-        key: 'gold', name: 'Gold Standard', description: `Gold on all ${MAIN.length} events`,
+        key: 'gold', name: 'Gold Standard', color: COLORS.gold, description: `Gold on all ${MAIN.length} events`,
         holders: () => {
             const golds = MAIN.map(e => new Set(records.leaderboard('arcade', e.id).filter(t => t.time <= e.medals.gold.seconds).map(t => t.user)))
             return [...golds[0]].filter(u => golds.every(g => g.has(u)))
         },
     },
     {
-        key: 'record', name: 'World Record Holder', description: 'Holds an arcade, scenario or full-game world record',
+        key: 'record', name: 'World Record Holder', color: COLORS.record, description: 'Holds an arcade, scenario or full-game world record',
         holders: () => [...new Set([...data.events.map(e => ['arcade', e.id]), ...data.fullGame.map(c => ['fullgame', c.id]), ...data.scenarios.map(s => ['scenario', s.id, 5])]
             .map(([kind, target, racers = 1]) => (board => board.length >= racers ? board[0].user : null)(records.leaderboard(kind, target))).filter(Boolean))],
     },
-    {
-        key: 'sweep', name: 'Clean Sweep', description: `Took 1st on every event of a category (or all ${MAIN.length}), each with ${SWEEP_RACERS}+ racers: the most points there are`,
-        holders: () => Object.keys(sweeps),
-        // the announcement names what was swept
-        what: user => `Swept ${sweptSets(user).join(', ')}`,
-    },
+    ...data.boardSets.map(s => ({
+        key: `sweep:${s.id}`, name: `${s.id == 'main' ? 'Arcade' : s.name} Sweep`, color: COLORS.sweep, board: records.boardView('aggregate', s.id),
+        description: `1st on every ${s.id == 'main' ? `one of the ${MAIN.length}` : s.name} event${s.id == 'main' ? 's' : ''}, each with ${SWEEP_RACERS}+ racers: the most points there are`,
+        holders: () => Object.keys(sweeps).filter(u => sweeps[u][s.id]),
+    })),
 ]
 exports.ROLES = ROLES
 
@@ -101,8 +102,9 @@ async function run(client) {
     const gained = []
     for (const r of ROLES) {
         let role = guild.roles.cache.find(x => x.name == r.name)
-        if (!role) role = await guild.roles.create({ name: r.name, reason: 'Achievement role (Autopilot)' }).catch(error => console.error(`[roles] creating ${r.name}`, error.message))
+        if (!role) role = await guild.roles.create({ name: r.name, colors: { primaryColor: r.color }, reason: 'Achievement role (Autopilot)' }).catch(error => console.error(`[roles] creating ${r.name}`, error.message))
         if (!role) continue
+        if (role.colors.primaryColor != r.color) await role.setColors({ primaryColor: r.color }, 'Achievement role tier color').catch(error => console.error(`[roles] coloring ${r.name}`, error.message))
         const holding = new Set(role.members.keys())
         const lost = [...holding].filter(id => !should[r.key].has(id))
         for (const id of lost) await role.members.get(id).roles.remove(role, 'Achievement role lost').catch(error => console.error(`[roles] ${r.name}`, error.message))
@@ -126,7 +128,7 @@ exports.announcement = ({ r, role, member, from }) => {
     const embed = new EmbedBuilder()
         .setAuthor({ name: `${member.displayName} got an achievement!`, iconURL: member.displayAvatarURL() })
         .setTitle(`${r.single ? emoji.named('crown') : r.key == 'gold' ? emoji.medal.gold : emoji.named('place_1')} ${r.name}`)
-        .setDescription(`<@&${role.id}> - ${r.description}${taken}${r.what ? `\n${r.what(member.id)}` : ''}`)
+        .setDescription(`<@&${role.id}> - ${r.description}${taken}`)
         .setColor(0xFFB900)
     const components = r.board ? [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(r.board).setLabel('View board').setStyle(ButtonStyle.Secondary))] : []
     return { embeds: [embed], components, allowedMentions: { parse: [] } }
