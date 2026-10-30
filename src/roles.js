@@ -43,9 +43,9 @@ async function keepSweeps() {
     return fresh
 }
 
-// Colors by tier, rarest brightest: sweeps kyber violet, the Arcade Champion gold, the other champions silver, Gold
+// Colors by tier, rarest brightest: sweeps kyber violet, the Arcade Champion gold, the other champions amber, Gold
 // Standard medal gold, World Record Holder bronze. Set when a role is created and put back on each sync if changed.
-const COLORS = { sweep: 0xB18CFF, arcade: 0xFFD700, champion: 0xC0C8D0, gold: 0xD4AF37, record: 0xCD7F32 }
+const COLORS = { sweep: 0xB18CFF, arcade: 0xFFD700, champion: 0xF08A24, gold: 0xD4AF37, record: 0xCD7F32 }
 
 // { key, name, description, color, holders(): [user ids], board?: a View board custom id, single?: one holder at a time }
 const leaders = events => {
