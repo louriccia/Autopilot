@@ -85,14 +85,16 @@ exports.matchTitle = (title, { anyTime = false } = {}) => {
 // A video title with a tour's final race: it names a tour ("Multiplayer Tour", "pod tour"), or the place the final is
 // raced (Derven Acos or The Galactic Gauntlet for the Multiplayer Tour, Mos Espa for the Podracing Tour) and no arcade
 // event, with a time a final takes. Arcade events on Derven Acos are all under 3:01 even at bronze and the tour's
-// final takes 3:30 and up, so that planet's or track's name with a time from 3:10 is the tour's. -> { tour, seconds }
+// final takes 3:30 and up, so that planet's or track's name with a time from 3:10 is the tour's. A title naming one of
+// the tour's earlier tracks is that race's ("1:12.53 Rhodochrosite Run Multiplayer Tour"), not the final. -> { tour, seconds }
 const FINAL_PLACES = [['multiplayer-tour', /der?ven\s*acos|galactic\s*gauntlet/i, 190], ['podracing-tour', /mos\s*espa/i, 60]]  // "Deven Acos" happens
+const earlierTrack = (tour, title) => tour.stops.some(stop => stop.tracks.some(id => id != tour.final.track && words(title).includes(words(data.track(id).name))))
 exports.matchTourTitle = title => {
     title = unitTimes(title)
     const named = TOUR_NAMES.filter(([, re]) => re.test(title))
     const placed = FINAL_PLACES.filter(([, re]) => re.test(title))
     const [id, min] = named.length == 1 ? [named[0][0], 60] : !named.length && placed.length == 1 ? [placed[0][0], placed[0][2]] : []
-    if (!id) return null
+    if (!id || earlierTrack(data.tour(id), title)) return null
     const seconds = [...title.matchAll(/(?<![\d:.])(?:\d{1,2}:)?\d{1,2}[.:]\d{2}(?![\d:.])/g)].map(m => readTime(m[0])).find(s => s >= min && s <= 900)
     return seconds ? { tour: data.tour(id), seconds } : null
 }
