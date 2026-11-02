@@ -94,9 +94,11 @@ const racerName = user => {
     const src = speedrun.profileOf(user)
     return src ? `[${records.escape(name)}](<${src}>)` : records.escape(name)
 }
-// Boards show what changed over the last day: runs from it are marked new, and racers who moved since get an arrow
-// up or down (their place on the board as its runs stood a day ago: records.leaderboard's before)
+// Boards show what changed lately: runs from the last day are marked new, and racers who moved over the last three
+// days get an arrow up or down (their place on the board as its runs stood then: records.leaderboard's before), so a
+// run is new on its first day and an arrow up for two more
 const DAY = 24 * 60 * 60 * 1000
+const MOVED = 3 * DAY
 const fresh = t => t.date > Date.now() - DAY ? ` ${emoji.newRecord}` : ''
 const moved = (rank, was) => !was || was == rank ? '' : ` ${emoji.named(was > rank ? 'chevron_up' : 'chevron_down')}`
 const ranksBefore = board => Object.fromEntries(board.map(t => [t.user, t.rank]))
@@ -132,7 +134,7 @@ function bountyPosted(b) {
 // A board's community times as shown: the top 5, plus whoever is looking (src/viewer.js) with the places either side
 // of theirs, and their rival if they're further down; each with its place a day ago (was)
 const shownTimes = (kind, target) => {
-    const was = ranksBefore(records.leaderboard(kind, target, { before: Date.now() - DAY }).map((t, i) => ({ ...t, rank: i + 1 })))
+    const was = ranksBefore(records.leaderboard(kind, target, { before: Date.now() - MOVED }).map((t, i) => ({ ...t, rank: i + 1 })))
     const board = records.leaderboard(kind, target).map((t, i) => ({ ...t, rank: i + 1, was: was[t.user] }))
     const me = viewer.id(), rival = records.rivalOf(me)
     const mine = board.find(t => t.user == me)?.rank
@@ -338,7 +340,7 @@ const itemsWord = set => set.kind == 'scenario' ? 'scenarios' : 'events'
 function cumulativeBoard(set) {
     const ids = set.items.map(e => e.id)
     const { ranked } = records.cumulative(kindOf(set), ids)
-    const was = ranksBefore(records.cumulative(kindOf(set), ids, { before: Date.now() - DAY }).ranked)
+    const was = ranksBefore(records.cumulative(kindOf(set), ids, { before: Date.now() - MOVED }).ranked)
     const me = viewer.id(), rival = records.rivalOf(me)
     const board = [
         ...(set.items[0]?.medals ? ['gold', 'silver', 'bronze'] : []).map(m => {
@@ -355,7 +357,7 @@ function cumulativeBoard(set) {
 function pointsBoard(set) {
     const ids = set.items.map(e => e.id)
     const ranked = records.points(kindOf(set), ids)
-    const was = ranksBefore(records.points(kindOf(set), ids, { before: Date.now() - DAY }))
+    const was = ranksBefore(records.points(kindOf(set), ids, { before: Date.now() - MOVED }))
     const me = viewer.id(), rival = records.rivalOf(me)
     return [
         ...ranked.filter(s => s.rank <= 10 || s.user == me || s.user == rival).map(s =>
