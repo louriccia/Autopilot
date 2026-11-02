@@ -332,8 +332,9 @@ const viewButtons = saved => {
 // Saves every run found in a message; returns what happened to each, for logs and backfills
 // announce: false for backfills of old posts, so they don't announce podium changes. anywhere: a message outside the
 // replay channel that someone asked for (a ⏱️ reaction or an @Autopilot mention, bot.js). racer: the user an
-// @Autopilot mention names, who gets every run found (over a video channel's owner too)
-exports.handle = async (message, { announce = true, anywhere = false, racer: chosen = null } = {}) => {
+// @Autopilot mention names, who gets every run found (over a video channel's owner too). reply: false when the caller
+// answers the message itself (the mention's reply)
+exports.handle = async (message, { announce = true, anywhere = false, racer: chosen = null, reply = true } = {}) => {
     if (message.author.bot || (!anywhere && !(testing ? [test_channel] : replay_channels).includes(message.channelId))) return []
     const src = await source(message)
     // A forward whose author the bot can't see is usually followed by "@Autopilot @racer" a moment later, which reads
@@ -419,6 +420,11 @@ exports.handle = async (message, { announce = true, anywhere = false, racer: cho
     const saved = results.filter(r => !r.skipped && !r.error)
     if (saved.length) await confirm(message, saved)
     else if (unclaimed) await message.react(emoji.named('unknown').replace(/^<a?:|>$/g, '') || '❓').catch(() => { })  // the game's "?" marker
+    // Saved runs also get a one-line reply with a View board button
+    if (reply && announce && saved.length) await message.reply({
+        content: saved.map(r => r.message).join('\n'), components: viewButtons(saved),
+        allowedMentions: { parse: [], repliedUser: false }, flags: MessageFlags.SuppressNotifications,
+    }).catch(() => { })
     for (const r of results) console.log(`[replays] ${message.author.username}${src.forward ? ' (forward)' : ''}: "${r.label}" -> ${r.skipped ? `skipped${r.why ? ` (${r.why})` : ''}` : r.error ?? `${r.message}`}`)
     return results
 }
@@ -505,7 +511,7 @@ exports.handleMention = async message => {
     }
 
     // Otherwise read what's attached
-    const results = await exports.handle(target, { anywhere: true, racer })
+    const results = await exports.handle(target, { anywhere: true, racer, reply: false })
     const saved = results.filter(r => !r.skipped && !r.error)
     if (saved.length && target != message) await unmarkUnknown(target)
     if (saved.length) return reply(saved.map(r => r.message).join('\n'), viewButtons(saved))
