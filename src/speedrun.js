@@ -197,7 +197,7 @@ const videoKey = url => {
 
 // The server member a src run is evidently also theirs, when exactly one fits: a Discord time on the same board with
 // the same proof video, else one with the same time (within a hundredth) by a member whose username, display name or
-// server nickname is the src name (ignoring case)
+// server nickname is the src name (ignoring case and punctuation: GAMEKNIGHT_ is GAMEKNIGHT)
 async function sameRunner({ kind, target, seconds, proof, name }, guild) {
     const board = records.allTimes().filter(x => records.isDiscord(x.user) && x.kind == kind && x.target == target)
     const video = videoKey(proof)
@@ -208,7 +208,7 @@ async function sameRunner({ kind, target, seconds, proof, name }, guild) {
     const named = []
     for (const id of candidates) {
         const m = await guild.members.fetch(id).catch(() => null)
-        if (m && [m.user.username, m.user.globalName, m.displayName].some(n => n?.toLowerCase() == name.toLowerCase())) named.push(id)
+        if (m && [m.user.username, m.user.globalName, m.displayName].some(n => n && key(n) == key(name))) named.push(id)
     }
     return named.length == 1 ? named[0] : null
 }
