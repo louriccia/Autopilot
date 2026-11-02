@@ -103,10 +103,11 @@ const moved = (rank, was) => !was || was == rank ? '' : ` ${emoji.named(was > ra
 const ranksBefore = board => Object.fromEntries(board.map(t => [t.user, t.rank]))
 const RATINGS = { up: 'thumbsUp', neutral: 'thumbsNeutral', down: 'thumbsDown' }
 // The viewer's declared rival (/times rival) gets the rival marker; the racer's own rating of the board (the thumbs)
-// follows their name; a full-game run says its difficulty; then new and moved (t.was: their place a day ago)
+// follows their platform; a full-game run says its difficulty. Moved (t.was: their place a day ago) and new sit
+// between the time and the name: place, time, moved, new, name, platform, rating
 const timeLine = (t, rank) => {
     const rating = t.kind && RATINGS[records.ratingOf(t.kind, t.target, t.user)]
-    return `${place(rank)} ${t.proof ? `[${boardTime(t.time)}](<${t.proof}>)` : boardTime(t.time)} ${racerName(t.user)}${rating ? ` ${emoji[rating]}` : ''}${platformMark(t.platform)}${t.difficulty ? ` *${t.difficulty}*` : ''}${t.user == records.rivalOf(viewer.id()) ? ` ${emoji.named('rival')}` : ''}${t.date ? fresh(t) : ''}${moved(rank, t.was)}`
+    return `${place(rank)} ${t.proof ? `[${boardTime(t.time)}](<${t.proof}>)` : boardTime(t.time)}${moved(rank, t.was)}${t.date ? fresh(t) : ''} ${racerName(t.user)}${t.user == records.rivalOf(viewer.id()) ? ` ${emoji.named('rival')}` : ''}${platformMark(t.platform)}${rating ? ` ${emoji[rating]}` : ''}${t.difficulty ? ` *${t.difficulty}*` : ''}`
 }
 // A board's open bounties (/bounty): the pot, the time to beat and when it ends
 // (at the top of its leaderboard): "[bounty] 54.00 [credits] 100 (expires in 14 days)"
@@ -359,7 +360,7 @@ function pointsBoard(set) {
     const me = viewer.id(), rival = records.rivalOf(me)
     return [
         ...ranked.filter(s => s.rank <= 10 || s.user == me || s.user == rival).map(s =>
-            `${place(s.rank)} **${s.points.toLocaleString('en-US')}** pts ${racerName(s.user)}${s.user == rival ? ` ${emoji.named('rival')}` : ''}${moved(s.rank, was[s.user])}`),
+            `${place(s.rank)} **${s.points.toLocaleString('en-US')}** pts${moved(s.rank, was[s.user])} ${racerName(s.user)}${s.user == rival ? ` ${emoji.named('rival')}` : ''}`),
         `-# ${records.POINTS.map((p, i) => `${place(i + 1)} ${p}`).join(' ')} (${(set.items.length * records.POINTS[0]).toLocaleString('en-US')} max)`,  // the points each place on an event scores, and the most there are
     ]
 }
@@ -374,7 +375,7 @@ function podiumsBoard(set, page) {
         ...shown.map(e => {
             const top = records.leaderboard(kindOf(set), e.id).slice(0, 3)
             // 2nd and 3rd as their gap to 1st
-            return `${emoji.planet[e.planet]} **${e.name}**\n-# ${top.length ? top.map((t, i) => `${i ? `\`+${formatTime(t.time - top[0].time)}\`` : boardTime(t.time)} ${racerName(t.user)}${t.user == rival ? ` ${emoji.named('rival')}` : ''}${fresh(t)}`).join(' ') : 'No times yet'}`
+            return `${emoji.planet[e.planet]} **${e.name}**\n-# ${top.length ? top.map((t, i) => `${i ? `\`+${formatTime(t.time - top[0].time)}\`` : boardTime(t.time)}${fresh(t)} ${racerName(t.user)}${t.user == rival ? ` ${emoji.named('rival')}` : ''}`).join(' ') : 'No times yet'}`
         }),
         set.items.length > PODIUM_PAGE && `-# ${itemsWord(set) == 'events' ? 'Events' : 'Scenarios'} ${page * PODIUM_PAGE + 1}-${page * PODIUM_PAGE + shown.length} of ${set.items.length}`,
     ].filter(Boolean)
