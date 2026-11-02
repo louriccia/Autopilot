@@ -95,19 +95,18 @@ const racerName = user => {
     return src ? `[${records.escape(name)}](<${src}>)` : records.escape(name)
 }
 // Boards show what changed over the last day: runs from it are marked new, and racers who moved since get an arrow
-// with how many places (their place on the board as its runs stood a day ago: records.leaderboard's before)
+// up or down (their place on the board as its runs stood a day ago: records.leaderboard's before)
 const DAY = 24 * 60 * 60 * 1000
 const fresh = t => t.date > Date.now() - DAY ? ` ${emoji.newRecord}` : ''
-// (a single place is the marker alone)
-const moved = (rank, was) => !was || was == rank ? '' : ` ${emoji.named(was > rank ? 'chevron_up' : 'chevron_down')}${Math.abs(was - rank) > 1 ? Math.abs(was - rank) : ''}`
+const moved = (rank, was) => !was || was == rank ? '' : ` ${emoji.named(was > rank ? 'chevron_up' : 'chevron_down')}`
 const ranksBefore = board => Object.fromEntries(board.map(t => [t.user, t.rank]))
 const RATINGS = { up: 'thumbsUp', neutral: 'thumbsNeutral', down: 'thumbsDown' }
 // The viewer's declared rival (/times rival) gets the rival marker; the racer's own rating of the board (the thumbs)
 // follows their platform; a full-game run says its difficulty. Moved (t.was: their place a day ago) and new sit
-// between the time and the name: place, time, moved, new, name, platform, rating
+// between the time and the name, new alone when both: place, time, moved or new, name, platform, rating
 const timeLine = (t, rank) => {
     const rating = t.kind && RATINGS[records.ratingOf(t.kind, t.target, t.user)]
-    return `${place(rank)} ${t.proof ? `[${boardTime(t.time)}](<${t.proof}>)` : boardTime(t.time)}${moved(rank, t.was)}${t.date ? fresh(t) : ''} ${racerName(t.user)}${t.user == records.rivalOf(viewer.id()) ? ` ${emoji.named('rival')}` : ''}${platformMark(t.platform)}${rating ? ` ${emoji[rating]}` : ''}${t.difficulty ? ` *${t.difficulty}*` : ''}`
+    return `${place(rank)} ${t.proof ? `[${boardTime(t.time)}](<${t.proof}>)` : boardTime(t.time)}${(t.date && fresh(t)) || moved(rank, t.was)} ${racerName(t.user)}${t.user == records.rivalOf(viewer.id()) ? ` ${emoji.named('rival')}` : ''}${platformMark(t.platform)}${rating ? ` ${emoji[rating]}` : ''}${t.difficulty ? ` *${t.difficulty}*` : ''}`
 }
 // A board's open bounties (/bounty): the pot, the time to beat and when it ends
 // (at the top of its leaderboard): "[bounty] 54.00 [credits] 100 (expires in 14 days)"
