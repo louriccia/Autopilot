@@ -452,8 +452,8 @@ function arcadeOverview(racer, view) {
     }
     container.addSeparatorComponents(separator())
     addCumulative(container, data.boardSet('main'), { ...view, racer })
-    const recent = racer && recentSelect(racer.id)
-    return page(container, files, [boardsSelect('arcade'), categorySelect(), recent].filter(Boolean))
+    const recent = racer && [recentSelect(racer.id), bopSelect(racer.id)]
+    return page(container, files, [boardsSelect('arcade'), categorySelect(), ...(recent ?? [])].filter(Boolean))
 }
 
 // "3 hours ago" (menus can't show Discord's live timestamps, so this is as of the card's drawing)
@@ -482,6 +482,49 @@ function recentSelect(userId) {
             value: `${e.id}:${i}`,
             description: [ordinal(rank), gain, ago(t.date)].filter(Boolean).join(' · '),
             emoji: standingEmoji(e, t.time, rank),  // as in the event menus, for this run's time and place
+        }
+    }))
+}
+
+// The boards where others last passed a racer (bops: a run faster than the racer's best at the time, by someone who
+// wasn't already ahead) since their own last personal best there, up to 25, latest first, one option per board: who
+// passed them (the latest first, or their declared rival, who gets the rival marker), their place there now and when.
+// A new personal best answers them all, so the board drops out until someone passes it. Opens the board like
+// recentSelect (<event>:<n>).
+function bopSelect(userId) {
+    const all = records.allTimes().filter(t => t.kind == 'arcade' && data.event(t.target)).reverse()  // oldest first
+    const boards = new Map()
+    for (const target of new Set(all.filter(t => t.user == userId).map(t => t.target))) {
+        const best = {}
+        let bops = [], was
+        for (const t of all.filter(t => t.target == target)) {
+            const mine = best[userId]
+            if (t.user == userId && t.time < (mine ?? Infinity)) {
+                bops = []
+                was = Object.entries(best).filter(([u, time]) => u != userId && time < t.time).length + 1  // their place then
+            }
+            else if (t.user != userId && mine != null && t.time < mine && (best[t.user] ?? Infinity) >= mine) bops.push(t)
+            best[t.user] = Math.min(best[t.user] ?? Infinity, t.time)
+        }
+        if (bops.length) boards.set(target, { bops: bops.reverse(), was })  // latest first (each racer once: they're ahead since)
+    }
+    if (!boards.size) return null
+    const name = t => records.nameOf(t.user) ?? t.srcName ?? String(t.user).match(/^src:guest:(.*)$/)?.[1] ?? 'someone'
+    const rival = records.rivalOf(userId)
+    const latest = [...boards].sort(([, a], [, b]) => b.bops[0].date - a.bops[0].date).slice(0, 25)
+    return select('arcade_event_bops', 'See recent bops', latest.map(([target, { bops, was }], i) => {
+        const e = data.event(target)
+        const board = records.leaderboard('arcade', target)
+        const rank = board.findIndex(t => t.user == userId) + 1
+        const lead = bops.find(t => t.user == rival) ?? bops[0]
+        const others = bops.length - 1
+        return {
+            label: `${e.name} · ${name(lead).slice(0, 70 - e.name.length)}${others ? ` and ${others} other${others == 1 ? '' : 's'}` : ''}`,
+            value: `${e.id}:${i}`,
+            // the place their personal best took, where it is now, and when the latest of them passed it
+            description: `${ordinal(was)} → ${ordinal(rank)} · last passed ${ago(bops[0].date)}`,
+            // the rival marker when their rival is among them, else their own standing there now, as in the event menus
+            emoji: lead.user == rival ? emoji.named('rival') : standingEmoji(e, board[rank - 1].time, rank),
         }
     }))
 }

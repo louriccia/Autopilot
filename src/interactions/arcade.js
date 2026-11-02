@@ -2,7 +2,7 @@ const { navigate } = require('../respond.js')
 const { arcadeOverview, arcadeCategory, arcadeEvent, cumulativeView } = require('../swgr/pages.js')
 const { racerOf } = require('../commands/timesheet.js')
 
-// arcade_category / arcade_event selects (and the timesheet's arcade_event_recent) (the category menu's "overview" goes back to the arcade's front page), or an
+// arcade_category / arcade_event selects (and the timesheet's arcade_event_recent and arcade_event_bops) (the category menu's "overview" goes back to the arcade's front page), or an
 // arcade_event_<id> button (podium announcements)
 module.exports = {
     name: 'arcade',
