@@ -87,16 +87,21 @@ exports.matchTitle = (title, { anyTime = false } = {}) => {
 // event, with a time a final takes. Arcade events on Derven Acos are all under 3:01 even at bronze and the tour's
 // final takes 3:30 and up, so that planet's or track's name with a time from 3:10 is the tour's. A title naming one of
 // the tour's earlier tracks is that race's ("1:12.53 Rhodochrosite Run Multiplayer Tour"), not the final. -> { tour, seconds }
-const FINAL_PLACES = [['multiplayer-tour', /der?ven\s*acos|galactic\s*gauntlet/i, 190], ['podracing-tour', /mos\s*espa/i, 60]]  // "Deven Acos" happens
+const FINAL_PLACES = [['multiplayer-tour', /der?ven\s*acos|galactic\s*gauntlet/i], ['podracing-tour', /mos\s*espa/i]]  // "Deven Acos" happens
+// The fastest a tour's final can take (The Galactic Gauntlet takes 3:30 and up; Mos Espa Speedway, 2:20 or so), and
+// the slowest any final does: a time outside it is another race's, or a misread
+const FINAL_MIN = { 'multiplayer-tour': 190, 'podracing-tour': 60 }
+const isFinal = (tour, seconds) => seconds >= FINAL_MIN[tour.id] && seconds <= 900
 const earlierTrack = (tour, title) => tour.stops.some(stop => stop.tracks.some(id => id != tour.final.track && words(title).includes(words(data.track(id).name))))
 exports.matchTourTitle = title => {
     title = unitTimes(title)
     const named = TOUR_NAMES.filter(([, re]) => re.test(title))
     const placed = FINAL_PLACES.filter(([, re]) => re.test(title))
-    const [id, min] = named.length == 1 ? [named[0][0], 60] : !named.length && placed.length == 1 ? [placed[0][0], placed[0][2]] : []
-    if (!id || earlierTrack(data.tour(id), title)) return null
-    const seconds = [...title.matchAll(/(?<![\d:.])(?:\d{1,2}:)?\d{1,2}[.:]\d{2}(?![\d:.])/g)].map(m => readTime(m[0])).find(s => s >= min && s <= 900)
-    return seconds ? { tour: data.tour(id), seconds } : null
+    const id = named.length == 1 ? named[0][0] : !named.length && placed.length == 1 ? placed[0][0] : null
+    const tour = id && data.tour(id)
+    if (!tour || earlierTrack(tour, title)) return null
+    const seconds = [...title.matchAll(/(?<![\d:.])(?:\d{1,2}:)?\d{1,2}[.:]\d{2}(?![\d:.])/g)].map(m => readTime(m[0])).find(s => isFinal(tour, s))
+    return seconds ? { tour, seconds } : null
 }
 // A posted or uploaded video's run: an arcade event's (matchTitle), else a tour final's (matchTourTitle)
 exports.matchVideoTitle = title => exports.matchTitle(title) ?? exports.matchTourTitle(title)
@@ -151,7 +156,7 @@ Screens to recognise:
 - tour_completed: a multiplayer tour's end screen titled TOUR COMPLETED (or its translation: TOURNOI TERMINÉ, RECORRIDO COMPLETADO...), with three characters on a podium and a column of standings down the right: each row a place number with a time under it, then a banner with the racer's name, points and their form. Give every row: rank (the place number), name (on the banner), time (the time under the place number), and is_player true for the one row whose place number has a small person silhouette (a head and shoulders) printed just left of the digit, in the left column above that row's time; exactly one row has it. The monitor and PlayStation / Xbox logos after names are platform icons, not this marker, and a row drawn with a white outline is only the camera's selection: neither makes is_player true.
 - race_standings: the same standings column as tour_completed (place numbers with times under them, name banners with points and five form boxes ending in a flag) but without the TOUR COMPLETED title in view: a cropped screenshot, a photo of a screen, or the column shown over the race view after finishing (with Previous / Next Position buttons; only finished racers have times). Give the rows the same way, is_player included.
 - tour_summary: a tour's summary page with a LAST RACE RESULT panel (a place and a time), a FINAL BET RESULT panel, a TIMELINE of planets and a BUILD panel down the left. An image can stack several of these pages; give one row per LAST RACE RESULT panel: rank its place, name "", time as shown, is_player true.
-- other: anything else, including races against rivals in the campaign.`
+- other: anything else, including races against rivals in the campaign, and the campaign's VICTORY / DEFEAT screen (POINTS EARNED at the top, a TIMELINE of planets, a BUILD panel, then PARTS, RACER STYLE and FAVOR panels, and no LAST RACE RESULT): it is not a tour_summary, and a speedrun timer or splits drawn over any screen are not the game's times.`
 async function readScreen(url) {
     // Sent as data rather than a link: OpenAI fetching a large Discord file can time out
     const image = await fetch(url)
@@ -227,7 +232,7 @@ exports.matchScreen = (s, names = [], text = '') => {
         const seconds = Math.min(...s.rows.map(r => readTime(r.time)).filter(final))
         if (seconds == Infinity) return null
         const tour = said.length == 1 ? said[0] : s.vehicle ? data.tour(/pod/i.test(s.vehicle) ? 'podracing-tour' : 'multiplayer-tour') : tourOf([], seconds)
-        return { tour, seconds, title: 'tour summary' }
+        return isFinal(tour, seconds) ? { tour, seconds, title: 'tour summary' } : null
     }
     if ((s.screen == 'tour_completed' || (s.screen == 'race_standings' && (s.rows.length > 8 || TOURISH.test(text)))) && s.rows.length) {
         // The racer's row by their Discord name, else the one with the person icon (the model misses or misplaces that
@@ -239,7 +244,8 @@ exports.matchScreen = (s, names = [], text = '') => {
         const seconds = readTime(row?.time)
         if (!final(seconds)) return null
         // gamertag: the in-game name of a row found by its icon, to remember for the racer (records.addGamertag)
-        return { tour: said.length == 1 ? said[0] : tourOf(s.rows, seconds), seconds, title: 'tour results', gamertag: named ? null : row.name }
+        const tour = said.length == 1 ? said[0] : tourOf(s.rows, seconds)
+        return isFinal(tour, seconds) ? { tour, seconds, title: 'tour results', gamertag: named ? null : row.name } : null
     }
     if (s.screen == 'arcade_results') {
         const event = MEDALS.get(readMedals(s.medal_times))
@@ -432,7 +438,7 @@ exports.matchClaim = text => {
 
 // A typed multiplayer tour time: the tour's name ("Multiplayer Tour", "Podracing Tour", or "MP" / "pod" tour, a word or
 // two between allowed: "multiplayer standard tour") and a time
-// for its final race (a minute to 15)
+// for its final race (isFinal)
 const TOUR_NAMES = [['multiplayer-tour', /\b(multiplayer|mp)(\s+\w+){0,2}?\s+tour\b/i], ['podracing-tour', /\bpod(racing|race|racer)?(\s+\w+){0,2}?\s+tour\b/i]]
 exports.matchTour = text => {
     text = unitTimes(text)
@@ -440,7 +446,7 @@ exports.matchTour = text => {
     if (found.length != 1) return null
     for (const token of text.match(/\d[\d:.]*\d|\d/g) ?? []) {
         const seconds = readTime(token)
-        if (seconds >= 60 && seconds <= 900) return { tour: found[0], seconds }
+        if (isFinal(found[0], seconds)) return { tour: found[0], seconds }
     }
     return null
 }
