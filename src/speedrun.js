@@ -12,9 +12,9 @@
 //   speedrun/checked               the latest verify-date (ms) seen by poll()
 // Every verified run is saved through src/submit.js like any other, as a video-proven run. One by an account linked to
 // a Discord id is theirs (credits, podiums, bounties), and a time they already submitted on Discord (to the hundredth)
-// is the same run, which only gains the video and the src fields. One by an account nobody has linked yet is saved
-// under 'src:<src user id>' ('src:guest:<name>' for guests; records.who shows the src name), on the boards and in
-// podium posts but earning nothing. Linking (/times speedrun, or automatically: the account's Discord connection names
+// is the same run, which only gains the video, src's time and the src fields (likewise an earlier src run it
+// retimes). One by an account nobody has linked yet is saved under 'src:<src user id>' ('src:guest:<name>' for
+// guests; records.who shows the src name), on the boards and in podium posts but earning nothing. Linking (/times speedrun, or automatically: the account's Discord connection names
 // a server member, or its video's YouTube channel is already linked to someone) saves those runs again as the person's
 // (link()), so they're deduplicated against their own times and paid like any other save, without announcements.
 const { database } = require('./firebase.js')
@@ -160,25 +160,31 @@ function asTime(run) {
 }
 
 // Saves one verified run for whoever its account is linked to; returns the submit result, or null when it was skipped
-// (not ours, already saved)
-async function save(run, guild, { announce }) {
-    if (runs[run.id]) return null
+// (not ours, already saved). edited: a saved run edited on src into another run (edits()), saved again as a time of its
+// own beside the old one.
+async function save(run, guild, { announce, edited }) {
+    if (runs[run.id] && !edited) return null
     const t = asTime(run)
     if (!t) return null
     const user = t.racer, linked = records.isDiscord(user)
     // The same run submitted on Discord: their time on the board within a hundredth (results screens and src's timing
-    // can round differently)
-    const same = records.allTimes().find(x => x.kind == t.kind && x.target == t.target && x.user == user && Math.abs(x.time - t.seconds) <= 0.011)
+    // can round differently), or an earlier src run this one retimes (the same video resubmitted a hundredth off; two
+    // src runs with different videos are two runs, however close)
+    const same = records.allTimes().find(x => x.kind == t.kind && x.target == t.target && x.user == user && Math.abs(x.time - t.seconds) <= 0.011
+        && (!x.src || videoKey(x.proof) == videoKey(t.proof)))
+    // This verified run's time wins (1:08.00 becomes 1:07.99) and the time becomes this run's, so submit sees an exact
+    // repeat
+    if (same && (same.time != t.seconds || same.src != run.id)) await records.updateTime(same.id, { time: t.seconds, src: run.id })
     const member = linked ? await guild?.members.fetch(user).catch(() => null) : null
     const { submit, formatTime } = require('./submit.js')
     const r = await submit({
         kind: t.kind, target: t.target, member: member ?? { id: user, client: guild?.client, guild }, memberId: user,
         // "1:43.67": plain seconds only parse under a minute
-        time: formatTime(same?.time ?? t.seconds), platform: t.platform, keepPlatform: true, proof: t.proof, proofType: 'video',
+        time: formatTime(t.seconds), platform: t.platform, keepPlatform: true, proof: t.proof, proofType: 'video',
         notes: '', trusted: true, date: t.date, announce, pay: linked, src: { run: run.id, user: t.player, name: t.name }, difficulty: t.difficulty,
     })
     if (r.error) throw new Error(`run ${run.id}: ${r.error}`)
-    const saved = records.allTimes().find(x => x.src == run.id)
+    const saved = records.allTimes().find(x => x.kind == t.kind && x.target == t.target && x.user == user && x.time == t.seconds)
     // The verified run's proof replaces whatever the time had (submit only swaps a video for another video); the date
     // stays the earliest known (records.addTime)
     if (saved && t.proof && saved.proof != t.proof) await records.updateTime(saved.id, { proof: t.proof })
@@ -275,6 +281,37 @@ async function fullGameRuns() {
 }
 let swept = false
 
+// Runs edited on src after they were saved. Runners often record a personal best by editing their run (a new video
+// and time): that's another run, saved as a time of its own beside the old one, which stays in the log. A new time on
+// the same video is a retime and a new video at the same time a re-upload: the saved time takes them. Every verified
+// run of the game, a few pages, at most once an hour (the first after a start announces nothing); only times still
+// that run's own (src), so an earlier run another one retimed (save) isn't put back.
+let rechecked = 0
+async function edits(guild) {
+    if (Date.now() - rechecked < 60 * 60 * 1000) return 0
+    const announce = rechecked > 0
+    rechecked = Date.now()
+    let fixed = 0
+    for (let offset = 0; ; offset += 200) {
+        const page = await get(`/runs?game=${game.id}&status=verified&orderby=submitted&direction=asc&max=200&offset=${offset}&embed=players`)
+        for (const run of page.data) {
+            const saved = runs[run.id]?.time && records.allTimes().find(x => x.id == runs[run.id].time && x.src == run.id)
+            const t = saved && asTime(run)
+            if (!t) continue
+            const retimed = t.seconds != saved.time, video = !!t.proof && videoKey(t.proof) != videoKey(saved.proof)
+            if (retimed && video) {
+                console.log(`[speedrun] ${run.weblink} was edited into another run: ${saved.time} -> ${t.seconds}`)
+                try { await save(run, guild, { announce, edited: true }) } catch (error) { console.error('[speedrun]', run.weblink, error); continue }
+            } else if (retimed || video) {
+                await records.updateTime(saved.id, { time: t.seconds, ...(video ? { proof: t.proof } : {}) })
+                console.log(`[speedrun] ${run.weblink} was ${retimed ? 'retimed' : 'given another video'}: ${saved.time} -> ${t.seconds}`)
+            } else continue
+            fixed++
+        }
+        if (page.data.length < 200) return fixed
+    }
+}
+
 // New verified runs since the last check: saved (podiums announced), or auto-linked first. Then runs saved earlier
 // under an unlinked account get the same-run check (sameRunner) again, for a Discord time submitted after them.
 exports.poll = async guild => {
@@ -305,6 +342,7 @@ exports.poll = async guild => {
     // are skipped then)
     const latest = failed ? Math.max(checked ?? 0, failed - 1) : Math.max(checked ?? 0, ...found.map(r => Date.parse(r.status['verify-date'])))
     if (latest != checked) await database.ref('speedrun/checked').set(latest)
+    await edits(guild).catch(error => console.error('[speedrun] edits', error))
     for (const t of records.allTimes().filter(t => t.srcUser && t.srcName && !records.isDiscord(t.user) && !exports.owner(t.srcUser))) {
         if (exports.owner(t.srcUser)) continue  // linked by an earlier time in this loop
         const match = await sameRunner({ kind: t.kind, target: t.target, seconds: t.time, proof: t.proof, name: t.srcName }, guild).catch(() => null)
