@@ -367,18 +367,19 @@ function pointsBoard(set) {
 }
 
 // Podiums: each event's top 3, PODIUM_PAGE events a page (the whole of the main set would go past Discord's 4000
-// characters)
-const PODIUM_PAGE = 12
-function podiumsBoard(set, page) {
+// characters). A timesheet's two 25-option menus (recent runs and bops) take much of that 4000 too, so it shows
+// fewer: past it, Discord answers the redraw with Unknown interaction
+const PODIUM_PAGE = 12, TIMESHEET_PODIUM_PAGE = 6
+function podiumsBoard(set, page, perPage) {
     const rival = records.rivalOf(viewer.id())
-    const shown = set.items.slice(page * PODIUM_PAGE, (page + 1) * PODIUM_PAGE)
+    const shown = set.items.slice(page * perPage, (page + 1) * perPage)
     return [
         ...shown.map(e => {
             const top = records.leaderboard(kindOf(set), e.id).slice(0, 3)
             // 2nd and 3rd as their gap to 1st
             return `${emoji.planet[e.planet]} **${e.name}**\n-# ${top.length ? top.map((t, i) => `${i ? `\`+${formatTime(t.time - top[0].time)}\`` : boardTime(t.time)}${fresh(t)} ${racerName(t.user)}${t.user == rival ? ` ${emoji.named('rival')}` : ''}`).join(' ') : 'No times yet'}`
         }),
-        set.items.length > PODIUM_PAGE && `-# ${itemsWord(set) == 'events' ? 'Events' : 'Scenarios'} ${page * PODIUM_PAGE + 1}-${page * PODIUM_PAGE + shown.length} of ${set.items.length}`,
+        set.items.length > perPage && `-# ${itemsWord(set) == 'events' ? 'Events' : 'Scenarios'} ${page * perPage + 1}-${page * perPage + shown.length} of ${set.items.length}`,
     ].filter(Boolean)
 }
 
@@ -387,7 +388,8 @@ const CUMULATIVE_VIEWS = [['points', 'Points', 'crown'], ['time', 'Time', 'stopw
 // The view a card's cumulative board is showing (its disabled view button), so moving to another category keeps it
 const cumulativeView = message => {
     const find = c => !c ? null : Array.isArray(c) ? c.map(find).find(Boolean)
-        : c.custom_id?.startsWith('board_') && c.disabled && !/_-?\d+$/.test(c.custom_id) ? c.custom_id.split('_')[1] : find(c.components)
+        // (not a page turner, which has a page after the racer: a timesheet's racer id is digits too)
+        : c.custom_id?.startsWith('board_') && c.disabled && c.custom_id.split('_').length == 4 ? c.custom_id.split('_')[1] : find(c.components)
     return find(message?.components?.map(c => c.toJSON?.() ?? c))
 }
 
@@ -397,9 +399,10 @@ const cumulativeView = message => {
 function addCumulative(container, set, { view = 'points', page = 0, racer } = {}) {
     const target = set.id
     view = CUMULATIVE_VIEWS.some(([v]) => v == view) ? view : 'points'
-    const pages = Math.ceil(set.items.length / PODIUM_PAGE)
+    const perPage = racer ? TIMESHEET_PODIUM_PAGE : PODIUM_PAGE
+    const pages = Math.ceil(set.items.length / perPage)
     page = Math.min(Math.max(+page || 0, 0), pages - 1)
-    const lines = view == 'time' ? cumulativeBoard(set) : view == 'podiums' ? podiumsBoard(set, page) : pointsBoard(set)
+    const lines = view == 'time' ? cumulativeBoard(set) : view == 'podiums' ? podiumsBoard(set, page, perPage) : pointsBoard(set)
     // the overview / timesheet lists its open bounties on Time only
     // (no bounties over the scenarios: aggregate bounties are on the arcade's sets only)
     const bounties = kindOf(set) == 'arcade' && (target != 'main' || view == 'time')
