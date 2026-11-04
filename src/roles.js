@@ -6,7 +6,8 @@
 //   World Record Holder  first on any arcade event's leaderboard (Deluxe too), any full-game category's, or any
 //                        scenario's with 5 or more racers on it
 //   sweeps     the most points there are on a cumulative board (data.boardSets: all 50, Arcade Sweep, or a category,
-//              "Acid Sweep", Deluxe too): 1st on every one of its events, each with 5 or more racers. Permanent: a sweep
+//              "Acid Sweep", Deluxe too) or a speeder class's main events ("Speeder Bike Sweep", like its champion):
+//              1st on every one of its events, each with 5 or more racers. Permanent: a sweep
 //              is kept at sweeps/<discord id>/<set id> (when, ms) and the role stays after the records fall.
 // Only Discord members can hold them: a time from an unlinked speedrun.com account (records.isDiscord) leaves its role
 // empty until they join and link. Proof doesn't matter. sync() runs when the times change (records.onChange) and when
@@ -28,8 +29,9 @@ const CLASSES = ['Landspeeder', 'Speeder Bike', 'Skim Speeder']
 // Clean sweeps: the sets each racer holds every event's record on now (boards of SWEEP_RACERS or more), and those kept
 // in the database from before ({ <discord id>: { <set id>: ms } })
 const SWEEP_RACERS = 5
+const SWEEP_SETS = [...data.boardSets, ...CLASSES.map(c => ({ id: c, name: c, items: MAIN.filter(e => e.vehicleClass == c), vehicleClass: true }))]
 let sweeps = {}
-const sweepingNow = () => data.boardSets.flatMap(set => {
+const sweepingNow = () => SWEEP_SETS.flatMap(set => {
     const firsts = set.items.map(e => records.leaderboard('arcade', e.id)).map(b => b.length >= SWEEP_RACERS ? b[0].user : null)
     return firsts[0] && firsts.every(u => u == firsts[0]) ? [{ user: firsts[0], set: set.id }] : []
 })
@@ -72,8 +74,8 @@ const ROLES = [
         holders: () => [...new Set([...data.events.map(e => ['arcade', e.id]), ...data.fullGame.map(c => ['fullgame', c.id]), ...data.scenarios.map(s => ['scenario', s.id, 5])]
             .map(([kind, target, racers = 1]) => (board => board.length >= racers ? board[0].user : null)(records.leaderboard(kind, target))).filter(Boolean))],
     },
-    ...data.boardSets.map(s => ({
-        key: `sweep:${s.id}`, name: `${s.id == 'main' ? 'Arcade' : s.name} Sweep`, color: COLORS.sweep, board: records.boardView('aggregate', s.id),
+    ...SWEEP_SETS.map(s => ({
+        key: `sweep:${s.id}`, name: `${s.id == 'main' ? 'Arcade' : s.name} Sweep`, color: COLORS.sweep, board: s.vehicleClass ? undefined : records.boardView('aggregate', s.id),
         description: `1st on every ${s.id == 'main' ? `one of the ${MAIN.length}` : s.name} event${s.id == 'main' ? 's' : ''}, each with ${SWEEP_RACERS}+ racers: the most points there are`,
         holders: () => Object.keys(sweeps).filter(u => sweeps[u][s.id]),
     })),
