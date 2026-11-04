@@ -82,7 +82,7 @@ exports.matchTitle = (title, { anyTime = false } = {}) => {
     return anyTime || plausible(found[0], seconds) ? { event: found[0], seconds } : null
 }
 
-// A video title with a tour's final race: it names a tour ("Multiplayer Tour", "pod tour"), or the place the final is
+// A video title with a tour's final race: it names a tour ("Multiplayer Tour", "pod tour", or "Multiplayer" and no track), or the place the final is
 // raced (Derven Acos or The Galactic Gauntlet for the Multiplayer Tour, Mos Espa for the Podracing Tour) and no arcade
 // event, with a time a final takes. Arcade events on Derven Acos are all under 3:01 even at bronze and the tour's
 // final takes 3:30 and up, so that planet's or track's name with a time from 3:10 is the tour's. A title naming one of
@@ -97,7 +97,10 @@ exports.matchTourTitle = title => {
     title = unitTimes(title)
     const named = TOUR_NAMES.filter(([, re]) => re.test(title))
     const placed = FINAL_PLACES.filter(([, re]) => re.test(title))
-    const id = named.length == 1 ? named[0][0] : !named.length && placed.length == 1 ? placed[0][0] : null
+    // "Multiplayer" alone ("Galactic Racer Multiplayer World Record 3:20.61") is the Multiplayer Tour's final when no
+    // track is named: its time (from 3:10) rules out every single race
+    const bare = !named.length && !placed.length && /\bmultiplayer\b/i.test(title) && !data.tracks.some(t => words(title).includes(words(t.name)))
+    const id = named.length == 1 ? named[0][0] : !named.length && placed.length == 1 ? placed[0][0] : bare ? 'multiplayer-tour' : null
     const tour = id && data.tour(id)
     if (!tour || earlierTrack(tour, title)) return null
     const seconds = [...title.matchAll(/(?<![\d:.])(?:\d{1,2}:)?\d{1,2}[.:]\d{2}(?![\d:.])/g)].map(m => readTime(m[0])).find(s => isFinal(tour, s))
