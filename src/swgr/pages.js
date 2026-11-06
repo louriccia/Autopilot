@@ -127,7 +127,7 @@ function bountyPosted(b) {
     return {
         content: [`**${emoji.named('bounty')} Bounty posted**`,
             `**${emoji.named('credits')} ${b.pot.toLocaleString('en-US')}** for ${what} with a screenshot or video`,
-            `-# expires <t:${Math.floor(b.expires / 1000)}:R>`].join('\n'),
+            `-# expires <t:${Math.floor(b.expires / 1000)}:R>${b.postedBy == credits.HOUSE ? ` / posted by Autopilot${b.why ? `: ${b.why}` : ''}` : ''}`].join('\n'),
         allowedMentions: { parse: [] },
     }
 }

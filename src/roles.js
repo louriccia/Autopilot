@@ -126,7 +126,7 @@ async function run(client) {
 
 // Botto's achievement embed: who, the role, what it's for (and who it was taken from), and the board it's held on
 exports.announcement = ({ r, role, member, from }) => {
-    const taken = from.length ? `, taking it from ${from.map(records.who).join(' and ')}` : ''
+    const taken = from.length ? `, taking it from ${from.map(records.nameFor).join(' and ')}` : ''
     const embed = new EmbedBuilder()
         .setAuthor({ name: `${member.displayName} got an achievement!`, iconURL: member.displayAvatarURL() })
         .setTitle(`${r.single ? emoji.named('crown') : r.key == 'gold' ? emoji.medal.gold : emoji.named('place_1')} ${r.name}`)

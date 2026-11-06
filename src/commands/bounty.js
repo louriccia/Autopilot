@@ -34,7 +34,7 @@ module.exports = {
             const r = await credits.addToBounty({ user: member_id, id: interaction.options.getString('bounty'), amount: interaction.options.getInteger('credits') })
             if (r.error) return reply(interaction, r.error)
             const b = credits.bounty(interaction.options.getString('bounty'))
-            return reply(interaction, `<@${member_id}> added to the bounty: ${line(b)}`, false)
+            return reply(interaction, `${records.nameFor(member_id)} added to the bounty: ${line(b)}`, false)
         }
         // post
         const [kind, target] = interaction.options.getString('board').split(':')

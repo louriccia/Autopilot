@@ -182,6 +182,7 @@ const plain = s => s.replace(/[_*~`|\\[\]<>]/g, '\\$&')  // src names often have
 exports.escape = plain
 exports.who = user => {
     if (exports.isDiscord(user)) return `<@${user}>`
+    if (user == 'house') return 'Autopilot'  // the house's bounties (src/credits.js postHouseBounty)
     const guest = String(user).match(/^src:guest:(.*)$/)?.[1]
     if (guest) return plain(guest)
     const name = Object.values(times).find(t => t.user == user && t.srcName)?.srcName
@@ -191,6 +192,10 @@ exports.who = user => {
 // cache), else their profile (profiles/, src/profiles.js), else null
 exports.memberName = () => null
 exports.nameOf = user => exports.memberName(user) ?? profiles[user]?.name ?? null
+// A racer by name, never a mention (Discord often can't resolve mentions of members it hasn't cached, and names read
+// better in a list): a Discord racer's name, else records.who (src runners by their src name; a mention only when the
+// name isn't known at all)
+exports.nameFor = user => exports.isDiscord(user) && exports.nameOf(user) ? plain(exports.nameOf(user)) : exports.who(user)
 
 // The custom id of a board's card, for "View board" buttons (announcements, replies): an event, scenario or tour, or a
 // cumulative board (aggregate, target 'main', the arcade's front page, or a category id)

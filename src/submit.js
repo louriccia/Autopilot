@@ -74,7 +74,7 @@ exports.submit = async ({ kind, target, member, memberId, racer, time: rawTime, 
     const board = records.leaderboard(kind, target)
     const rank = board.findIndex(t => t.user == user) + 1
     const best = board[rank - 1]
-    const whose = user == memberId ? 'Your' : `${records.who(user)}'s`
+    const whose = user == memberId ? 'Your' : `${records.nameFor(user)}'s`
     const history = records.allTimes().filter(t => t.kind == kind && t.target == target && t.user == user).sort((a, b) => a.date - b.date)
     let receipt = progress.receipt({ item, kind, user, forSelf: user == memberId, time, platform, before, after: board, history, duplicate, updated })
     if (!duplicate && announce && member?.client) {

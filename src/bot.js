@@ -123,6 +123,14 @@ client.once(Events.ClientReady, () => {
         clearTimeout(rolesTimer)
         rolesTimer = setTimeout(() => roles.sync(client), 3000)
     })
+    // The territory war's pinned map (src/territory.js): after the times settle, and hourly as personal bests age out
+    const territory = require('./territory.js')
+    let territoryTimer
+    records.onChange.push(() => {
+        clearTimeout(territoryTimer)
+        territoryTimer = setTimeout(() => territory.sync(client), 10 * 1000)
+    })
+    setInterval(() => territory.sync(client), 60 * 60 * 1000)
     records.listen()
     const { main_guild, test_guild } = require('./data/discord/guild.js')
     // Racers' names on leaderboards: as the main server shows them (its member cache, filled by roles.sync's fetch)
@@ -133,6 +141,19 @@ client.once(Events.ClientReady, () => {
     credits.listen()
     setInterval(() => credits.expireBounties(client.guilds.cache.get(testing ? test_guild : main_guild))
         .catch(error => reportError('Bounties', error)), 60 * 60 * 1000)
+    // The weekly digest (src/digest.js): Mondays, pinned in #autopilot
+    const digest = require('./digest.js')
+    setInterval(() => digest.check(client).catch(error => reportError('Digest', error)), digest.CHECK_EVERY)
+    // Board of the Week and the house's bounties (src/weekly.js), live bot only: it pays prizes and posts bounties in
+    // the shared database
+    if (!testing) {
+        const weekly = require('./weekly.js')
+        const territory = require('./territory.js')
+        const week = () => weekly.check(client).catch(error => reportError('Board of the Week', error))
+            .then(() => territory.reward(client)).catch(error => reportError('Territory reward', error))
+        setTimeout(week, 90 * 1000)
+        setInterval(week, weekly.CHECK_EVERY)
+    }
     // speedrun.com (src/speedrun.js): its boards for the cards' "View on src" buttons, then (live bot only) its verified
     // runs every 10 minutes
     const speedrun = require('./speedrun.js')

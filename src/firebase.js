@@ -16,6 +16,11 @@
 //   credits/, balances/, backers/, bounties/, fills/   the credits economy (src/credits.js)
 //   sweeps/<discord id>/<set id>   when a racer took 1st on every event of a cumulative board, for the permanent sweep
 //                       roles (src/roles.js)
+//   digest/last { week, message, channel }   the last weekly digest posted and pinned (src/digest.js); digest-testing/ for a testing copy
+//   weekly/<week start ms>   Board of the Week: the featured event, the house's bounties, its announcement, prizes paid
+//                       (src/weekly.js); weekly-testing/ for a testing copy
+//   territory/ { started, holders, key, message, channel, rewards/<week start ms> }   the territory war's pinned map, who
+//                       held each planet at the last sync, and the weekly rewards paid (src/territory.js); territory-testing/ while testing
 //   garage/<discord id>/<build key>   saved garage builds, when each was saved (ms) (src/swgr/garage.js)
 //   speedrun/users/<src user id>, speedrun/runs/<src run id>, speedrun/checked   speedrun.com accounts linked to Discord
 //                       ids, runs already saved, and the last verification seen (src/speedrun.js)

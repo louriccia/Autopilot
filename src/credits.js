@@ -51,7 +51,9 @@ exports.listen = () => {
 
 exports.balance = user => balances[user] ?? 0
 exports.history = user => Object.entries(ledger[user] ?? {}).map(([id, e]) => ({ id, ...e })).sort((a, b) => b.date - a.date)
-exports.balances = () => Object.entries(balances).map(([user, amount]) => ({ user, amount })).sort((a, b) => b.amount - a.amount)
+// Every ledger entry, everyone's, with whose it is (the weekly digest, src/digest.js)
+exports.allEntries = () => Object.entries(ledger).flatMap(([user, entries]) => Object.values(entries ?? {}).map(e => ({ user, ...e })))
+exports.balances = () =>Object.entries(balances).map(([user, amount]) => ({ user, amount })).sort((a, b) => b.amount - a.amount)
 
 // Adds a ledger entry and moves the balance with it. With mustCover, it only goes through if the balance covers the
 // (negative) amount; returns false then.
@@ -229,7 +231,8 @@ exports.reverse = async (timeId, user) => {
 
 exports.openBounties = (kind, target) => Object.entries(bounties).map(([id, b]) => ({ id, ...b }))
     .filter(b => b.status == 'open' && (!kind || (b.kind == kind && b.target == target))).sort((a, b) => b.pot - a.pot)
-exports.bounty = id => bounties[id] ? { id, ...bounties[id] } : null
+exports.allBounties = () => Object.entries(bounties).map(([id, b]) => ({ id, ...b }))
+exports.bounty = id =>bounties[id] ? { id, ...bounties[id] } : null
 const BOUNTY_DAYS = 14, BOUNTY_FEE = 0.05, BOUNTY_MIN = 100
 
 // Bounty boards: an arcade event, scenario, tour or full-game category (kind arcade | scenario | tour | fullgame, target
@@ -256,6 +259,19 @@ exports.postBounty = async ({ user, kind, target, under, amount }) => {
     return { id: ref.key }
 }
 
+// A bounty from the house (src/weekly.js): new credits, nobody's balance. funders { house } gets nothing back when it
+// expires (post() skips non-Discord ids). excluded: racers who can't win it (a ladder bounty's: already under its time).
+// why: shown when it's announced.
+exports.HOUSE = 'house'
+exports.postHouseBounty = async ({ kind, target, under, pot, expires, excluded = [], why }) => {
+    const ref = database.ref('bounties').push()
+    const value = { kind, target, under, pot, funders: { [exports.HOUSE]: pot }, postedBy: exports.HOUSE, postedAt: Date.now(), expires, status: 'open',
+        ...(excluded.length ? { excluded: Object.fromEntries(excluded.map(u => [u.replace(/[.#$\[\]/]/g, '_'), true])) } : {}), ...(why ? { why } : {}) }
+    await ref.set(value)
+    bounties[ref.key] = value
+    return { id: ref.key, ...value }
+}
+
 exports.addToBounty = async ({ user, id, amount }) => {
     const b = bounties[id]
     if (!b || b.status != 'open') return { error: "That bounty isn't open." }
@@ -279,7 +295,7 @@ exports.claimBounties = async ({ kind, target, user, time, proof, proofHint, mem
         ...exports.openBounties().filter(b => b.kind == 'aggregate' && sets.has(b.target)).map(b => ({ b, score: setTotal(data.boardSet(b.target), user) })),
     ]
     for (const { b, score } of candidates) {
-        if (score == null || score >= b.under || b.funders?.[user]) continue
+        if (score == null || score >= b.under || b.funders?.[user] || b.excluded?.[user.replace(/[.#$\[\]/]/g, '_')]) continue
         // Claim it atomically, so two saves can't both win it
         let claimed = false
         await database.ref(`bounties/${b.id}`).transaction(v => {

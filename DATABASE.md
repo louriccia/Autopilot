@@ -66,7 +66,7 @@ people, podiums, world records) and spent on bounties.
 
 ### `credits/<discord id>/<id>`: the credits ledger
 Every change to a balance: `{ amount, reason, ref, lines?, backer?, proof?, board?, date }`. `reason` is `run`,
-`board filled`, `rated a board`, `removed`, `bounty posted`, `bounty added to`, `bounty won` or `bounty expired`;
+`board filled`, `rated a board`, `removed`, `bounty posted`, `bounty added to`, `bounty won`, `bounty expired` `board of the week` (a Board of the Week prize) or `territory` (the territory war's weekly reward);
 `lines` itemises a run's payout (`[{ label, amount, kind }]`); `board` is `<kind>:<target>` when it's about one.
 
 ### `backers/<discord id>`
@@ -75,7 +75,9 @@ Every change to a balance: `{ amount, reason, ref, lines?, backer?, proof?, boar
 ### `bounties/<id>`
 `{ kind, target, under, pot, funders: { <id>: amount }, postedBy, postedAt, expires, status }`: credits put up for
 the first proven run under `under` seconds on a board. `status` is `open`, `won` (then `winner`, `time`, `timeId`,
-`wonAt`) or `expired`. `kind: "aggregate"` bounties are on a cumulative board: `target` `main` (all 50 main arcade
+`wonAt`) or `expired`. Bounties the bot posts itself (Board of the Week and cold cases) have `postedBy: "house"` and
+`funders.house`, a `why` (the reason, as shown), and `excluded: { <id>: true }` for racers who can't win it (a ladder
+bounty's top 4). `kind: "aggregate"` bounties are on a cumulative board: `target` `main` (all 50 main arcade
 events summed) or an arcade category id.
 
 ### `feedback/<kind>/<target>/<discord id>`
